@@ -147,6 +147,64 @@ pub struct TreasuryState {
     pub vault_bump: u8,
 }
 
+/// §A4.1 `["otc_pay"]` — $OTC as an alternative step-fee currency. Created by the authority
+/// after `initialize_config` (no `Config` migration); absent ⇒ the path does not exist.
+#[account]
+#[derive(InitSpace)]
+pub struct OtcPayConfig {
+    pub enabled: bool,
+    /// Reference rate: $OTC base units per 1 SOL, refreshed by the authority (`set_otc_rate`).
+    pub otc_per_sol: u64,
+    pub rate_ts: i64,
+    /// Premium over the SOL step-fee value (bp). Written from `OTC_PREMIUM_BP`, never updated.
+    pub premium_bp: u16,
+    /// Token account (mint = `Config.otc_mint`, owner = `["vault"]` PDA) that receives every $OTC
+    /// fee. Program-custodied and reserved for the $OTC/$HUB POL leg (`build_lp(HubOtc)`).
+    pub pol_account: Pubkey,
+    pub total_otc_collected: u64,
+    pub bump: u8,
+}
+
+/// §A7.1 `["tokenomics"]` — the supply allocation plan, on-chain so the dashboard and token-info
+/// submissions read one source. Created by the authority after `initialize_config` (same
+/// pattern as `OtcPayConfig`: no `Config` migration). Shares are bp of `max_supply_units`;
+/// the airdrop share is derived from the desk count at snapshot, never typed in.
+#[account]
+#[derive(InitSpace)]
+pub struct TokenomicsConfig {
+    pub max_supply_units: u64,
+    pub airdrop_per_desk_units: u64,
+    /// Desk assets counted at the airdrop snapshot (0 until `set_airdrop_root`).
+    pub snapshot_desk_count: u32,
+    pub snapshot_ts: i64,
+    /// `snapshot_desk_count × airdrop_per_desk_units` — exact; `airdrop_bp` is the floored share.
+    pub airdrop_units: u64,
+    pub airdrop_bp: u16,
+    pub treasury_lock_bp: u16,
+    pub team_bp: u16,
+    /// Public / OTC-launch share: whatever remains once airdrop + treasury lock + team are out.
+    pub public_bp: u16,
+    /// Merkle root over `keccak(AIRDROP_LEAF_TAG ‖ asset ‖ amount_le)`; zero until published.
+    pub airdrop_root: [u8; 32],
+    /// Vault-owned $HUB token account that funds claims (mint = `Config.hub_mint`).
+    pub airdrop_vault: Pubkey,
+    pub airdrop_claimed_units: u64,
+    pub airdrop_claims: u32,
+    pub airdrop_open: bool,
+    pub bump: u8,
+}
+
+/// `["airdrop", asset]` — one claim per desk asset; existence is the double-claim guard.
+#[account]
+#[derive(InitSpace)]
+pub struct AirdropClaim {
+    pub asset: Pubkey,
+    pub claimant: Pubkey,
+    pub amount_units: u64,
+    pub claimed_ts: i64,
+    pub bump: u8,
+}
+
 /// Fields `update_config` may touch (§B3 #9). Rate changes apply to future epochs.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ConfigField {
@@ -195,5 +253,46 @@ impl Config {
         self.step_fee_lamports
             .checked_mul((to - from) as u64)
             .ok_or_else(|| error!(crate::errors::HubError::MathOverflow))
+    }
+}
+
+impl OtcPayConfig {
+    /// $OTC due for `fee_lamports`: `⌈fee × otc_per_sol × premium_bp / (10⁹ × 10⁴)⌉`.
+    /// Rounds up so the protocol never collects less than the premium value.
+    pub fn otc_fee(&self, fee_lamports: u64) -> Result<u64> {
+        use crate::constants::{BPS_DENOMINATOR, LAMPORTS_PER_SOL};
+        let num = (fee_lamports as u128)
+            .checked_mul(self.otc_per_sol as u128)
+            .and_then(|v| v.checked_mul(self.premium_bp as u128))
+            .ok_or_else(|| error!(crate::errors::HubError::MathOverflow))?;
+        let den = (LAMPORTS_PER_SOL as u128) * (BPS_DENOMINATOR as u128);
+        u64::try_from(num.div_ceil(den)).map_err(|_| error!(crate::errors::HubError::MathOverflow))
+    }
+}
+
+impl TokenomicsConfig {
+    /// Re-derives the split from the snapshot: airdrop = desks × per-desk (exact units, floored
+    /// bp); public = 10⁴ − airdrop − treasury lock − team. Errors if the carve-outs exceed supply.
+    pub fn apply_snapshot(&mut self, desk_count: u32) -> Result<()> {
+        use crate::constants::BPS_DENOMINATOR;
+        use crate::errors::HubError;
+        let airdrop_units = (desk_count as u64)
+            .checked_mul(self.airdrop_per_desk_units)
+            .ok_or_else(|| error!(HubError::MathOverflow))?;
+        // Exact-unit check first: the floored bp below would hide a sub-bp overshoot.
+        let max = self.max_supply_units as u128;
+        let fixed_bp = self.treasury_lock_bp as u128 + self.team_bp as u128;
+        let fixed_units = max * fixed_bp / BPS_DENOMINATOR as u128;
+        require!(
+            airdrop_units as u128 + fixed_units <= max,
+            HubError::AllocationExceedsSupply
+        );
+        let airdrop_bp = (airdrop_units as u128 * BPS_DENOMINATOR as u128 / max) as u16;
+        let carved = airdrop_bp as u32 + fixed_bp as u32;
+        self.snapshot_desk_count = desk_count;
+        self.airdrop_units = airdrop_units;
+        self.airdrop_bp = airdrop_bp;
+        self.public_bp = (BPS_DENOMINATOR as u32 - carved) as u16;
+        Ok(())
     }
 }

@@ -41,7 +41,8 @@ const cOption = (data: Buffer, off: number) =>
 
 /** spl-token Mint (82 B): COption<Pubkey> mint_auth · u64 supply · u8 decimals · bool init · COption<Pubkey> freeze. */
 export function parseMint(address: PublicKey, data: Buffer): MintView {
-  if (data.length < 82) throw new Error(`mint ${address.toBase58()}: ${data.length} B, expected ≥82`);
+  if (data.length < 82)
+    throw new Error(`mint ${address.toBase58()}: ${data.length} B, expected ≥82`);
   return {
     address: address.toBase58(),
     mintAuthority: cOption(data, 0),
@@ -72,7 +73,8 @@ export function parseTokenMetadata(address: PublicKey, data: Buffer): TokenMetad
   [symbol, off] = borshString(data, off);
   [uri, off] = borshString(data, off);
   off += 2; // seller_fee_basis_points
-  if (data[off] === 1) off += 1 + 4 + data.readUInt32LE(off + 1) * 34; // Option<Vec<Creator>>
+  if (data[off] === 1)
+    off += 1 + 4 + data.readUInt32LE(off + 1) * 34; // Option<Vec<Creator>>
   else off += 1;
   off += 1; // primary_sale_happened
   const isMutable = data[off] === 1;

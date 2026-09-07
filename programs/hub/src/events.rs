@@ -23,6 +23,28 @@ pub struct TierUpgraded {
     pub fee_lamports: u64,
 }
 
+/// §A4.1 — step(s) paid in $OTC at the 2× premium; nothing enters the pot, the $OTC lands in the
+/// POL reserve. `from_tier == 0` is a fresh activation.
+#[event]
+pub struct TierPaidOtc {
+    pub asset: Pubkey,
+    pub owner: Pubkey,
+    pub from_tier: u8,
+    pub to_tier: u8,
+    pub epoch: u64,
+    pub sol_equivalent_lamports: u64,
+    pub otc_paid: u64,
+    pub otc_per_sol: u64,
+    pub premium_bp: u16,
+}
+
+#[event]
+pub struct OtcRateSet {
+    pub otc_per_sol: u64,
+    pub enabled: bool,
+    pub ts: i64,
+}
+
 /// §B3 #8 — ownership changed since activation; no refund. Pending yield is forfeited to dust.
 #[event]
 pub struct TierVoided {
@@ -97,4 +119,25 @@ pub struct LpBuilt {
     pub pair: u8,
     pub hub_amount: u64,
     pub quote_amount: u64,
+}
+
+/// §A7.1 — snapshot published (or re-published before any claim) / claims toggled.
+#[event]
+pub struct AirdropRootSet {
+    pub root: [u8; 32],
+    pub desk_count: u32,
+    pub airdrop_units: u64,
+    pub airdrop_bp: u16,
+    pub public_bp: u16,
+    pub open: bool,
+    pub ts: i64,
+}
+
+#[event]
+pub struct AirdropClaimed {
+    pub asset: Pubkey,
+    pub claimant: Pubkey,
+    pub amount_units: u64,
+    pub total_claimed_units: u64,
+    pub claims: u32,
 }

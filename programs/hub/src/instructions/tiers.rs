@@ -53,7 +53,7 @@ pub fn activate_tier(ctx: Context<ActivateTier>) -> Result<()> {
     );
 
     let t = &mut ctx.accounts.desk_tier;
-    require!(t.tier == 0 || t.voided, HubError::TierAlreadyActive);
+    require_activatable(t)?;
 
     let config = &mut ctx.accounts.config;
     let fee = config.step_fee(0, 1)?;
@@ -73,16 +73,13 @@ pub fn activate_tier(ctx: Context<ActivateTier>) -> Result<()> {
     )?;
     book_inflow(config, &mut ctx.accounts.epoch, to_pot)?;
 
-    let epoch_idx = config.current_epoch;
-    t.asset_id = ctx.accounts.desk_asset.key();
-    t.owner_at_activation = asset.owner;
-    t.tier = 1;
-    t.activated_epoch = epoch_idx;
-    t.stamp_acc_per_weight = config.acc_per_weight;
-    t.total_claimed_lamports = 0;
-    t.voided = false;
-    t.bump = ctx.bumps.desk_tier;
-    config.total_weight_bp = add(config.total_weight_bp, config.weight_bp(1)?)?;
+    let epoch_idx = apply_activation(
+        config,
+        t,
+        ctx.accounts.desk_asset.key(),
+        asset.owner,
+        ctx.bumps.desk_tier,
+    )?;
 
     assert_pot_solvent(config, &ctx.accounts.pot)?;
     emit!(TierActivated {
@@ -138,19 +135,8 @@ pub fn upgrade_tier(ctx: Context<UpgradeTier>, target_tier: u8) -> Result<()> {
         ctx.accounts.payer.key(),
         HubError::NotDeskOwner
     );
-    require!(t.tier < TIER_COUNT as u8, HubError::TierMaxed);
-    // Pending rounds must be settled at the old weight; a sub-lamport remainder is not
-    // claimable, so it is moved to dust here and the stamp advanced.
-    let (owed, frac) = pending_yield(
-        config.acc_per_weight,
-        t.stamp_acc_per_weight,
-        config.weight_bp(t.tier)?,
-    )?;
-    require!(owed == 0, HubError::ClaimBeforeUpgrade);
-    add_dust(config, frac)?;
-    t.stamp_acc_per_weight = config.acc_per_weight;
+    let from = settle_for_upgrade(config, t)?;
 
-    let from = t.tier;
     let fee = config.step_fee(from, target_tier)?;
     let to_ops = bps_of(fee, config.ops_pct_bp)?;
     let to_pot = sub(fee, to_ops)?;
@@ -168,9 +154,7 @@ pub fn upgrade_tier(ctx: Context<UpgradeTier>, target_tier: u8) -> Result<()> {
     )?;
     book_inflow(config, &mut ctx.accounts.epoch, to_pot)?;
 
-    let delta = sub(config.weight_bp(target_tier)?, config.weight_bp(from)?)?;
-    config.total_weight_bp = add(config.total_weight_bp, delta)?;
-    t.tier = target_tier;
+    apply_upgrade(config, t, target_tier)?;
 
     assert_pot_solvent(config, &ctx.accounts.pot)?;
     emit!(TierUpgraded {
@@ -250,6 +234,58 @@ pub fn claim_yield(ctx: Context<ClaimYield>) -> Result<()> {
         lamports: owed,
         acc_per_weight: config.acc_per_weight,
     });
+    Ok(())
+}
+
+/// Fresh activation or re-activation of a voided tier only; an active tier must `upgrade_tier`.
+pub(crate) fn require_activatable(t: &DeskTier) -> Result<()> {
+    require!(t.tier == 0 || t.voided, HubError::TierAlreadyActive);
+    Ok(())
+}
+
+/// Tier-state side of activation (shared by the SOL and $OTC payment paths): stamp the
+/// accumulator, enter T1 and add its weight to Σw. Returns the activation epoch.
+pub(crate) fn apply_activation(
+    config: &mut Config,
+    t: &mut DeskTier,
+    asset_id: Pubkey,
+    owner: Pubkey,
+    bump: u8,
+) -> Result<u64> {
+    let epoch_idx = config.current_epoch;
+    t.asset_id = asset_id;
+    t.owner_at_activation = owner;
+    t.tier = 1;
+    t.activated_epoch = epoch_idx;
+    t.stamp_acc_per_weight = config.acc_per_weight;
+    t.total_claimed_lamports = 0;
+    t.voided = false;
+    t.bump = bump;
+    config.total_weight_bp = add(config.total_weight_bp, config.weight_bp(1)?)?;
+    Ok(epoch_idx)
+}
+
+/// Pre-upgrade gate shared by both payment paths. Pending rounds must be settled at the old
+/// weight; a sub-lamport remainder is not claimable, so it is moved to dust here and the stamp
+/// advanced. Returns the current tier.
+pub(crate) fn settle_for_upgrade(config: &mut Config, t: &mut DeskTier) -> Result<u8> {
+    require!(t.tier < TIER_COUNT as u8, HubError::TierMaxed);
+    let (owed, frac) = pending_yield(
+        config.acc_per_weight,
+        t.stamp_acc_per_weight,
+        config.weight_bp(t.tier)?,
+    )?;
+    require!(owed == 0, HubError::ClaimBeforeUpgrade);
+    add_dust(config, frac)?;
+    t.stamp_acc_per_weight = config.acc_per_weight;
+    Ok(t.tier)
+}
+
+/// Tier-state side of an upgrade: move Σw by the weight delta and set the new tier.
+pub(crate) fn apply_upgrade(config: &mut Config, t: &mut DeskTier, target_tier: u8) -> Result<()> {
+    let delta = sub(config.weight_bp(target_tier)?, config.weight_bp(t.tier)?)?;
+    config.total_weight_bp = add(config.total_weight_bp, delta)?;
+    t.tier = target_tier;
     Ok(())
 }
 

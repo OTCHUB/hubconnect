@@ -133,6 +133,25 @@ conflict.
 Display names are UI-only (`sdk/src/constants.ts` `TIER_NAMES`); the program
 stores tier indices 1–4 and weights in basis points.
 
+### A4.1 Paying steps in $OTC (2× premium → POL reserve)
+
+Every step may alternatively be paid in $OTC via `activate_tier_otc` /
+`upgrade_tier_otc`. The tier result is identical (same weight, same stamp, same
+lazy-revocation rules); only the payment leg differs:
+
+| | SOL path | $OTC path |
+|---|---|---|
+| Price per step | 0.5 SOL | `⌈0.5 SOL × otc_per_sol × 2.00⌉` $OTC units — the SOL value **at a fixed 2× premium** (`OTC_PREMIUM_BP = 20_000`, written at init, not updatable) |
+| Reference rate | — | `OtcPayConfig.otc_per_sol` ($OTC base units per SOL), refreshed by the authority keeper (`set_otc_rate`); the path rejects a rate older than `OTC_RATE_MAX_AGE = 24h` |
+| Proceeds | 90% pot / 10% ops | 100% → **POL reserve**: the `["vault"]` PDA's $OTC token account. Nothing enters the pot or ops; the $OTC can only leave via a program instruction (`build_lp(HubOtc)`, §A6.2 phase 2) — it is the $OTC leg of the $OTC/$HUB pair, never operating capital |
+| Round inflow | yes (source A) | **no** — an $OTC-paid step adds weight without adding SOL inflow |
+
+Example at 1 SOL = 1,000 $OTC: T1 activation costs 0.5 SOL or 1,000 $OTC
+(500 $OTC of value × 2); T1→T4 costs 1.5 SOL or 3,000 $OTC. `OtcPayConfig` is a
+separate PDA created by the authority after `initialize_config` (`init_otc_payments`,
+starts disabled), so the path can be added to a live deployment without migrating
+`Config`; absent or disabled ⇒ SOL-only.
+
 ### A5. Yield engine
 
 Pot inflow sources:
@@ -364,6 +383,7 @@ IDL account and singleton PDAs are listed in **Appendix — Deployment addresses
 | `BurnState` | `["burn"]` | authority, total_hub_burned, burn_pending_lamports, last_burn_tx[64] |
 | `TreasuryState` | `["treasury"]` | multisig, vault (PDA below), desks_owned, desks_consigned, sweep_budget_cap_bp (1000), sweep_payback_cap_lamports (4.2 SOL), exit_discount_bp (1000), exit_hub_leg_bp (5000), floor_staleness_bp (500), hub_float_cap_bp (200), total_exits, total_sweeps |
 | `Vault` (NFT custody) | `["vault"]` | program-signed PDA that owns consigned desks; no data account (created lazily by Core on first transfer) |
+| `OtcPayConfig` | `["otc_pay"]` | §A4.1: enabled, otc_per_sol, rate_ts, premium_bp (20_000, fixed), pol_account (vault-owned $OTC ATA = POL reserve), total_otc_collected. Created by `init_otc_payments` after M1; optional |
 
 **Singletons created at M1 (`initialize_config`, one tx):** `Config`, `BurnState`,
 `TreasuryState` and `Epoch[0]` are `init`-ed together; `Pot` and `Vault` are
@@ -393,6 +413,10 @@ the OTC program config on-chain and proposes updates.
 | 11 | `consign_desk` | owner, desk NFT, treasury vault, ConsignedDesk, Config | verify owner holds the desk asset (Core/DAS); `consignment_enabled` must be true; transfer NFT to vault; record consignor + epoch |
 | 12 | `unconsign_desk` | consignor, desk NFT, treasury vault, ConsignedDesk, Config | only after the current epoch finalizes (no double-count); return NFT; set `active = false`; accrued consignor share (if any) stays claimable |
 | 13 | `build_lp` | treasury multisig, Config, treasury LP vault, AMM pool accounts | `lp_enabled` must be true; deposit paired liquidity per §A6.2 (HUB/SOL first, HUB/OTC only after phase-2 gate); LP tokens custodied in the treasury PDA vault; withdraw path can never sell HUB |
+| 14 | `init_otc_payments` | authority, Config, TreasuryState, Vault, pol_account, OtcPayConfig | §A4.1; `pol_account` must be an SPL token account with mint = `Config.otc_mint`, owner = vault PDA; creates `OtcPayConfig` disabled/unpriced with `premium_bp = OTC_PREMIUM_BP` |
+| 15 | `set_otc_rate` | authority, Config, OtcPayConfig | args `otc_per_sol`, `enabled`; stamps `rate_ts = now`; `enabled` with rate 0 rejected. The premium is not an argument |
+| 16 | `activate_tier_otc` | payer, desk NFT, Config, OtcPayConfig, otc_mint, payer $OTC ATA, pol_account, Token program, DeskTier | same gates/state as #2; requires `enabled`, rate fresh (≤ 24h); `TransferChecked` of `otc_fee(step_fee(0,1))` payer → POL reserve; no pot/ops/inflow booking; `total_otc_collected += fee` |
+| 17 | `upgrade_tier_otc` | payer, desk NFT, Config, OtcPayConfig, otc_mint, payer $OTC ATA, pol_account, Token program, DeskTier | same gates/state as #3 (ownership change → void, no charge; `ClaimBeforeUpgrade`); fee `otc_fee(step_fee(from, target))` → POL reserve |
 
 Program-level invariants to assert everywhere: `inflow_lamports ==
 distributed + burn_pending + rolled_forward`; pot lamports ≥ liability; DeskTier
@@ -693,6 +717,8 @@ treasury ATA is the only locked holder.
 |---|---|
 | TIER_STEPS / WEIGHTS | 4 / [1.00, 1.25, 1.60, 2.00] |
 | STEP_FEE | 0.5 SOL (90% pot / 10% ops) |
+| OTC_PREMIUM | 2.00× (20_000 bp) — $OTC step price = SOL step value × premium (§A4.1); 100% → POL reserve |
+| OTC_RATE_MAX_AGE | 24h — $OTC path rejects an `otc_per_sol` older than this |
 | MIN_POT_THRESHOLD | 0.1 SOL per round (no clock; `update_config`-adjustable) |
 | ACC_SCALE | 10¹² (accumulator precision) |
 | BUYBACK_BURN_PCT | 10% of every pot inflow |

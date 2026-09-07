@@ -78,6 +78,22 @@ pub enum HubError {
     BurnPendingUnderflow,
     #[msg("Arithmetic overflow")]
     MathOverflow,
+    #[msg("$OTC payments are disabled")]
+    OtcPaymentsDisabled,
+    #[msg("$OTC reference rate is stale; authority must refresh it")]
+    OtcRateStale,
+    #[msg("Account is not an SPL token account for the expected mint/owner")]
+    InvalidTokenAccount,
+    #[msg("Token program does not match the configured mint")]
+    WrongTokenProgram,
+    #[msg("Airdrop + treasury lock + team allocations exceed the max supply")]
+    AllocationExceedsSupply,
+    #[msg("Airdrop claims are not open")]
+    AirdropClosed,
+    #[msg("Merkle proof does not match the published airdrop root")]
+    AirdropInvalidProof,
+    #[msg("Airdrop root cannot change once claims have been paid")]
+    AirdropLocked,
     #[msg("Not implemented in this milestone")]
     NotImplemented,
 }

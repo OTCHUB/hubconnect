@@ -4,6 +4,7 @@ import {
   MPL_CORE_PROGRAM_ID,
   burnPda,
   configPda,
+  otcPayPda,
   potPda,
   treasuryPda,
   vaultPda,
@@ -110,6 +111,12 @@ const PDA_ROWS: [string, string, string, PdaFn][] = [
   ["burn", "BURN STATE PDA", "Burn-slice accounting for the $HUB burn leg.", burnPda],
   ["treasury", "TREASURY PDA", "Desk custody / exits / sweeps counters.", treasuryPda],
   ["vault", "VAULT PDA", "Program-signed custody for consigned desks.", vaultPda],
+  [
+    "otc-pay",
+    "OTC PAY PDA",
+    "$OTC step-fee rate/premium + POL reserve pointer (§A4.1).",
+    otcPayPda,
+  ],
 ];
 
 const CONFIG_ROWS: [string, string, string, keyof ConfigView, boolean][] = [

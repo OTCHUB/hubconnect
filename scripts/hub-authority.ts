@@ -1,6 +1,9 @@
-// Authority audit + $HUB mint-authority revocation.
+// Authority audit + $HUB mint-authority revocation + §A4.1 $OTC payment path admin.
 //   npx ts-node -T scripts/hub-authority.ts status
 //   npx ts-node -T scripts/hub-authority.ts revoke-mint --yes
+//   npx ts-node -T scripts/hub-authority.ts otc-status
+//   npx ts-node -T scripts/hub-authority.ts otc-init          # creates vault ATA for otc_mint + OtcPayConfig
+//   npx ts-node -T scripts/hub-authority.ts otc-rate <otc_per_sol> [--enable|--disable]
 //
 // Two independent authorities, deliberately kept apart:
 //   • Program upgrade authority (BPF loader ProgramData) — stays with the deployer/multisig so the
@@ -11,10 +14,27 @@
 // `revoke-mint` is irreversible; it refuses to run without --yes and re-checks the mint first.
 import "dotenv/config";
 import { PublicKey, Transaction, TransactionInstruction } from "@solana/web3.js";
-import { AnchorProvider, Program, Wallet } from "@anchor-lang/core";
+import { AnchorProvider, BN, Program, Wallet } from "@anchor-lang/core";
 import { Connection } from "@solana/web3.js";
-import { HUB_IDL, configPda, type HubProgram } from "../sdk/src";
-import { devnetRpc, explorer, loadKeypair, redactRpc } from "./lib/devnet";
+import {
+  HUB_IDL,
+  OTC_RATE_MAX_AGE_SECS,
+  configPda,
+  otcFeeUnits,
+  otcPayPda,
+  treasuryPda,
+  vaultPda,
+  type HubProgram,
+} from "../sdk/src";
+import { STEP_FEE_LAMPORTS } from "../sdk/src/constants";
+import {
+  ata,
+  createAtaIdempotent,
+  devnetRpc,
+  explorer,
+  loadKeypair,
+  redactRpc,
+} from "./lib/devnet";
 import { TOKEN_PROGRAM_ID } from "./devnet-hub-mint";
 
 const BPF_UPGRADEABLE_LOADER = new PublicKey("BPFLoaderUpgradeab1e11111111111111111111111");
@@ -67,6 +87,91 @@ async function upgradeAuthority(connection: Connection, programId: PublicKey) {
   };
 }
 
+/** `otc-status` / `otc-init` / `otc-rate` — the §A4.1 path is a separate PDA, created after init. */
+async function otcPayCommand(
+  cmd: string,
+  program: HubProgram,
+  connection: Connection,
+  payer: ReturnType<typeof loadKeypair>,
+  cfg: Awaited<ReturnType<HubProgram["account"]["config"]["fetch"]>>,
+) {
+  const id = program.programId;
+  const [otcPayKey] = otcPayPda(id);
+  const [vault] = vaultPda(id);
+  const polAccount = ata(vault, cfg.otcMint);
+  const existing = await program.account.otcPayConfig.fetchNullable(otcPayKey);
+  const stepSol = STEP_FEE_LAMPORTS / 1e9;
+
+  if (cmd === "otc-status") {
+    console.log(`$OTC payment path (OtcPayConfig ${otcPayKey.toBase58()})`);
+    console.log(`  config.otc_mint   : ${cfg.otcMint.toBase58()}`);
+    console.log(
+      `  POL reserve (ATA) : ${polAccount.toBase58()} (owner = vault ${vault.toBase58()})`,
+    );
+    if (!existing) {
+      console.log("  state             : NOT INITIALIZED — run otc-init");
+      return;
+    }
+    const age = Math.floor(Date.now() / 1000) - existing.rateTs.toNumber();
+    const stale = age > OTC_RATE_MAX_AGE_SECS;
+    console.log(`  enabled           : ${existing.enabled}`);
+    console.log(
+      `  otc_per_sol       : ${existing.otcPerSol.toString()} units/SOL · set ${age}s ago${stale ? "  ⚠ STALE (path rejects)" : ""}`,
+    );
+    console.log(`  premium           : ${existing.premiumBp / 100}%`);
+    console.log(
+      `  step price        : ${stepSol} SOL  or  ${otcFeeUnits(STEP_FEE_LAMPORTS, BigInt(existing.otcPerSol.toString()), existing.premiumBp).toString()} OTC units`,
+    );
+    console.log(`  collected for POL : ${existing.totalOtcCollected.toString()} units`);
+    return;
+  }
+
+  if (cmd === "otc-init") {
+    if (existing) throw new Error(`OtcPayConfig already exists at ${otcPayKey.toBase58()}`);
+    const mintInfo = await connection.getAccountInfo(cfg.otcMint);
+    if (!mintInfo || !mintInfo.owner.equals(TOKEN_PROGRAM_ID))
+      throw new Error(`config.otc_mint ${cfg.otcMint.toBase58()} is not an SPL Token mint`);
+    const sig = await program.methods
+      .initOtcPayments()
+      .accountsStrict({
+        authority: payer.publicKey,
+        config: configPda(id)[0],
+        treasuryState: treasuryPda(id)[0],
+        vault,
+        polAccount,
+        otcPay: otcPayKey,
+        systemProgram: new PublicKey("11111111111111111111111111111111"),
+      })
+      .preInstructions([createAtaIdempotent(payer.publicKey, vault, cfg.otcMint)])
+      .rpc();
+    console.log(`OtcPayConfig created (disabled, unpriced) → ${explorer(sig, "tx")}`);
+    console.log(`  POL reserve ${polAccount.toBase58()} · next: otc-rate <otc_per_sol> --enable`);
+    return;
+  }
+
+  if (cmd === "otc-rate") {
+    if (!existing) throw new Error("run otc-init first");
+    const raw = process.argv[3];
+    if (!raw || !/^\d+$/.test(raw))
+      throw new Error("usage: otc-rate <otc_per_sol units> [--enable|--disable]");
+    const otcPerSol = BigInt(raw);
+    const enabled = process.argv.includes("--disable")
+      ? false
+      : process.argv.includes("--enable")
+        ? true
+        : existing.enabled;
+    const sig = await program.methods
+      .setOtcRate(new BN(otcPerSol.toString()), enabled)
+      .accountsStrict({ authority: payer.publicKey, config: configPda(id)[0], otcPay: otcPayKey })
+      .rpc();
+    console.log(
+      `otc_per_sol = ${otcPerSol} · enabled = ${enabled} · step = ${otcFeeUnits(STEP_FEE_LAMPORTS, otcPerSol, existing.premiumBp)} OTC units → ${explorer(sig, "tx")}`,
+    );
+    return;
+  }
+  throw new Error(`unknown command ${cmd}`);
+}
+
 async function main() {
   const cmd = process.argv[2] ?? "status";
   const rpc = devnetRpc();
@@ -77,6 +182,7 @@ async function main() {
   const [configKey] = configPda(program.programId);
   const cfg = await program.account.config.fetch(configKey);
   console.log(`rpc ${redactRpc(rpc)} · signer ${payer.publicKey.toBase58()}`);
+  if (cmd.startsWith("otc-")) return otcPayCommand(cmd, program, connection, payer, cfg);
 
   const up = await upgradeAuthority(connection, program.programId);
   console.log(`program ${program.programId.toBase58()}`);

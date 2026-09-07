@@ -22,7 +22,7 @@ CLUSTER="${HUB_CLUSTER:-devnet}"
 LIB=hub
 SO=target/deploy/$LIB.so
 PROGRAM_ID=$(solana-keygen pubkey target/deploy/$LIB-keypair.json)
-REPO="${HUB_REPO_URL:-https://github.com/nodecattel/hubconnect}"
+REPO="${HUB_REPO_URL:-https://github.com/OTCHUB/hubconnect}"
 
 case "$CLUSTER" in
   devnet)

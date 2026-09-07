@@ -23,6 +23,11 @@ export const LP_ENABLED = false;
 export const LP_TARGET_SOL_LAMPORTS = 100 * LAMPORTS_PER_SOL;
 export const TREASURY_HUB_FLOAT_CAP_BP = 200;
 
+/** §A4.1 $OTC payment path: SOL step-fee value at `otc_per_sol` × this premium (2.00×). */
+export const OTC_PREMIUM_BP = 20_000;
+/** `activate_tier_otc` / `upgrade_tier_otc` reject an `otc_per_sol` older than this. */
+export const OTC_RATE_MAX_AGE_SECS = 86_400;
+
 export const MPL_CORE_PROGRAM_ID = "CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d";
 export const HUB_PROGRAM_ID = "5tCDEazUAkRjrkasup1uWcYo3t1C2ht76LmQva5rewQv";
 export const TOKEN_PROGRAM_ID = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
@@ -65,9 +70,97 @@ export function supplyBreakdown(
     burnedUnits: burned,
     lockedUnits: locked,
     circulatingUnits: circulating,
-    burnPctOfCirculatingBp:
-      circulating > 0n ? Number((burned * BigInt(BPS)) / circulating) : null,
+    burnPctOfCirculatingBp: circulating > 0n ? Number((burned * BigInt(BPS)) / circulating) : null,
     burnPctOfMaxBp: maxUnits > 0n ? Number((burned * BigInt(BPS)) / maxUnits) : 0,
+  };
+}
+
+/**
+ * §A7.1 supply plan — mirrors `TokenomicsConfig` defaults. Airdrop = 10,000 $HUB per desk asset
+ * at snapshot; treasury lock 5% (held, never sold — creator-fee position); team 0%; everything
+ * else is public, bought up the OTC launch curve.
+ */
+export const AIRDROP_PER_DESK = 10_000;
+export const AIRDROP_PER_DESK_UNITS = BigInt(AIRDROP_PER_DESK) * 10n ** BigInt(HUB_DECIMALS);
+export const TREASURY_LOCK_BP = 500;
+export const TEAM_ALLOCATION_BP = 0;
+/** Domain tag for airdrop Merkle leaves: `sha256(tag ‖ asset ‖ amount_le)`. */
+export const AIRDROP_LEAF_TAG = "hub-airdrop-v1";
+
+export type AllocationSlice = {
+  /** Stable id: `airdrop` · `treasury` · `team` · `public`. */
+  id: "airdrop" | "treasury" | "team" | "public";
+  label: string;
+  units: bigint;
+  /** Share of max supply in bp (floored, matches on-chain `*_bp`). */
+  bp: number;
+};
+
+export type TokenomicsPlan = {
+  maxUnits: bigint;
+  deskCount: number;
+  airdropPerDeskUnits: bigint;
+  slices: AllocationSlice[];
+  airdropUnits: bigint;
+  treasuryLockUnits: bigint;
+  teamUnits: bigint;
+  publicUnits: bigint;
+  /** True when airdrop + treasury + team would exceed max supply (the program rejects this). */
+  overAllocated: boolean;
+};
+
+/**
+ * Pure mirror of `TokenomicsConfig::apply_snapshot` — used before the PDA exists (preview from
+ * the live desk count) and to cross-check the on-chain numbers afterwards.
+ */
+export function tokenomicsPlan(
+  deskCount: number,
+  opts: {
+    maxUnits?: bigint;
+    airdropPerDeskUnits?: bigint;
+    treasuryLockBp?: number;
+    teamBp?: number;
+  } = {},
+): TokenomicsPlan {
+  const maxUnits = opts.maxUnits ?? HUB_MAX_SUPPLY_UNITS;
+  const perDesk = opts.airdropPerDeskUnits ?? AIRDROP_PER_DESK_UNITS;
+  const treasuryLockBp = opts.treasuryLockBp ?? TREASURY_LOCK_BP;
+  const teamBp = opts.teamBp ?? TEAM_ALLOCATION_BP;
+  const bps = BigInt(BPS);
+  const airdropUnits = BigInt(Math.max(0, Math.floor(deskCount))) * perDesk;
+  const treasuryLockUnits = (maxUnits * BigInt(treasuryLockBp)) / bps;
+  const teamUnits = (maxUnits * BigInt(teamBp)) / bps;
+  const carved = airdropUnits + treasuryLockUnits + teamUnits;
+  const overAllocated = carved > maxUnits;
+  const publicUnits = overAllocated ? 0n : maxUnits - carved;
+  const airdropBp = Number((airdropUnits * bps) / maxUnits);
+  const publicBp = overAllocated ? 0 : BPS - airdropBp - treasuryLockBp - teamBp;
+  const slices: AllocationSlice[] = [
+    { id: "public", label: "Public · OTC launch curve", units: publicUnits, bp: publicBp },
+    {
+      id: "treasury",
+      label: "Treasury lock (creator fees)",
+      units: treasuryLockUnits,
+      bp: treasuryLockBp,
+    },
+    {
+      id: "airdrop",
+      label: `Desk airdrop (${AIRDROP_PER_DESK.toLocaleString()} / desk)`,
+      units: airdropUnits,
+      bp: airdropBp,
+    },
+    { id: "team", label: "Dev / team", units: teamUnits, bp: teamBp },
+  ];
+  return {
+    maxUnits,
+    deskCount,
+    airdropPerDeskUnits: perDesk,
+    slices,
+    airdropUnits,
+    treasuryLockUnits,
+    teamUnits,
+    publicUnits,
+    overAllocated,
   };
 }
 
@@ -78,6 +171,20 @@ export const TIER_NAMES = ["TRADER", "BROKER", "DEALER", "MARKET MAKER"] as cons
 export const cumulativeFeeLamports = (tier: number) => STEP_FEE_LAMPORTS * tier;
 /** Fee to move `from` → `to` (from = 0 is a fresh activation). */
 export const stepFeeLamports = (from: number, to: number) => STEP_FEE_LAMPORTS * (to - from);
+
+/**
+ * $OTC base units due for `feeLamports` — mirrors `OtcPayConfig::otc_fee`:
+ * `⌈fee × otcPerSol × premiumBp / (10⁹ × 10⁴)⌉` (rounds up in the protocol's favour).
+ */
+export function otcFeeUnits(
+  feeLamports: number | bigint,
+  otcPerSol: number | bigint,
+  premiumBp: number = OTC_PREMIUM_BP,
+): bigint {
+  const num = BigInt(feeLamports) * BigInt(otcPerSol) * BigInt(premiumBp);
+  const den = BigInt(LAMPORTS_PER_SOL) * BigInt(BPS);
+  return (num + den - 1n) / den;
+}
 /** 90/10 split of a step fee. */
 export const splitFee = (fee: number) => {
   const toOps = Math.floor((fee * OPS_PCT_BP) / BPS);

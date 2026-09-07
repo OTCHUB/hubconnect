@@ -10,10 +10,12 @@ import {
   PublicKey,
   SystemProgram,
   Transaction,
+  TransactionInstruction,
 } from "@solana/web3.js";
 import fs from "node:fs";
 import os from "node:os";
 import type { Hub } from "../target/types/hub";
+import * as K from "../sdk/src/constants";
 import { createUmi } from "@metaplex-foundation/umi-bundle-defaults";
 import {
   createSignerFromKeypair,
@@ -42,6 +44,9 @@ export type Harness = {
 };
 
 export const MPL_CORE = new PublicKey("CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d");
+export const TOKEN_PROGRAM_ID = new PublicKey(K.TOKEN_PROGRAM_ID);
+export const ATA_PROGRAM_ID = new PublicKey(K.ASSOCIATED_TOKEN_PROGRAM_ID);
+const MINT_SIZE = 82;
 
 const expand = (p: string) => p.replace(/^~/, os.homedir());
 
@@ -172,6 +177,83 @@ export async function transferDeskAsset(
 export async function coreOwner(h: Harness, asset: PublicKey): Promise<PublicKey> {
   const a = await fetchAsset(h.umi, umiPk(asset.toBase58()));
   return toWeb3JsPublicKey(a.owner);
+}
+
+// Raw spl-token / associated-token helpers (no @solana/spl-token dependency); layouts mirror
+// scripts/devnet-hub-mint.ts, which tests must not import (env side effects).
+const u64le = (n: bigint) => {
+  const b = Buffer.alloc(8);
+  b.writeBigUInt64LE(n);
+  return b;
+};
+
+export const ata = (owner: PublicKey, mint: PublicKey) =>
+  PublicKey.findProgramAddressSync(
+    [owner.toBuffer(), TOKEN_PROGRAM_ID.toBuffer(), mint.toBuffer()],
+    ATA_PROGRAM_ID,
+  )[0];
+
+/** associated-token `CreateIdempotent` (ix 1); works for PDA (off-curve) owners too. */
+export function createAtaIx(payer: PublicKey, owner: PublicKey, mint: PublicKey) {
+  return new TransactionInstruction({
+    programId: ATA_PROGRAM_ID,
+    keys: [
+      { pubkey: payer, isSigner: true, isWritable: true },
+      { pubkey: ata(owner, mint), isSigner: false, isWritable: true },
+      { pubkey: owner, isSigner: false, isWritable: false },
+      { pubkey: mint, isSigner: false, isWritable: false },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+      { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+    ],
+    data: Buffer.from([1]),
+  });
+}
+
+/** Mock SPL mint with the payer as mint authority (`InitializeMint2`, ix 20; no freeze authority). */
+export async function createSplMint(h: Harness, decimals: number): Promise<PublicKey> {
+  const mint = Keypair.generate();
+  const rent = await h.provider.connection.getMinimumBalanceForRentExemption(MINT_SIZE);
+  const tx = new Transaction().add(
+    SystemProgram.createAccount({
+      fromPubkey: h.payer.publicKey,
+      newAccountPubkey: mint.publicKey,
+      lamports: rent,
+      space: MINT_SIZE,
+      programId: TOKEN_PROGRAM_ID,
+    }),
+    new TransactionInstruction({
+      programId: TOKEN_PROGRAM_ID,
+      keys: [{ pubkey: mint.publicKey, isSigner: false, isWritable: true }],
+      data: Buffer.concat([
+        Buffer.from([20, decimals]),
+        h.payer.publicKey.toBuffer(),
+        Buffer.from([0]),
+      ]),
+    }),
+  );
+  await h.provider.sendAndConfirm(tx, [h.payer, mint]);
+  return mint.publicKey;
+}
+
+/** spl-token `MintTo` (ix 7) signed by the payer (mint authority). */
+export async function mintTo(h: Harness, mint: PublicKey, dest: PublicKey, amount: bigint) {
+  const ix = new TransactionInstruction({
+    programId: TOKEN_PROGRAM_ID,
+    keys: [
+      { pubkey: mint, isSigner: false, isWritable: true },
+      { pubkey: dest, isSigner: false, isWritable: true },
+      { pubkey: h.payer.publicKey, isSigner: true, isWritable: false },
+    ],
+    data: Buffer.concat([Buffer.from([7]), u64le(amount)]),
+  });
+  await h.provider.sendAndConfirm(new Transaction().add(ix), [h.payer]);
+}
+
+/** Raw u64 `amount` of an spl-token account (offset 64). */
+export async function tokenBalance(h: Harness, tokenAccount: PublicKey): Promise<bigint> {
+  const info = await h.provider.connection.getAccountInfo(tokenAccount);
+  if (!info) throw new Error(`token account ${tokenAccount.toBase58()} does not exist`);
+  return info.data.readBigUInt64LE(64);
 }
 
 export type Fixture = {

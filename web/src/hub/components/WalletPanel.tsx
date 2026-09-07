@@ -3,6 +3,7 @@ import type { ProtocolState } from "@hub-sdk";
 import { useWalletPortfolio } from "../hooks/useWalletPortfolio";
 import { shortKey } from "../lib/format";
 import { silentReconnect } from "../lib/wallets";
+import { ActivatePanel } from "./ActivatePanel";
 import { ClaimPanel } from "./ClaimPanel";
 import { SwapPanel } from "./SwapPanel";
 import { Panel } from "./ui/Panel";
@@ -110,6 +111,12 @@ export function WalletPanel({ state, walletAddress }: Props) {
           onClaimed={() => void portfolio.refetch()}
         />
       </div>
+      <ActivatePanel
+        address={address}
+        state={state}
+        desks={portfolio.data?.desks ?? []}
+        onChanged={() => void portfolio.refetch()}
+      />
     </div>
   );
 }

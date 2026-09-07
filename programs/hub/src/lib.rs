@@ -117,4 +117,48 @@ pub mod hub {
     ) -> Result<()> {
         instructions::treasury::build_lp(ctx, pair, hub_amount, quote_amount)
     }
+
+    /// §A4.1 #14 — authority creates the $OTC payment config + POL reserve pointer (disabled).
+    pub fn init_otc_payments(ctx: Context<InitOtcPayments>) -> Result<()> {
+        instructions::otc_pay::init_otc_payments(ctx)
+    }
+
+    /// §A4.1 #15 — authority refreshes the $OTC/SOL reference rate and the enable switch.
+    pub fn set_otc_rate(ctx: Context<SetOtcRate>, otc_per_sol: u64, enabled: bool) -> Result<()> {
+        instructions::otc_pay::set_otc_rate(ctx, otc_per_sol, enabled)
+    }
+
+    /// §A4.1 #16 — `activate_tier` paid in $OTC at the 2× premium; proceeds → POL reserve.
+    pub fn activate_tier_otc(ctx: Context<ActivateTierOtc>) -> Result<()> {
+        instructions::otc_pay::activate_tier_otc(ctx)
+    }
+
+    /// §A4.1 #17 — `upgrade_tier` paid in $OTC at the 2× premium; proceeds → POL reserve.
+    pub fn upgrade_tier_otc(ctx: Context<UpgradeTierOtc>, target_tier: u8) -> Result<()> {
+        instructions::otc_pay::upgrade_tier_otc(ctx, target_tier)
+    }
+
+    /// §A7.1 #18 — authority records the supply plan + the vault $HUB account funding the airdrop.
+    pub fn init_tokenomics(ctx: Context<InitTokenomics>) -> Result<()> {
+        instructions::tokenomics::init_tokenomics(ctx)
+    }
+
+    /// §A7.1 #19 — authority publishes the desk-snapshot Merkle root and opens/closes claims.
+    pub fn set_airdrop_root(
+        ctx: Context<SetAirdropRoot>,
+        root: [u8; 32],
+        desk_count: u32,
+        open: bool,
+    ) -> Result<()> {
+        instructions::tokenomics::set_airdrop_root(ctx, root, desk_count, open)
+    }
+
+    /// §A7.1 #20 — a desk's current owner claims its snapshot allocation (one claim per asset).
+    pub fn claim_airdrop(
+        ctx: Context<ClaimAirdrop>,
+        amount_units: u64,
+        proof: Vec<[u8; 32]>,
+    ) -> Result<()> {
+        instructions::tokenomics::claim_airdrop(ctx, amount_units, proof)
+    }
 }

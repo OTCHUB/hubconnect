@@ -61,6 +61,18 @@ export const fmtHub = (
 /** Tier weight (bp) as a multiplier, e.g. 12_500 → "1.25x". */
 export const fmtWeight = (bp: number) => `${(bp / BPS).toFixed(2)}x`;
 
+/** bigint base units → grouped decimal, truncated to `maxFrac`: 2_000_500_000n/6 → "2,000.5". */
+export const fmtUnits = (units: bigint, decimals: number, maxFrac = 2) => {
+  const base = 10n ** BigInt(decimals);
+  const whole = (units / base).toLocaleString();
+  const frac = (units % base)
+    .toString()
+    .padStart(decimals, "0")
+    .slice(0, maxFrac)
+    .replace(/0+$/, "");
+  return frac ? `${whole}.${frac}` : whole;
+};
+
 export const shortKey = (k: string, n = 4) =>
   k.length > n * 2 + 1 ? `${k.slice(0, n)}…${k.slice(-n)}` : k;
 

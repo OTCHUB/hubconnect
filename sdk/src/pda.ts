@@ -16,6 +16,9 @@ export const SEEDS = {
   burn: Buffer.from("burn"),
   treasury: Buffer.from("treasury"),
   vault: Buffer.from("vault"),
+  otcPay: Buffer.from("otc_pay"),
+  tokenomics: Buffer.from("tokenomics"),
+  airdrop: Buffer.from("airdrop"),
 } as const;
 
 const u64le = (n: BN | number | bigint) => new BN(n.toString()).toArrayLike(Buffer, "le", 8);
@@ -34,6 +37,18 @@ export function treasuryPda(programId: PublicKey) {
 }
 export function vaultPda(programId: PublicKey) {
   return PublicKey.findProgramAddressSync([SEEDS.vault], programId);
+}
+/** §A4.1 $OTC payment parameters + POL reserve pointer. */
+export function otcPayPda(programId: PublicKey) {
+  return PublicKey.findProgramAddressSync([SEEDS.otcPay], programId);
+}
+/** §A7.1 supply allocation plan + airdrop Merkle root. */
+export function tokenomicsPda(programId: PublicKey) {
+  return PublicKey.findProgramAddressSync([SEEDS.tokenomics], programId);
+}
+/** §A7.1 per-desk airdrop claim receipt (exists ⇒ already claimed). */
+export function airdropClaimPda(programId: PublicKey, asset: PublicKey) {
+  return PublicKey.findProgramAddressSync([SEEDS.airdrop, asset.toBuffer()], programId);
 }
 export function epochPda(programId: PublicKey, index: BN | number | bigint) {
   return PublicKey.findProgramAddressSync([SEEDS.epoch, u64le(index)], programId);

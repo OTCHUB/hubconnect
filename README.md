@@ -1,5 +1,9 @@
 # hubconnect — $HUB protocol
 
+[![ci](https://github.com/OTCHUB/hubconnect/actions/workflows/ci.yml/badge.svg)](https://github.com/OTCHUB/hubconnect/actions/workflows/ci.yml)
+[![verified build](https://github.com/OTCHUB/hubconnect/actions/workflows/verify.yml/badge.svg)](https://github.com/OTCHUB/hubconnect/actions/workflows/verify.yml)
+[![program](https://img.shields.io/badge/program-5tCDEazU…5rewQv-14f195?logo=solana&logoColor=white)](https://explorer.solana.com/address/5tCDEazUAkRjrkasup1uWcYo3t1C2ht76LmQva5rewQv/verified-build)
+
 Stake-to-earn layer for OTC desk NFTs. Anchor program, keeper services, read-only SDK.
 **Community tooling — not affiliated with OTC.**
 
@@ -11,8 +15,8 @@ Implement from it; never re-derive tokenomics.
 ```
 programs/hub/        Anchor program — §B2 accounts, §B3 instructions
   src/constants.rs   Appendix defaults (written into Config at initialize_config)
-  src/state/         Config, Epoch, DeskTier, ConsignedDesk, StakerAccrual, BurnState, TreasuryState
-  src/instructions/  admin | tiers | epochs | treasury
+  src/state/         Config, Epoch, DeskTier, ConsignedDesk, StakerAccrual, BurnState, TreasuryState, OtcPayConfig
+  src/instructions/  admin | tiers | otc_pay ($OTC step fees → POL reserve) | epochs | treasury
 sdk/                 PDA derivation + constants mirror; account decoders (M3)
 keeper/              §B4 services: keeper (epoch+burn), sweeper, treasury (exit), lp
 tests/               anchor-ts suites; HUB_CLUSTER=devnet targets Helius devnet (§B5.1)
@@ -120,6 +124,41 @@ HUB_CLUSTER=mainnet-beta HUB_WALLET=... scripts/verify-build.sh verify <commit> 
 
 `devnet-deploy.sh` uses the same artifact. Local `anchor build` output is fine for tests but is not
 byte-identical to the docker build (host platform-tools differ), so never deploy it directly.
+
+### CI (`.github/workflows/verify.yml`)
+
+Every `v*` tag (and `workflow_dispatch`) runs the same docker build on GitHub Actions, compares the
+executable hash with the program on `devnet` / `mainnet-beta`, signs SLSA provenance for `hub.so`
+through GitHub OIDC (Sigstore), and attaches `hub.so`, `hub.so.sha256`, `hub.json` (IDL) and
+`verification-summary.md` to the GitHub Release. The job only runs in `OTCHUB/hubconnect` and
+asserts the OIDC `iss` / `repository_owner` / `repository` claims before building; it holds no
+deploy key. Repository variable `HUB_VERIFY_NETWORK` selects the cluster for tag builds.
+
+### Verify independently
+
+Anyone can confirm the on-chain program equals this source without trusting us or CI.
+Requires Docker and `cargo install solana-verify`.
+
+```sh
+PROGRAM=5tCDEazUAkRjrkasup1uWcYo3t1C2ht76LmQva5rewQv
+RPC=https://api.mainnet-beta.solana.com          # or https://api.devnet.solana.com
+
+# 1. rebuild from the public repo at the released commit and compare with the deployed bytes
+solana-verify verify-from-repo -u $RPC --program-id $PROGRAM \
+  https://github.com/OTCHUB/hubconnect --commit-hash <commit-or-tag> --library-name hub
+
+# 2. or just read both hashes and compare them yourself
+solana-verify get-program-hash -u $RPC $PROGRAM               # on chain
+solana-verify get-executable-hash hub.so                     # release asset, or your own build
+
+# 3. confirm the release asset was built by this repository's workflow (GitHub OIDC provenance)
+gh attestation verify hub.so --owner OTCHUB
+```
+
+The upgrade authority also records the repo URL, commit and build args in the on-chain verify PDA
+and submits them to the OtterSec API, so [Solana Explorer](https://explorer.solana.com/address/5tCDEazUAkRjrkasup1uWcYo3t1C2ht76LmQva5rewQv/verified-build),
+SolanaFM and Solscan show the program as verified and wallets can resolve the source
+(`https://verify.osec.io/status/<program-id>`). `scripts/verify-build.sh verify` performs that step.
 
 ## Milestones
 

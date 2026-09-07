@@ -2,7 +2,7 @@
 // (spec §B5 integration list). Round indices are never hardcoded: tests read state from chain.
 import { expect } from "chai";
 import * as anchor from "@anchor-lang/core";
-import { Keypair, LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
+import { Keypair, LAMPORTS_PER_SOL, PublicKey, Transaction } from "@solana/web3.js";
 import {
   setup,
   Harness,
@@ -13,10 +13,19 @@ import {
   transferDeskAsset,
   coreOwner,
   expectFail,
+  createSplMint,
+  createAtaIx,
+  mintTo,
+  ata,
+  tokenBalance,
 } from "./harness";
 import {
   activate,
   upgrade,
+  activateOtc,
+  upgradeOtc,
+  initOtcPayments,
+  setOtcRate,
   claim,
   claimPending,
   pendingOf,
@@ -34,7 +43,7 @@ import {
   big,
   txFee,
 } from "./flows";
-import { epochPda, tierPda } from "../sdk/src/pda";
+import { epochPda, tierPda, otcPayPda } from "../sdk/src/pda";
 import * as K from "../sdk/src/constants";
 
 const tierOf = (h: Harness, asset: PublicKey) =>
@@ -256,6 +265,243 @@ describe("M2 — yield engine", () => {
     expect(b.burnPendingLamports.toNumber()).to.eq(0);
     expect(b.totalHubBurned.toNumber()).to.be.gte(1_000_000);
     await expectFail(recordBurn(h, f, 1, 1, sig));
+    await assertSolvent(h, f);
+  });
+});
+
+// §A4.1 — $OTC as an alternative step-fee currency. Mock 6-dp mint; 1 SOL = 1,000 OTC, so a
+// 0.5 SOL step is worth 500 OTC and the 2× premium charges 1,000 OTC (1e9 base units).
+describe("M2 — $OTC payment path (§A4.1)", () => {
+  let h: Harness;
+  let f: Fixture;
+  let otcMint: PublicKey;
+  let otcPay: PublicKey;
+  let pol: PublicKey;
+  const OTC_PER_SOL = 1_000n * 10n ** 6n;
+  const owners: Keypair[] = [];
+  const desks: PublicKey[] = [];
+  const otcAccounts: PublicKey[] = [];
+
+  const otcPayState = () => h.program.account.otcPayConfig.fetch(otcPay);
+  const snapshot = async () => {
+    const { epoch, config } = await currentEpoch(h, f);
+    return {
+      pot: await balance(h, f.pot),
+      ops: await balance(h, f.opsWallet),
+      inflow: epoch.inflowLamports.toNumber(),
+      liability: config.potLiabilityLamports.toNumber(),
+      weight: config.totalWeightBp.toNumber(),
+      pol: await tokenBalance(h, pol),
+      collected: big((await otcPayState()).totalOtcCollected),
+    };
+  };
+  /** Fresh desk owner holding `sol` lamports and `units` of $OTC in its ATA. */
+  const otcWallet = async (sol: number, units: bigint) => {
+    const o = await fundWallet(h, sol);
+    const acct = ata(o.publicKey, otcMint);
+    await h.provider.sendAndConfirm(
+      new Transaction().add(createAtaIx(h.payer.publicKey, o.publicKey, otcMint)),
+      [h.payer],
+    );
+    await mintTo(h, otcMint, acct, units);
+    owners.push(o);
+    otcAccounts.push(acct);
+    desks.push(await createDeskAsset(h, f.deskCollection, o.publicKey));
+  };
+
+  before(async function () {
+    this.timeout(180_000);
+    h = await setup();
+    f = await ensureInitialized(h);
+    [otcPay] = otcPayPda(h.program.programId);
+    otcMint = await createSplMint(h, 6);
+    await setConfig(h, f, "otcMint", { pubkey: [otcMint] });
+    pol = ata(f.vault, otcMint);
+    await h.provider.sendAndConfirm(
+      new Transaction().add(createAtaIx(h.payer.publicKey, f.vault, otcMint)),
+      [h.payer],
+    );
+    await otcWallet(1.5 * LAMPORTS_PER_SOL, 10_000n * 10n ** 6n); // A: pays activation + 1→3 in OTC
+    await otcWallet(1.5 * LAMPORTS_PER_SOL, 5_000n * 10n ** 6n); // B: SOL activation, OTC upgrades
+    await otcWallet(1.5 * LAMPORTS_PER_SOL, 5_000n * 10n ** 6n); // C: negative cases, SOL fallback
+  });
+
+  it("init_otc_payments: POL reserve must be the vault's $OTC account; authority-only; singleton", async () => {
+    // A wallet-owned token account of the right mint is not program custody.
+    await expectFail(initOtcPayments(h, f, otcAccounts[0]), "InvalidTokenAccount");
+    const intruder = await fundWallet(h, LAMPORTS_PER_SOL / 10);
+    await expectFail(
+      h.program.methods
+        .initOtcPayments()
+        .accountsPartial({
+          authority: intruder.publicKey,
+          config: f.config,
+          treasuryState: f.treasuryState,
+          vault: f.vault,
+          polAccount: pol,
+          otcPay,
+        })
+        .signers([intruder])
+        .rpc(),
+      "Unauthorized",
+    );
+    await initOtcPayments(h, f, pol);
+    const p = await otcPayState();
+    expect(p.enabled).to.eq(false);
+    expect(p.otcPerSol.toNumber()).to.eq(0);
+    expect(p.rateTs.toNumber()).to.eq(0);
+    expect(p.premiumBp).to.eq(K.OTC_PREMIUM_BP);
+    expect(p.polAccount.toBase58()).to.eq(pol.toBase58());
+    expect(p.totalOtcCollected.toNumber()).to.eq(0);
+    await expectFail(initOtcPayments(h, f, pol)); // already initialized
+  });
+
+  it("activate_tier_otc is rejected while the path is disabled / unpriced", async () => {
+    await expectFail(activateOtc(h, f, owners[0], desks[0], otcAccounts[0]), "OtcPaymentsDisabled");
+  });
+
+  it("set_otc_rate: authority-only; enabling at a zero rate is rejected; sets rate + timestamp", async () => {
+    const intruder = Keypair.generate();
+    await expectFail(
+      h.program.methods
+        .setOtcRate(new anchor.BN(1), true)
+        .accountsPartial({ authority: intruder.publicKey, config: f.config, otcPay })
+        .signers([intruder])
+        .rpc(),
+      "Unauthorized",
+    );
+    await expectFail(setOtcRate(h, f, 0, true), "ZeroAmount");
+    await setOtcRate(h, f, 0, false); // disabled at any rate is fine
+    await setOtcRate(h, f, OTC_PER_SOL, true);
+    const p = await otcPayState();
+    expect(p.enabled).to.eq(true);
+    expect(big(p.otcPerSol)).to.eq(OTC_PER_SOL);
+    expect(p.rateTs.toNumber()).to.be.gt(0);
+    expect(p.premiumBp).to.eq(K.OTC_PREMIUM_BP); // premium is not a parameter
+  });
+
+  it("activate_tier_otc charges 2× the SOL value into the POL reserve; Σw grows, pot/ops/inflow/liability do not", async () => {
+    const fee = K.otcFeeUnits(K.STEP_FEE_LAMPORTS, OTC_PER_SOL);
+    expect(fee).to.eq(1_000n * 10n ** 6n);
+    const s0 = await snapshot();
+    const a0 = await tokenBalance(h, otcAccounts[0]);
+    await expectFail(activateOtc(h, f, owners[1], desks[0], otcAccounts[1]), "NotDeskOwner");
+    await activateOtc(h, f, owners[0], desks[0], otcAccounts[0]);
+    const s1 = await snapshot();
+    expect(a0 - (await tokenBalance(h, otcAccounts[0]))).to.eq(fee);
+    expect(s1.pol - s0.pol).to.eq(fee);
+    expect(s1.collected - s0.collected).to.eq(fee);
+    expect(s1.pot).to.eq(s0.pot);
+    expect(s1.ops).to.eq(s0.ops);
+    expect(s1.inflow).to.eq(s0.inflow);
+    expect(s1.liability).to.eq(s0.liability);
+    expect(s1.weight - s0.weight).to.eq(K.TIER_WEIGHTS_BP[0]);
+    const t = await tierOf(h, desks[0]);
+    expect(t.tier).to.eq(1);
+    expect(t.voided).to.eq(false);
+    expect(t.ownerAtActivation.toBase58()).to.eq(owners[0].publicKey.toBase58());
+    expect(
+      t.stampAccPerWeight.eq((await h.program.account.config.fetch(f.config)).accPerWeight),
+    ).to.eq(true);
+    await expectFail(activateOtc(h, f, owners[0], desks[0], otcAccounts[0]), "TierAlreadyActive");
+    await assertSolvent(h, f);
+  });
+
+  it("upgrade_tier_otc pays exactly the step difference in $OTC; non-step / maxed rejected", async () => {
+    const fee = K.otcFeeUnits(K.stepFeeLamports(1, 3), OTC_PER_SOL);
+    expect(fee).to.eq(2_000n * 10n ** 6n);
+    const s0 = await snapshot();
+    await expectFail(upgradeOtc(h, f, owners[0], desks[0], 1, otcAccounts[0]), "InvalidTierStep");
+    await expectFail(upgradeOtc(h, f, owners[0], desks[0], 5, otcAccounts[0]), "InvalidTierStep");
+    await upgradeOtc(h, f, owners[0], desks[0], 3, otcAccounts[0]);
+    const s1 = await snapshot();
+    expect(s1.pol - s0.pol).to.eq(fee);
+    expect(s1.collected - s0.collected).to.eq(fee);
+    expect(s1.pot).to.eq(s0.pot);
+    expect(s1.ops).to.eq(s0.ops);
+    expect(s1.inflow).to.eq(s0.inflow);
+    expect(s1.weight - s0.weight).to.eq(K.TIER_WEIGHTS_BP[2] - K.TIER_WEIGHTS_BP[0]);
+    expect((await tierOf(h, desks[0])).tier).to.eq(3);
+  });
+
+  it("SOL and $OTC steps interleave on one tier: only the SOL leg touches the pot", async () => {
+    // B: activate in SOL, upgrade 1→2 in $OTC.
+    const s0 = await snapshot();
+    await activate(h, f, owners[1], desks[1]);
+    const s1 = await snapshot();
+    expect(s1.pot - s0.pot).to.eq(K.splitFee(K.STEP_FEE_LAMPORTS).toPot);
+    expect(s1.ops - s0.ops).to.eq(K.splitFee(K.STEP_FEE_LAMPORTS).toOps);
+    expect(s1.pol).to.eq(s0.pol);
+    await upgradeOtc(h, f, owners[1], desks[1], 2, otcAccounts[1]);
+    const s2 = await snapshot();
+    expect(s2.pot).to.eq(s1.pot);
+    expect(s2.inflow).to.eq(s1.inflow);
+    expect(s2.pol - s1.pol).to.eq(K.otcFeeUnits(K.STEP_FEE_LAMPORTS, OTC_PER_SOL));
+    expect((await tierOf(h, desks[1])).tier).to.eq(2);
+    // A: activated + upgraded in $OTC, finishes 3→4 in SOL.
+    await upgrade(h, f, owners[0], desks[0], 4);
+    const s3 = await snapshot();
+    expect(s3.pot - s2.pot).to.eq(K.splitFee(K.STEP_FEE_LAMPORTS).toPot);
+    expect(s3.inflow - s2.inflow).to.eq(K.splitFee(K.STEP_FEE_LAMPORTS).toPot);
+    expect(s3.pol).to.eq(s2.pol);
+    expect((await tierOf(h, desks[0])).tier).to.eq(4);
+    expect(s3.weight - s0.weight).to.eq(
+      K.TIER_WEIGHTS_BP[1] + (K.TIER_WEIGHTS_BP[3] - K.TIER_WEIGHTS_BP[2]),
+    );
+    await expectFail(upgradeOtc(h, f, owners[0], desks[0], 4, otcAccounts[0]), "TierMaxed");
+    await assertSolvent(h, f);
+  });
+
+  it("rejects a payer token account that is not the payer's or not the $OTC mint", async () => {
+    await expectFail(activateOtc(h, f, owners[2], desks[2], otcAccounts[0]), "InvalidTokenAccount");
+    const other = await createSplMint(h, 6);
+    const wrongMint = ata(owners[2].publicKey, other);
+    await h.provider.sendAndConfirm(
+      new Transaction().add(createAtaIx(h.payer.publicKey, owners[2].publicKey, other)),
+      [h.payer],
+    );
+    await mintTo(h, other, wrongMint, 10_000n * 10n ** 6n);
+    await expectFail(activateOtc(h, f, owners[2], desks[2], wrongMint), "InvalidTokenAccount");
+    await expectFail(
+      activateOtc(h, f, owners[2], desks[2], owners[2].publicKey),
+      "InvalidTokenAccount",
+    );
+  });
+
+  it("$OTC-paid tiers earn SOL yield like any other; upgrade_tier_otc requires pending claimed first", async function () {
+    this.timeout(180_000);
+    await finalizeCurrent(h, f);
+    expect(await pendingOf(h, f, desks[0])).to.be.gt(0);
+    expect(await pendingOf(h, f, desks[1])).to.be.gt(0);
+    await expectFail(
+      upgradeOtc(h, f, owners[1], desks[1], 3, otcAccounts[1]),
+      "ClaimBeforeUpgrade",
+    );
+    expect(await claimPending(h, f, owners[0], desks[0])).to.be.gt(0);
+    expect(await claimPending(h, f, owners[1], desks[1])).to.be.gt(0);
+    const s0 = await snapshot();
+    await upgradeOtc(h, f, owners[1], desks[1], 3, otcAccounts[1]);
+    const s1 = await snapshot();
+    expect(s1.pol - s0.pol).to.eq(K.otcFeeUnits(K.stepFeeLamports(2, 3), OTC_PER_SOL));
+    expect(s1.pot).to.eq(s0.pot);
+    expect((await tierOf(h, desks[1])).tier).to.eq(3);
+    await assertSolvent(h, f);
+  });
+
+  it("disabling the path blocks $OTC payments only; the SOL path is unaffected", async () => {
+    await setOtcRate(h, f, OTC_PER_SOL, false);
+    await expectFail(activateOtc(h, f, owners[2], desks[2], otcAccounts[2]), "OtcPaymentsDisabled");
+    await expectFail(
+      upgradeOtc(h, f, owners[1], desks[1], 4, otcAccounts[1]),
+      "OtcPaymentsDisabled",
+    );
+    const pol0 = await tokenBalance(h, pol);
+    await activate(h, f, owners[2], desks[2]);
+    expect((await tierOf(h, desks[2])).tier).to.eq(1);
+    expect(await tokenBalance(h, pol)).to.eq(pol0);
+    const p = await otcPayState();
+    expect(p.enabled).to.eq(false);
+    expect(big(p.otcPerSol)).to.eq(OTC_PER_SOL); // rate survives the switch
     await assertSolvent(h, f);
   });
 });

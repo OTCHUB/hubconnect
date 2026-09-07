@@ -28,6 +28,9 @@ export function Header() {
           <NavLink to="/hub/treasury" className={linkCls}>
             TREASURY
           </NavLink>
+          <NavLink to="/hub/tokenomics" className={linkCls}>
+            TOKENOMICS
+          </NavLink>
           <NavLink to="/hub/deployments" className={linkCls}>
             DEPLOYMENTS
           </NavLink>

@@ -122,8 +122,9 @@ export function SwapPanel({ state, address }: Props) {
       onPhase: setPhase,
       shouldContinue: () => gen.current === g && resolveSigner(signer.publicKey) !== null,
     });
-    if (res.ok) void balances.refetch();
-    else setErr(`Swap stopped: ${res.reason}`);
+    // `in` narrowing works under both strict (hubconnect) and non-strict (otchub jsconfig) TS.
+    if ("reason" in res) setErr(`Swap stopped: ${res.reason}`);
+    else void balances.refetch();
     setBusy(false);
     setPhase(null);
   };

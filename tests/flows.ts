@@ -2,8 +2,8 @@
 import { expect } from "chai";
 import * as anchor from "@anchor-lang/core";
 import { Keypair, PublicKey, SystemProgram } from "@solana/web3.js";
-import { Harness, Fixture, MPL_CORE } from "./harness";
-import { epochPda, tierPda, consignPda, accrualPda } from "../sdk/src/pda";
+import { Harness, Fixture, MPL_CORE, TOKEN_PROGRAM_ID } from "./harness";
+import { epochPda, tierPda, consignPda, accrualPda, otcPayPda } from "../sdk/src/pda";
 import * as K from "../sdk/src/constants";
 
 export const bn = (n: number | bigint) => new anchor.BN(n.toString());
@@ -61,6 +61,91 @@ export async function upgrade(
       epoch,
       pot: f.pot,
       opsWallet: f.opsWallet,
+      deskTier,
+    })
+    .signers([owner])
+    .rpc();
+}
+
+/** §A4.1 #14 — authority creates `["otc_pay"]` pointing at the vault's $OTC token account. */
+export function initOtcPayments(h: Harness, f: Fixture, polAccount: PublicKey) {
+  const [otcPay] = otcPayPda(h.program.programId);
+  return h.program.methods
+    .initOtcPayments()
+    .accountsPartial({
+      authority: h.payer.publicKey,
+      config: f.config,
+      treasuryState: f.treasuryState,
+      vault: f.vault,
+      polAccount,
+      otcPay,
+    })
+    .rpc();
+}
+
+/** §A4.1 #15 — authority refreshes the $OTC/SOL reference rate and the enable switch. */
+export function setOtcRate(h: Harness, f: Fixture, otcPerSol: number | bigint, enabled: boolean) {
+  const [otcPay] = otcPayPda(h.program.programId);
+  return h.program.methods
+    .setOtcRate(bn(otcPerSol), enabled)
+    .accountsPartial({ authority: h.payer.publicKey, config: f.config, otcPay })
+    .rpc();
+}
+
+/** Accounts shared by both $OTC payment instructions (mint + POL reserve read from chain). */
+async function otcPayAccounts(h: Harness, f: Fixture) {
+  const [otcPay] = otcPayPda(h.program.programId);
+  const c = await h.program.account.config.fetch(f.config);
+  const p = await h.program.account.otcPayConfig.fetch(otcPay);
+  return {
+    config: f.config,
+    otcPay,
+    otcMint: c.otcMint,
+    polAccount: p.polAccount,
+    tokenProgram: TOKEN_PROGRAM_ID,
+  };
+}
+
+/** §A4.1 #16 — `activate_tier` paid in $OTC from `payerOtc` (owner's token account). */
+export async function activateOtc(
+  h: Harness,
+  f: Fixture,
+  owner: Keypair,
+  asset: PublicKey,
+  payerOtc: PublicKey,
+) {
+  const [deskTier] = tierPda(h.program.programId, asset);
+  await h.program.methods
+    .activateTierOtc()
+    .accountsPartial({
+      payer: owner.publicKey,
+      deskAsset: asset,
+      ...(await otcPayAccounts(h, f)),
+      payerOtc,
+      deskTier,
+    })
+    .signers([owner])
+    .rpc();
+  return deskTier;
+}
+
+/** §A4.1 #17 — `upgrade_tier` paid in $OTC from `payerOtc` (owner's token account). */
+export async function upgradeOtc(
+  h: Harness,
+  f: Fixture,
+  owner: Keypair,
+  asset: PublicKey,
+  target: number,
+  payerOtc: PublicKey,
+) {
+  const [deskTier] = tierPda(h.program.programId, asset);
+  return h.program.methods
+    .upgradeTierOtc(target)
+    .accountsPartial({
+      payer: owner.publicKey,
+      deskAsset: asset,
+      ...(await otcPayAccounts(h, f)),
+      payerOtc,
       deskTier,
     })
     .signers([owner])

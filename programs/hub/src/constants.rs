@@ -49,6 +49,31 @@ pub const LP_TARGET_SOL_LAMPORTS: u64 = 100 * LAMPORTS_PER_SOL;
 /// TREASURY_HUB_FLOAT_CAP ≤ 2% of supply.
 pub const TREASURY_HUB_FLOAT_CAP_BP: u16 = 200;
 
+/// $OTC payment path (§A4.1): a step paid in $OTC costs the SOL step fee valued at the
+/// authority-refreshed `otc_per_sol` rate × this premium (20_000 bp = 2.00×). The premium is
+/// fixed at `init_otc_payments`; only the rate is refreshable.
+pub const OTC_PREMIUM_BP: u16 = 20_000;
+/// `activate_tier_otc` / `upgrade_tier_otc` reject a rate older than this (seconds).
+pub const OTC_RATE_MAX_AGE_SECS: i64 = 86_400;
+
+/// §A7.1 supply plan. $HUB is minted once: 1,000,000,000 × 10⁶ base units (§A3.1 / §A7).
+pub const HUB_DECIMALS: u8 = 6;
+pub const HUB_UNIT: u64 = 1_000_000;
+pub const HUB_MAX_SUPPLY: u64 = 1_000_000_000;
+pub const HUB_MAX_SUPPLY_UNITS: u64 = HUB_MAX_SUPPLY * HUB_UNIT;
+/// Snapshot airdrop: 10,000 $HUB per desk asset that exists in `Config.desk_collection` at
+/// the snapshot. Total = desks × this; the share of supply follows from the desk count.
+pub const AIRDROP_PER_DESK: u64 = 10_000;
+pub const AIRDROP_PER_DESK_UNITS: u64 = AIRDROP_PER_DESK * HUB_UNIT;
+/// Treasury lock: 5% of MAX_SUPPLY held by the treasury multisig (never sold) so the launched
+/// coin's creator fees accrue to a protocol-held position.
+pub const TREASURY_LOCK_BP: u16 = 500;
+/// Dev / team allocation at launch: none. Everything not airdropped or treasury-locked is
+/// public — bought up the OTC launch curve.
+pub const TEAM_ALLOCATION_BP: u16 = 0;
+/// Domain tag for airdrop Merkle leaves: `keccak(tag ‖ asset ‖ amount_le)`.
+pub const AIRDROP_LEAF_TAG: &[u8] = b"hub-airdrop-v1";
+
 pub const SEED_CONFIG: &[u8] = b"config";
 pub const SEED_EPOCH: &[u8] = b"epoch";
 pub const SEED_TIER: &[u8] = b"tier";
@@ -59,6 +84,19 @@ pub const SEED_BURN: &[u8] = b"burn";
 pub const SEED_TREASURY: &[u8] = b"treasury";
 /// Program-signed custody PDA that owns consigned desk assets (§A6.1).
 pub const SEED_VAULT: &[u8] = b"vault";
+/// $OTC payment parameters + POL reserve pointer (§A4.1).
+pub const SEED_OTC_PAY: &[u8] = b"otc_pay";
+/// Supply allocation plan + airdrop root (§A7.1); per-desk airdrop claim receipts.
+pub const SEED_TOKENOMICS: &[u8] = b"tokenomics";
+pub const SEED_AIRDROP: &[u8] = b"airdrop";
+
+/// Classic SPL Token program ($OTC is a pump.fun mint, 6 decimals, Token-v1).
+pub const TOKEN_PROGRAM_ID: Pubkey = pubkey!("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+/// spl-token `TransferChecked` instruction discriminator.
+pub const TOKEN_IX_TRANSFER_CHECKED: u8 = 12;
+/// spl-token `Account` length; `Mint.decimals` offset.
+pub const TOKEN_ACCOUNT_LEN: usize = 165;
+pub const MINT_DECIMALS_OFFSET: usize = 44;
 
 /// Metaplex Core program (desk NFTs are Core assets, §A2).
 pub const MPL_CORE_ID: Pubkey = pubkey!("CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d");
@@ -70,4 +108,4 @@ pub const CORE_IX_TRANSFER_V1: u8 = 14;
 
 #[constant]
 pub const SEEDS_DOC: &str =
-    "config|epoch+u64|tier+asset|consign+asset|accrual+wallet+u64|pot|burn|treasury|vault";
+    "config|epoch+u64|tier+asset|consign+asset|accrual+wallet+u64|pot|burn|treasury|vault|otc_pay|tokenomics|airdrop+asset";

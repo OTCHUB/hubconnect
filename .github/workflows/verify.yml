@@ -1,0 +1,164 @@
+# Reproducible build of the hub program + on-chain hash check + signed provenance.
+#
+# Runs on every `v*` tag (publishes hub.so, its hash, the IDL and a verification summary to the
+# GitHub Release) and on demand. The .so is built by `solana-verify build` inside the
+# `solanafoundation/solana-verifiable-build` image pinned in Cargo.toml [workspace.metadata.cli],
+# exactly as scripts/verify-build.sh does locally, so the hash here is the hash a third party gets.
+#
+# This workflow never holds a deploy key. Deploys happen from the upgrade authority (Squads on
+# mainnet); this job only proves that a given commit produces the bytes that are (or will be)
+# on chain. Third-party actions are pinned by commit SHA.
+name: verify
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      network:
+        description: "Cluster whose deployed program hash is compared against the build"
+        type: choice
+        options: [devnet, mainnet-beta]
+        default: devnet
+      strict:
+        description: "Fail the run when the on-chain hash differs from the build"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  PROGRAM_ID: 5tCDEazUAkRjrkasup1uWcYo3t1C2ht76LmQva5rewQv
+  LIBRARY_NAME: hub
+  SOLANA_VERIFY_VERSION: 0.5.1
+  # inputs.* is empty on tag pushes; the repository variable HUB_VERIFY_NETWORK picks the cluster then.
+  NETWORK: ${{ inputs.network || vars.HUB_VERIFY_NETWORK || 'devnet' }}
+
+jobs:
+  build:
+    # Release artifacts and attestations come only from the canonical repository; forks may still
+    # run ci.yml. The OIDC step below re-checks this from the token's own claims.
+    if: github.repository == 'OTCHUB/hubconnect'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: write # release upload
+      id-token: write # OIDC token → Sigstore signing of the provenance attestation
+      attestations: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+
+      - name: Audit OIDC claims
+        # Mints a token with a private audience and asserts the identity claims before anything is
+        # built. Only claim values are printed; the token itself never leaves the step.
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        with:
+          script: |
+            const token = await core.getIDToken("hubconnect-verify");
+            const c = JSON.parse(Buffer.from(token.split(".")[1], "base64url").toString());
+            const want = {
+              iss: "https://token.actions.githubusercontent.com",
+              repository_owner: "OTCHUB",
+              repository: "OTCHUB/hubconnect",
+              aud: "hubconnect-verify",
+            };
+            for (const [k, v] of Object.entries(want)) {
+              if (c[k] !== v) core.setFailed(`OIDC claim ${k}=${c[k]} (expected ${v})`);
+            }
+            core.info(`sub=${c.sub}`);
+            core.info(`job_workflow_ref=${c.job_workflow_ref} sha=${c.sha} run_id=${c.run_id}`);
+
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+      - name: Cache solana-verify
+        id: sv-cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.cargo/bin/solana-verify
+          key: solana-verify-${{ env.SOLANA_VERIFY_VERSION }}-${{ runner.os }}
+      - name: Install solana-verify
+        if: steps.sv-cache.outputs.cache-hit != 'true'
+        # From $RUNNER_TEMP so the repo's rust-toolchain.toml (host pin for anchor) is not applied.
+        run: cd "$RUNNER_TEMP" && cargo install solana-verify --version "$SOLANA_VERIFY_VERSION" --locked
+
+      - name: Pull pinned build image
+        id: image
+        run: |
+          v=$(sed -n 's/^solana = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          img="solanafoundation/solana-verifiable-build:${v:?no [workspace.metadata.cli] solana pin in Cargo.toml}"
+          docker pull "$img"
+          echo "image=$img" >> "$GITHUB_OUTPUT"
+          echo "digest=$(docker inspect --format '{{index .RepoDigests 0}}' "$img")" >> "$GITHUB_OUTPUT"
+
+      - name: Deterministic build
+        run: solana-verify build --library-name "$LIBRARY_NAME"
+
+      - name: Hash local build and on-chain program
+        id: hash
+        env:
+          # Optional paid endpoints; the public clusters work for the single account read.
+          DEVNET_RPC_URL: ${{ secrets.DEVNET_RPC_URL }}
+          MAINNET_RPC_URL: ${{ secrets.MAINNET_RPC_URL }}
+        run: |
+          so="target/deploy/$LIBRARY_NAME.so"
+          local=$(solana-verify get-executable-hash "$so")
+          sha256sum "$so" | tee "$so.sha256"
+          case "$NETWORK" in
+            devnet)       rpc="${DEVNET_RPC_URL:-https://api.devnet.solana.com}" ;;
+            mainnet-beta) rpc="${MAINNET_RPC_URL:-https://api.mainnet-beta.solana.com}" ;;
+          esac
+          if onchain=$(solana-verify get-program-hash -u "$rpc" "$PROGRAM_ID" 2>/dev/null); then
+            [ "$local" = "$onchain" ] && match=true || match=false
+          else
+            onchain="(not deployed on $NETWORK)"; match=false
+          fi
+          {
+            echo "local=$local"; echo "onchain=$onchain"; echo "match=$match"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Verification summary
+        run: |
+          mkdir -p dist
+          cp "target/deploy/$LIBRARY_NAME.so" "target/deploy/$LIBRARY_NAME.so.sha256" sdk/idl/hub.json dist/
+          {
+            echo "## hub program — verified build"
+            echo
+            echo "| | |"
+            echo "|---|---|"
+            echo "| program id | \`$PROGRAM_ID\` |"
+            echo "| commit | \`${{ github.sha }}\` |"
+            echo "| build image | \`${{ steps.image.outputs.digest }}\` |"
+            echo "| executable hash | \`${{ steps.hash.outputs.local }}\` |"
+            echo "| on-chain hash ($NETWORK) | \`${{ steps.hash.outputs.onchain }}\` |"
+            echo "| match | **${{ steps.hash.outputs.match }}** |"
+            echo
+            echo "Reproduce: \`solana-verify verify-from-repo -u <rpc> --program-id $PROGRAM_ID https://github.com/${{ github.repository }} --commit-hash ${{ github.sha }} --library-name $LIBRARY_NAME\`"
+          } | tee dist/verification-summary.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Enforce hash match
+        if: inputs.strict == true && steps.hash.outputs.match != 'true'
+        run: echo "::error::on-chain program hash differs from this build" && exit 1
+
+      - name: Sign build provenance (SLSA, via OIDC)
+        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2
+        with:
+          subject-path: dist/${{ env.LIBRARY_NAME }}.so
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: hub-verified-build-${{ github.sha }}
+          path: dist/
+          if-no-files-found: error
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        with:
+          body_path: dist/verification-summary.md
+          files: |
+            dist/hub.so
+            dist/hub.so.sha256
+            dist/hub.json
+            dist/verification-summary.md

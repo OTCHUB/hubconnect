@@ -14,8 +14,17 @@ export type { RpcClusterStatus } from "./hooks/useRpcCluster";
 export { WalletPanel } from "./components/WalletPanel";
 export { SwapPanel } from "./components/SwapPanel";
 export { ClaimPanel } from "./components/ClaimPanel";
+export { ActivatePanel } from "./components/ActivatePanel";
+export { useOtcPay } from "./hooks/useOtcPay";
+export { quoteTierChange, buildTierChangeIxs, executeTierChange } from "./lib/activate";
+export type { PayMethod, TierQuote, TierChangePhase, TierChangeResult } from "./lib/activate";
 export { TreasuryPortfolio } from "./components/TreasuryPortfolio";
 export { useTreasuryPortfolio } from "./hooks/useTreasuryPortfolio";
+export { TokenomicsPanel } from "./components/TokenomicsPanel";
+export { PieChart } from "./components/ui/PieChart";
+export type { PieSlice } from "./components/ui/PieChart";
+export { useTokenomics } from "./hooks/useTokenomics";
+export type { Tokenomics } from "./hooks/useTokenomics";
 export type {
   TreasuryPortfolio as TreasuryPortfolioData,
   TreasuryDesk,
