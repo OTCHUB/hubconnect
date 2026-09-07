@@ -1,11 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { PublicKey } from "@solana/web3.js";
-import {
-  MPL_CORE_PROGRAM_ID,
-  fetchDeskTier,
-  type DeskTierView,
-  type ProtocolState,
-} from "@hub-sdk";
+import { fetchDeskTier, fetchOwnedDesks, type DeskTierView, type ProtocolState } from "@hub-sdk";
 import { useHub } from "../HubProvider";
 
 export type OwnedDesk = { asset: string; tier: DeskTierView | null };
@@ -16,35 +11,6 @@ export type WalletPortfolio = {
   hubBalance: number | null;
   desks: OwnedDesk[];
 };
-
-// Core AssetV1 layout (programs/hub/src/instructions/mpl_core.rs):
-//   [0] key=1 · [1..33] owner · [33] UpdateAuthority tag (2 = Collection) · [34..66] collection
-const CORE_KEY_ASSET_V1 = 1;
-const CORE_UA_COLLECTION = 2;
-
-const b64 = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes));
-
-async function fetchOwnedDesks(
-  connection: ReturnType<typeof useHub>["connection"],
-  owner: PublicKey,
-  collection: PublicKey,
-) {
-  const accounts = await connection.getProgramAccounts(new PublicKey(MPL_CORE_PROGRAM_ID), {
-    dataSlice: { offset: 0, length: 0 },
-    filters: [
-      { memcmp: { offset: 0, bytes: b64(Uint8Array.of(CORE_KEY_ASSET_V1)), encoding: "base64" } },
-      { memcmp: { offset: 1, bytes: owner.toBase58() } },
-      {
-        memcmp: {
-          offset: 33,
-          bytes: b64(Uint8Array.of(CORE_UA_COLLECTION, ...collection.toBytes())),
-          encoding: "base64",
-        },
-      },
-    ],
-  });
-  return accounts.map((a) => a.pubkey);
-}
 
 export function useWalletPortfolio(address: string | null, state: ProtocolState | null) {
   const { connection, program, programId } = useHub();

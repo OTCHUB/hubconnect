@@ -21,10 +21,13 @@ if awk "BEGIN{exit !($BAL < $MIN_SOL)}"; then
   exit 1
 fi
 
-anchor build
+# Reproducible artifact (anchor build for the IDL, then the pinned docker image overwrites the
+# .so) so the on-chain hash is verifiable against the repo — see scripts/verify-build.sh.
+scripts/verify-build.sh build
 anchor deploy --provider.cluster "$RPC" --provider.wallet "$WALLET"
 PROGRAM_ID=$(solana-keygen pubkey target/deploy/hub-keypair.json)
 echo "deployed hub program: $PROGRAM_ID"
+HUB_CLUSTER=devnet HUB_WALLET="$WALLET" scripts/verify-build.sh hash
 
 if [ "${1:-}" = "--init" ]; then
   HUB_CLUSTER=devnet HUB_WALLET="$WALLET" npx ts-mocha -p ./tsconfig.json -t 300000 tests/m1-initialize.ts

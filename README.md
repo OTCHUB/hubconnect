@@ -16,7 +16,7 @@ programs/hub/        Anchor program — §B2 accounts, §B3 instructions
 sdk/                 PDA derivation + constants mirror; account decoders (M3)
 keeper/              §B4 services: keeper (epoch+burn), sweeper, treasury (exit), lp
 tests/               anchor-ts suites; HUB_CLUSTER=devnet targets Helius devnet (§B5.1)
-scripts/             devnet-deploy.sh
+scripts/             devnet-deploy.sh · verify-build.sh · devnet-hub-mint.ts · devnet-mock-desks.ts
 docs/                spec, master prompt, evidence/ (mainnet read-only verification)
 ```
 
@@ -54,6 +54,39 @@ scripts/devnet-deploy.sh --init
 ```
 
 All $HUB mechanics pass the devnet stage (mock OTC-side accounts) before any mainnet deploy.
+
+The devnet Config starts with harness placeholders for every OTC-side key. Two operator scripts
+replace them with functional stand-ins (payer = Config.authority):
+
+```sh
+npx ts-node -T scripts/devnet-hub-mint.ts        # SPL mint (1B × 10^6) → Config.hub_mint; ops_wallet → payer
+npx ts-node -T scripts/devnet-mock-desks.ts      # Core collection mirroring mainnet "OTC Desks" (royalties
+                                                 # 5% → pot) + desks minted to the payer; --tiers 1,2,3,0
+                                                 # activates/upgrades them and checks Σw on-chain
+```
+
+`devnet-mock-desks.ts` ends by running the same owner+collection `getProgramAccounts` filter the
+dashboard's `useWalletPortfolio` uses (`fetchOwnedDesks` in `sdk/`), so the web view and the
+program agree on which assets are desks. Tier is program state (`DeskTier`), not NFT metadata —
+the mock assets carry an `Attributes` plugin (`hub_tier_target`) only as a label.
+
+## Verified builds
+
+The deployed `.so` is produced by `solana-verify build` inside the pinned
+`solanafoundation/solana-verifiable-build` image (`[workspace.metadata.cli] solana` in
+`Cargo.toml`), so anyone can rebuild the repo at a commit and compare hashes with the chain
+([docs](https://solana.com/docs/programs/verified-builds)). Requires Docker + `cargo install solana-verify`.
+
+```sh
+scripts/verify-build.sh build              # anchor build (IDL) → docker build → target/deploy/hub.so
+scripts/verify-build.sh hash               # local executable hash vs on-chain program hash
+scripts/verify-build.sh deploy             # extend if larger, upgrade, re-check hash
+scripts/verify-build.sh verify <commit>    # rebuild from GitHub at <commit> and compare (3rd-party path)
+HUB_CLUSTER=mainnet-beta HUB_WALLET=... scripts/verify-build.sh verify <commit>   # + --remote: verify PDA + OtterSec API
+```
+
+`devnet-deploy.sh` uses the same artifact. Local `anchor build` output is fine for tests but is not
+byte-identical to the docker build (host platform-tools differ), so never deploy it directly.
 
 ## Milestones
 

@@ -10,5 +10,5 @@
     "strict": true,
     "skipLibCheck": true
   },
-  "include": ["tests", "sdk", "keeper", "target/types"]
+  "include": ["tests", "sdk", "keeper", "scripts", "target/types"]
 }

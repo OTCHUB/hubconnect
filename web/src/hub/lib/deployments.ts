@@ -31,6 +31,8 @@ const HUB_MAINNET: string | null = null;
 /** Anchor 1.x writes the IDL to a Program Metadata account — written at devnet deploy. */
 const HUB_IDL_DEVNET = "Aa6cpxiNjUsD5Uwz7VMqPBNs9JS8DZdwDy1XFxm3FMYC";
 const OTC_PROGRAM_MAINNET = "AjMx5My4YUDHMiCtLpTAtgkiUJgrpJnQqd5AcQnddHQW";
+/** "OTC Desks" Core collection — read from the OTC Config (9b5V…REU4) on mainnet, 2026-09-07. */
+const OTC_DESKS_COLLECTION_MAINNET = "D7sLW9uKZG3G7bNbWfMHvKSgVhU9nXdv7huTfepF5Jrh";
 /** Pump.fun bonding-curve program — same id on devnet and mainnet (pump-public-docs). */
 const PUMP_PROGRAM = "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P";
 
@@ -72,6 +74,15 @@ export const DEPLOYMENTS: Deployment[] = [
     address: { devnet: null, "mainnet-beta": OTC_PROGRAM_MAINNET },
     status: { devnet: "mock", "mainnet-beta": "external" },
     note: "Mainnet-only; devnet Config points at harness mocks (see live rows below).",
+  },
+  {
+    id: "otc-desks-collection",
+    name: "OTC DESKS COLLECTION",
+    group: "deps",
+    role: "Core collection of the 5,000 desk NFTs; assets in it can activate $HUB tiers.",
+    address: { devnet: null, "mainnet-beta": OTC_DESKS_COLLECTION_MAINNET },
+    status: { devnet: "mock", "mainnet-beta": "external" },
+    note: "Devnet uses a mirror collection minted by scripts/devnet-mock-desks.ts (DESK COLLECTION row below).",
   },
   {
     ...both(PUMP_PROGRAM),

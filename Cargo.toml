@@ -2,6 +2,12 @@
 members = ["programs/*"]
 resolver = "2"
 
+# Pins the `solanafoundation/solana-verifiable-build` image `solana-verify build` uses, so the
+# deployed .so is reproducible by anyone (see scripts/verify-build.sh). Newest image published;
+# Anchor.toml's `solana_version` only governs the host toolchain for IDL generation / tests.
+[workspace.metadata.cli]
+solana = "4.0.3"
+
 [profile.release]
 overflow-checks = true
 lto = "fat"
