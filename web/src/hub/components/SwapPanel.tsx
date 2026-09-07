@@ -122,8 +122,8 @@ export function SwapPanel({ state, address }: Props) {
       onPhase: setPhase,
       shouldContinue: () => gen.current === g && resolveSigner(signer.publicKey) !== null,
     });
-    if (!res.ok) setErr(`Swap stopped: ${res.reason}`);
-    else void balances.refetch();
+    if (res.ok) void balances.refetch();
+    else setErr(`Swap stopped: ${res.reason}`);
     setBusy(false);
     setPhase(null);
   };
