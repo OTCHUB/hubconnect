@@ -70,6 +70,26 @@ dashboard's `useWalletPortfolio` uses (`fetchOwnedDesks` in `sdk/`), so the web 
 program agree on which assets are desks. Tier is program state (`DeskTier`), not NFT metadata —
 the mock assets carry an `Attributes` plugin (`hub_tier_target`) only as a label.
 
+Scale + cycle validation (payer = Config.authority = Config.treasury = BurnState.authority on devnet):
+
+```sh
+npm run devnet:desks -- --count 10 --tiers 1,1,1,1,2,2,2,3,3,4 --recycle
+                                  # batch activate/upgrade in one tx per desk; --recycle finalizes the
+                                  # epoch + claims owned yield whenever the payer runs short (10 desks
+                                  # ≈ 1 SOL net instead of 9); asserts Σw and pot ≥ liability
+npm run devnet:cycle              # sweep mock (seller → treasury, atomic) → consign_desk into the vault
+                                  # PDA → inflow B + E → finalize (10% burn slice) → claim every tier
+                                  # (exact ⌊dist×w/Σw⌋) → burn $HUB from the keeper ATA → record_burn
+npm run authority -- status       # program upgrade authority vs $HUB mint/freeze authority
+npm run authority -- revoke-mint --yes   # irreversible: mint + freeze authority → None
+```
+
+`update_config` is the single admin entry point (`setConfigValue` in `scripts/lib/devnet.ts`):
+`setConfigValue(ctx, "hubMint", { pubkey })`, `("burnPctBp", { u16: 1000 })`,
+`("epochDurationSecs", { u64: 120 })`, `("lpEnabled", { bool: true })`. Rate fields apply to epochs
+finalized after the call; the duration applies to the next epoch `finalize_epoch` opens.
+`HUB_DEVNET_EPOCH_SECS` (default 120) is the epoch length the scripts restore after a catch-up finalize.
+
 ## Verified builds
 
 The deployed `.so` is produced by `solana-verify build` inside the pinned

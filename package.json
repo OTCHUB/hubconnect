@@ -13,6 +13,8 @@
     "lint:fix": "prettier --write tests sdk keeper scripts",
     "devnet:mint": "ts-node -T scripts/devnet-hub-mint.ts",
     "devnet:desks": "ts-node -T scripts/devnet-mock-desks.ts",
+    "devnet:cycle": "ts-node -T scripts/devnet-yield-cycle.ts",
+    "authority": "ts-node -T scripts/hub-authority.ts",
     "idl:copy": "node scripts/copy-idl.mjs"
   },
   "dependencies": {

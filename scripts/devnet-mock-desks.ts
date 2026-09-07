@@ -1,15 +1,18 @@
 // Devnet stand-in for the mainnet "OTC Desks" Core collection (§B5.1 mock) + tiered test desks.
-//   npx ts-node -T scripts/devnet-mock-desks.ts [--count 4] [--tiers 1,2,3,0] [--collection <pk>] [--force]
+//   npx ts-node -T scripts/devnet-mock-desks.ts [--count 4] [--tiers 1,2,3,0] [--recycle]
+//                                                [--new-collection [--force]] [--collection <pk>]
 //
-// 1. Creates a Core collection mirroring mainnet D7sLW9uKZG3G7bNbWfMHvKSgVhU9nXdv7huTfepF5Jrh
-//    (name "OTC Desks", same Arweave URI, Royalties 5% → desk pot) unless --collection is given,
-//    and points Config.desk_collection at it.
+// 1. Reuses Config.desk_collection (the live mock) or, with --new-collection, creates a Core
+//    collection mirroring mainnet D7sLW9uKZG3G7bNbWfMHvKSgVhU9nXdv7huTfepF5Jrh (name "OTC Desks",
+//    same Arweave URI, Royalties 5% → desk pot) and points Config.desk_collection at it.
 // 2. Mints `count` desks ("OTC Desk #n", per-desk Arweave JSON) to the payer wallet. Tier is
 //    program state, not metadata: the Attributes plugin only labels the intended tier.
-// 3. For each desk with tier target > 0: activate_tier (T1) then upgrade_tier up to the target,
-//    paying 0.5 SOL per step (90% pot / 10% ops).
-// 4. Verifies Config.total_weight_bp == Σ TIER_WEIGHTS_BP and that the dashboard's owner+collection
-//    scan (`fetchOwnedDesks`, shared with web/ useWalletPortfolio) returns exactly these assets.
+// 3. For each desk with tier target > 0: activate_tier + upgrade_tier(2..target) batched in one
+//    transaction, 0.5 SOL per step (90% pot / 10% ops). --recycle finalizes the epoch and claims
+//    yield on owned tiers whenever the payer runs short, so a 10-desk run fits a small faucet budget.
+// 4. Verifies Config.total_weight_bp == Σ TIER_WEIGHTS_BP, pot ≥ liability (+ exact liability Δ when
+//    not recycling), and that the dashboard's owner+collection scan (`fetchOwnedDesks`, shared
+//    with web/ useWalletPortfolio) returns exactly these assets.
 import { LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
 import { generateSigner, publicKey as umiPk } from "@metaplex-foundation/umi";
 import { toWeb3JsPublicKey } from "@metaplex-foundation/umi-web3js-adapters";
@@ -22,9 +25,20 @@ import {
   fetchDeskTier,
   fetchOwnedDesks,
   potPda,
+  splitFee,
   tierPda,
 } from "../sdk/src";
-import { devnetCtx, explorer, setConfigPubkey, type Ctx } from "./lib/devnet";
+import {
+  claimAllOwned,
+  devnetCtx,
+  explorer,
+  openEpoch,
+  sendIxs,
+  setConfigPubkey,
+  settleEpoch,
+  sol,
+  type Ctx,
+} from "./lib/devnet";
 
 /** Mainnet collection metadata (fetched 2026-09-07); reused so wallets render the real desk art. */
 const OTC_DESKS = {
@@ -84,6 +98,7 @@ async function mintDesk(ctx: Ctx, collection: PublicKey, n: number, tierTarget: 
   return toWeb3JsPublicKey(asset.publicKey);
 }
 
+/** activate_tier + upgrade_tier(2..target) in ONE transaction: `target` steps × 0.5 SOL. */
 async function setTier(ctx: Ctx, asset: PublicKey, target: number) {
   const cfg = await ctx.program.account.config.fetch(ctx.config);
   const [epoch] = epochPda(ctx.program.programId, cfg.currentEpoch);
@@ -98,45 +113,78 @@ async function setTier(ctx: Ctx, asset: PublicKey, target: number) {
     opsWallet: cfg.opsWallet,
     deskTier,
   };
-  await ctx.program.methods.activateTier().accountsPartial(accounts).rpc();
+  const ixs = [await ctx.program.methods.activateTier().accountsPartial(accounts).instruction()];
   for (let t = 2; t <= target; t++) {
-    await ctx.program.methods.upgradeTier(t).accountsPartial(accounts).rpc();
+    ixs.push(await ctx.program.methods.upgradeTier(t).accountsPartial(accounts).instruction());
   }
+  return sendIxs(ctx, ixs);
+}
+
+/** Net payer cost of `steps`: 90% of each fee goes to the pot (10% returns via ops_wallet). */
+const netStepCost = (steps: number, opsIsPayer: boolean) =>
+  steps * STEP_FEE_LAMPORTS * (opsIsPayer ? 0.9 : 1) + 0.02 * LAMPORTS_PER_SOL;
+
+/**
+ * --recycle: when the payer cannot fund the next desk's steps, close the open epoch and claim
+ * yield on every owned tier — 90% of the step fees paid so far come back (10% is burn slice).
+ */
+async function ensureFunds(ctx: Ctx, lamports: number, recycle: boolean) {
+  const bal = await ctx.connection.getBalance(ctx.payer.publicKey);
+  if (bal >= lamports) return;
+  if (!recycle) {
+    throw new Error(
+      `need ${sol(lamports)} for the next desk; payer has ${sol(bal)} (pass --recycle)`,
+    );
+  }
+  console.log(`payer ${sol(bal)} < ${sol(lamports)} — recycling via finalize + claim_yield`);
+  const { idx } = await settleEpoch(ctx);
+  const r = await claimAllOwned(ctx, idx);
+  console.log(`  claimed ${r.claims} epoch-rounds on ${r.desks} desks → +${sol(r.received)}`);
+  const now = await ctx.connection.getBalance(ctx.payer.publicKey);
+  if (now < lamports) throw new Error(`still short after recycle: ${sol(now)} < ${sol(lamports)}`);
 }
 
 async function main() {
   const ctx = await devnetCtx();
   const count = Number(arg("--count", "4"));
   const tiers = arg("--tiers", "1,2,3,0").split(",").map(Number);
+  const recycle = process.argv.includes("--recycle");
   if (tiers.length !== count || tiers.some((t) => !(t >= 0 && t <= TIER_WEIGHTS_BP.length))) {
     throw new Error(`--tiers needs ${count} values in 0..${TIER_WEIGHTS_BP.length}`);
   }
   const cfg = await ctx.program.account.config.fetch(ctx.config);
-  if (
-    cfg.totalWeightBp.toNumber() > 0 &&
-    !arg("--collection", "") &&
-    !process.argv.includes("--force")
-  ) {
-    throw new Error(
-      "Σw > 0: switching desk_collection orphans live tiers — pass --collection or --force",
-    );
+  // Reuse the live mock collection by default: switching desk_collection orphans live tiers.
+  const liveMock =
+    !cfg.deskCollection.equals(PublicKey.default) && !process.argv.includes("--new-collection");
+  const collection = liveMock ? cfg.deskCollection : await ensureCollection(ctx, cfg.otcDeskPot);
+  if (!liveMock && cfg.totalWeightBp.toNumber() > 0 && !process.argv.includes("--force")) {
+    throw new Error("Σw > 0: switching desk_collection orphans live tiers — pass --force");
   }
-  const stepsSol = (tiers.reduce((s, t) => s + t, 0) * STEP_FEE_LAMPORTS) / LAMPORTS_PER_SOL;
-  const bal = (await ctx.connection.getBalance(ctx.payer.publicKey)) / LAMPORTS_PER_SOL;
-  if (bal < stepsSol + 0.15)
-    throw new Error(`tier steps need ${stepsSol} SOL + rent; payer has ${bal.toFixed(3)}`);
-
-  const collection = await ensureCollection(ctx, cfg.otcDeskPot);
   await setConfigPubkey(ctx, "deskCollection", collection);
+  const opsIsPayer = cfg.opsWallet.equals(ctx.payer.publicKey);
+  const totalSteps = tiers.reduce((s, t) => s + t, 0);
+  const bal = await ctx.connection.getBalance(ctx.payer.publicKey);
+  console.log(
+    `${count} desks · ${totalSteps} tier steps = ${sol(totalSteps * STEP_FEE_LAMPORTS)} gross · payer ${sol(bal)}${recycle ? " · --recycle on" : ""}`,
+  );
+  if (!recycle && bal < netStepCost(totalSteps, opsIsPayer)) {
+    throw new Error(`tier steps need ~${sol(netStepCost(totalSteps, opsIsPayer))}; pass --recycle`);
+  }
   const start =
     Number((await fetchCollection(ctx.umi, umiPk(collection.toBase58()))).numMinted) + 1;
 
+  // Mint first (cheap: rent only), then activate so a recycle pause never leaves a desk half-set.
   const minted: PublicKey[] = [];
   for (let i = 0; i < count; i++) {
     const asset = await mintDesk(ctx, collection, start + i, tiers[i]);
     minted.push(asset);
     console.log(`desk #${start + i} ${asset.toBase58()} → target T${tiers[i]}`);
-    if (tiers[i] > 0) await setTier(ctx, asset, tiers[i]);
+  }
+  for (let i = 0; i < count; i++) {
+    if (tiers[i] === 0) continue;
+    await ensureFunds(ctx, netStepCost(tiers[i], opsIsPayer), recycle);
+    const sig = await setTier(ctx, minted[i], tiers[i]);
+    console.log(`  #${start + i} → T${tiers[i]} ${TIER_NAMES[tiers[i] - 1]} in one tx (${sig})`);
   }
 
   // Σw: the program's running total must equal the sum of the tier weights we just set.
@@ -148,6 +196,26 @@ async function main() {
   console.log(
     `Σ_WEIGHT on-chain ${after.totalWeightBp.toNumber()} bp · expected ${expected} bp · ${ok ? "OK" : "MISMATCH"}`,
   );
+  // Pot liability: every step books 0.45 SOL of inflow. With --recycle the epoch may have been
+  // finalized/claimed mid-run, so reconcile against the open epoch's inflow + burn + rounds instead.
+  const [potKey] = potPda(ctx.program.programId);
+  const potLamports = await ctx.connection.getBalance(potKey);
+  const floor = await ctx.connection.getMinimumBalanceForRentExemption(0);
+  const liability = after.potLiabilityLamports.toNumber();
+  const { epoch } = await openEpoch(ctx);
+  const solvent = potLamports - floor >= liability;
+  console.log(
+    `POT ${sol(potLamports)} · liability ${sol(liability)} · open-epoch inflow ${sol(epoch.inflowLamports)} · ${solvent ? "SOLVENT" : "UNDERWATER"}`,
+  );
+  if (!recycle) {
+    const expLiab =
+      cfg.potLiabilityLamports.toNumber() + totalSteps * splitFee(STEP_FEE_LAMPORTS).toPot;
+    console.log(
+      `  liability Δ expected ${sol(expLiab)} · ${liability === expLiab ? "OK" : "MISMATCH"}`,
+    );
+    if (liability !== expLiab) process.exit(2);
+  }
+  if (!solvent) process.exit(2);
 
   // Same scan the dashboard runs for a connected wallet.
   const seen = await fetchOwnedDesks(ctx.connection, ctx.payer.publicKey, collection);
