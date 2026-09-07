@@ -18,8 +18,9 @@ pub const OPS_PCT_BP: u16 = 1_000;
 /// BUYBACK_BURN_PCT = 10% of every pot inflow.
 pub const BURN_PCT_BP: u16 = 1_000;
 
-/// EPOCH_HOURS = 24.
+/// EPOCH_HOURS = 24. Stored on Config as seconds so tests/devnet can shorten it.
 pub const EPOCH_HOURS: u16 = 24;
+pub const EPOCH_DURATION_SECS: u64 = EPOCH_HOURS as u64 * 3600;
 
 /// EXIT_DISCOUNT 10% off live floor / HUB leg 50% burned / SOL leg 50% → pot.
 pub const EXIT_DISCOUNT_BP: u16 = 1_000;
@@ -52,7 +53,17 @@ pub const SEED_ACCRUAL: &[u8] = b"accrual";
 pub const SEED_POT: &[u8] = b"pot";
 pub const SEED_BURN: &[u8] = b"burn";
 pub const SEED_TREASURY: &[u8] = b"treasury";
+/// Program-signed custody PDA that owns consigned desk assets (§A6.1).
+pub const SEED_VAULT: &[u8] = b"vault";
+
+/// Metaplex Core program (desk NFTs are Core assets, §A2).
+pub const MPL_CORE_ID: Pubkey = pubkey!("CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d");
+/// Core `Key::AssetV1` discriminator and `UpdateAuthority::Collection` tag.
+pub const CORE_KEY_ASSET_V1: u8 = 1;
+pub const CORE_UA_COLLECTION: u8 = 2;
+/// Core `TransferV1` instruction discriminator.
+pub const CORE_IX_TRANSFER_V1: u8 = 14;
 
 #[constant]
 pub const SEEDS_DOC: &str =
-    "config|epoch+u64|tier+asset|consign+asset|accrual+wallet+u64|pot|burn|treasury";
+    "config|epoch+u64|tier+asset|consign+asset|accrual+wallet+u64|pot|burn|treasury|vault";

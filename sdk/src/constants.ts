@@ -8,6 +8,7 @@ export const STEP_FEE_LAMPORTS = LAMPORTS_PER_SOL / 2;
 export const OPS_PCT_BP = 1_000;
 export const BURN_PCT_BP = 1_000;
 export const EPOCH_HOURS = 24;
+export const EPOCH_DURATION_SECS = EPOCH_HOURS * 3600;
 
 export const EXIT_DISCOUNT_BP = 1_000;
 export const EXIT_HUB_LEG_BP = 5_000;
@@ -20,5 +21,17 @@ export const LP_ENABLED = false;
 export const LP_TARGET_SOL_LAMPORTS = 100 * LAMPORTS_PER_SOL;
 export const TREASURY_HUB_FLOAT_CAP_BP = 200;
 
+export const MPL_CORE_PROGRAM_ID = "CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d";
+export const HUB_PROGRAM_ID = "DPEioLagahMiVy4xfSzeKLWjWho8GZhbvK85BgTkY8qW";
+
+export const TIER_NAMES = ["BRONZE", "SILVER", "GOLD", "DIAMOND"] as const;
+
 /** Cumulative step fee to reach `tier` from tier 0 (§A4). */
 export const cumulativeFeeLamports = (tier: number) => STEP_FEE_LAMPORTS * tier;
+/** Fee to move `from` → `to` (from = 0 is a fresh activation). */
+export const stepFeeLamports = (from: number, to: number) => STEP_FEE_LAMPORTS * (to - from);
+/** 90/10 split of a step fee. */
+export const splitFee = (fee: number) => {
+  const toOps = Math.floor((fee * OPS_PCT_BP) / BPS);
+  return { toOps, toPot: fee - toOps };
+};

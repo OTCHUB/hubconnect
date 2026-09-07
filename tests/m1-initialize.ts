@@ -1,54 +1,25 @@
 // M1 gate: initialize_config writes Appendix constants; admin paths enforce authority.
 import { expect } from "chai";
-import { Keypair, PublicKey } from "@solana/web3.js";
-import { setup, Harness } from "./harness";
-import { burnPda, configPda, potPda, treasuryPda } from "../sdk/src/pda";
+import { Keypair } from "@solana/web3.js";
+import { setup, Harness, ensureInitialized, Fixture, expectFail } from "./harness";
+import { epochPda } from "../sdk/src/pda";
 import * as K from "../sdk/src/constants";
 
 describe("M1 — initialize_config", () => {
   let h: Harness;
-  let config: PublicKey;
-  let pot: PublicKey;
-  let burn: PublicKey;
-  let treasuryState: PublicKey;
-
-  // Mock OTC-side addresses (§A2: resolved from Config, never compiled in).
-  const mocks = {
-    opsWallet: Keypair.generate().publicKey,
-    treasury: Keypair.generate().publicKey,
-    otcProgram: Keypair.generate().publicKey,
-    otcDeskPot: Keypair.generate().publicKey,
-    deskCollection: Keypair.generate().publicKey,
-    hubMint: Keypair.generate().publicKey,
-    otcMint: Keypair.generate().publicKey,
-  };
+  let f: Fixture;
 
   before(async () => {
     h = await setup();
-    [config] = configPda(h.program.programId);
-    [pot] = potPda(h.program.programId);
-    [burn] = burnPda(h.program.programId);
-    [treasuryState] = treasuryPda(h.program.programId);
+    f = await ensureInitialized(h);
   });
 
-  it("initializes Config/BurnState/TreasuryState with Appendix defaults", async function () {
-    const existing = await h.program.account.config.fetchNullable(config);
-    if (existing) {
-      // Devnet re-runs: Config is a singleton; assert instead of re-init.
-      expect(existing.stepFeeLamports.toNumber()).to.eq(K.STEP_FEE_LAMPORTS);
-      return;
-    }
-
-    await h.program.methods
-      .initializeConfig({ ...mocks })
-      .accounts({ payer: h.payer.publicKey, config, pot, burn, treasuryState })
-      .rpc();
-
-    const c = await h.program.account.config.fetch(config);
+  it("initializes Config/BurnState/TreasuryState/Epoch0 with Appendix defaults", async () => {
+    const c = await h.program.account.config.fetch(f.config);
     expect(c.authority.toBase58()).to.eq(h.payer.publicKey.toBase58());
-    expect(c.pot.toBase58()).to.eq(pot.toBase58());
-    expect(c.opsWallet.toBase58()).to.eq(mocks.opsWallet.toBase58());
-    expect(c.deskCollection.toBase58()).to.eq(mocks.deskCollection.toBase58());
+    expect(c.pot.toBase58()).to.eq(f.pot.toBase58());
+    expect(c.opsWallet.toBase58()).to.eq(f.opsWallet.toBase58());
+    expect(c.deskCollection.toBase58()).to.eq(f.deskCollection.toBase58());
     expect(c.tierWeightsBp).to.deep.eq([...K.TIER_WEIGHTS_BP]);
     expect(c.stepFeeLamports.toNumber()).to.eq(K.STEP_FEE_LAMPORTS);
     expect(c.epochHours).to.eq(K.EPOCH_HOURS);
@@ -58,9 +29,9 @@ describe("M1 — initialize_config", () => {
     expect(c.consignorShareBp).to.eq(K.CONSIGNOR_SHARE_BP);
     expect(c.lpEnabled).to.eq(K.LP_ENABLED);
     expect(c.paused).to.eq(false);
-    expect(c.currentEpoch.toNumber()).to.eq(0);
 
-    const t = await h.program.account.treasuryState.fetch(treasuryState);
+    const t = await h.program.account.treasuryState.fetch(f.treasuryState);
+    expect(t.vault.toBase58()).to.eq(f.vault.toBase58());
     expect(t.sweepBudgetCapBp).to.eq(K.SWEEP_BUDGET_CAP_BP);
     expect(t.sweepPaybackCapLamports.toNumber()).to.eq(K.SWEEP_PAYBACK_CAP_LAMPORTS);
     expect(t.exitDiscountBp).to.eq(K.EXIT_DISCOUNT_BP);
@@ -68,64 +39,69 @@ describe("M1 — initialize_config", () => {
     expect(t.floorStalenessBp).to.eq(K.FLOOR_STALENESS_BP);
     expect(t.hubFloatCapBp).to.eq(K.TREASURY_HUB_FLOAT_CAP_BP);
 
-    const b = await h.program.account.burnState.fetch(burn);
+    const b = await h.program.account.burnState.fetch(f.burn);
     expect(b.burnPendingLamports.toNumber()).to.eq(0);
+
+    const [e0] = epochPda(h.program.programId, 0);
+    const e = await h.program.account.epoch.fetch(e0);
+    expect(e.index.toNumber()).to.eq(0);
+    expect(e.endTs.toNumber() - e.startTs.toNumber()).to.eq(c.epochDurationSecs.toNumber());
+
+    // Pot holds at least its rent floor so it can be drained to exactly its liability.
+    const rent = await h.provider.connection.getMinimumBalanceForRentExemption(0);
+    expect(await h.provider.connection.getBalance(f.pot)).to.be.gte(rent);
   });
 
   it("rejects a second initialize_config (singleton)", async () => {
-    let failed = false;
-    try {
-      await h.program.methods
-        .initializeConfig({ ...mocks })
-        .accounts({ payer: h.payer.publicKey, config, pot, burn, treasuryState })
-        .rpc();
-    } catch {
-      failed = true;
-    }
-    expect(failed).to.eq(true);
+    const [epoch0] = epochPda(h.program.programId, 0);
+    await expectFail(
+      h.program.methods
+        .initializeConfig({
+          opsWallet: f.opsWallet,
+          treasury: h.payer.publicKey,
+          otcProgram: Keypair.generate().publicKey,
+          otcDeskPot: Keypair.generate().publicKey,
+          deskCollection: f.deskCollection,
+          hubMint: Keypair.generate().publicKey,
+          otcMint: Keypair.generate().publicKey,
+          epochDurationSecs: new (await import("@coral-xyz/anchor")).BN(0),
+        })
+        .accountsPartial({ payer: h.payer.publicKey, ...f, epoch0 })
+        .rpc(),
+    );
   });
 
   it("pause/unpause toggles Config.paused; non-authority is rejected", async () => {
-    await h.program.methods.pause().accounts({ authority: h.payer.publicKey, config }).rpc();
-    expect((await h.program.account.config.fetch(config)).paused).to.eq(true);
-    await h.program.methods.unpause().accounts({ authority: h.payer.publicKey, config }).rpc();
-    expect((await h.program.account.config.fetch(config)).paused).to.eq(false);
+    await h.program.methods
+      .pause()
+      .accountsPartial({ authority: h.payer.publicKey, config: f.config })
+      .rpc();
+    expect((await h.program.account.config.fetch(f.config)).paused).to.eq(true);
+    await h.program.methods
+      .unpause()
+      .accountsPartial({ authority: h.payer.publicKey, config: f.config })
+      .rpc();
+    expect((await h.program.account.config.fetch(f.config)).paused).to.eq(false);
 
     const intruder = Keypair.generate();
-    let failed = false;
-    try {
-      await h.program.methods
+    await expectFail(
+      h.program.methods
         .pause()
-        .accounts({ authority: intruder.publicKey, config })
+        .accountsPartial({ authority: intruder.publicKey, config: f.config })
         .signers([intruder])
-        .rpc();
-    } catch {
-      failed = true;
-    }
-    expect(failed).to.eq(true);
+        .rpc(),
+    );
   });
 
   it("update_config: whitelisted bps field applies; out-of-range bps rejected", async () => {
-    await h.program.methods
-      .updateConfig({ burnPctBp: {} }, { u16: [1_500] })
-      .accounts({ authority: h.payer.publicKey, config })
-      .rpc();
-    expect((await h.program.account.config.fetch(config)).burnPctBp).to.eq(1_500);
-
-    let failed = false;
-    try {
-      await h.program.methods
-        .updateConfig({ burnPctBp: {} }, { u16: [20_000] })
-        .accounts({ authority: h.payer.publicKey, config })
+    const set = (v: number) =>
+      h.program.methods
+        .updateConfig({ burnPctBp: {} }, { u16: [v] })
+        .accountsPartial({ authority: h.payer.publicKey, config: f.config })
         .rpc();
-    } catch {
-      failed = true;
-    }
-    expect(failed).to.eq(true);
-
-    await h.program.methods
-      .updateConfig({ burnPctBp: {} }, { u16: [K.BURN_PCT_BP] })
-      .accounts({ authority: h.payer.publicKey, config })
-      .rpc();
+    await set(1_500);
+    expect((await h.program.account.config.fetch(f.config)).burnPctBp).to.eq(1_500);
+    await expectFail(set(20_000), "BpsOutOfRange");
+    await set(K.BURN_PCT_BP);
   });
 });

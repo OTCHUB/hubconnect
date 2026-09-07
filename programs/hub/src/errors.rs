@@ -16,6 +16,32 @@ pub enum HubError {
     InvalidTierStep,
     #[msg("Tier is already at maximum")]
     TierMaxed,
+    #[msg("Tier is already active; use upgrade_tier")]
+    TierAlreadyActive,
+    #[msg("Claim all finalized epochs before upgrading")]
+    ClaimBeforeUpgrade,
+    #[msg("Claims must be made sequentially, starting at the activation epoch")]
+    ClaimOutOfOrder,
+    #[msg("Epoch has no allotment for this tier")]
+    NotEligibleForEpoch,
+    #[msg("Account is not a Metaplex Core AssetV1")]
+    NotCoreAsset,
+    #[msg("Wrong epoch account for the current epoch")]
+    WrongEpoch,
+    #[msg("Epoch index is not the current open epoch")]
+    EpochNotCurrent,
+    #[msg("Amount must be greater than zero")]
+    ZeroAmount,
+    #[msg("Desk is already consigned")]
+    AlreadyConsigned,
+    #[msg("Burn spend exceeds burn-pending")]
+    BurnExceedsPending,
+    #[msg("Accrual has nothing owed")]
+    AccrualEmpty,
+    #[msg("LP position for this pair already exists (one per pair)")]
+    LpPositionExists,
+    #[msg("Consigned desks are not eligible for treasury exits")]
+    ConsignedNotExitable,
     #[msg("Tier has been voided by an ownership change; re-activate")]
     TierVoided,
     #[msg("Caller does not own the desk asset")]

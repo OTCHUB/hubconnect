@@ -10,6 +10,7 @@ export const SEEDS = {
   pot: Buffer.from("pot"),
   burn: Buffer.from("burn"),
   treasury: Buffer.from("treasury"),
+  vault: Buffer.from("vault"),
 } as const;
 
 const u64le = (n: BN | number | bigint) => new BN(n.toString()).toArrayLike(Buffer, "le", 8);
@@ -25,6 +26,9 @@ export function burnPda(programId: PublicKey) {
 }
 export function treasuryPda(programId: PublicKey) {
   return PublicKey.findProgramAddressSync([SEEDS.treasury], programId);
+}
+export function vaultPda(programId: PublicKey) {
+  return PublicKey.findProgramAddressSync([SEEDS.vault], programId);
 }
 export function epochPda(programId: PublicKey, index: BN | number | bigint) {
   return PublicKey.findProgramAddressSync([SEEDS.epoch, u64le(index)], programId);

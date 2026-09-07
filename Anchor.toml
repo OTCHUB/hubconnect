@@ -23,7 +23,16 @@ wallet = "~/.config/solana/hubconnect-devnet.json"
 test = "npx ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"
 
 [test]
-startup_wait = 10000
+startup_wait = 20000
 
+# Localnet clones Metaplex Core from devnet so desk-asset ownership checks run against the
+# real program (§B5.1). Set HELIUS_API_KEY in .env to use Helius for the clone source.
 [test.validator]
 url = "https://api.devnet.solana.com"
+
+[[test.validator.clone]]
+address = "CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d"
+
+# mpl-core ProgramData (upgradeable loader); without it the cloned program is "closed".
+[[test.validator.clone]]
+address = "9ZC25KLUrfgSoFVgjE1rrydZBbZns58UXi8A8ZhTdGfr"

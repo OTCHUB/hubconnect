@@ -1,0 +1,2959 @@
+{
+  "address": "DPEioLagahMiVy4xfSzeKLWjWho8GZhbvK85BgTkY8qW",
+  "metadata": {
+    "name": "hub",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "$HUB protocol — stake-to-earn layer for OTC desk NFTs (community tooling)"
+  },
+  "instructions": [
+    {
+      "name": "activate_tier",
+      "docs": [
+        "§B3 #2"
+      ],
+      "discriminator": [
+        2,
+        202,
+        143,
+        147,
+        26,
+        29,
+        231,
+        192
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "desk_asset"
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "epoch",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  112,
+                  111,
+                  99,
+                  104
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "config.current_epoch",
+                "account": "Config"
+              }
+            ]
+          }
+        },
+        {
+          "name": "pot",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "ops_wallet",
+          "writable": true
+        },
+        {
+          "name": "desk_tier",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  105,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "desk_asset"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "build_lp",
+      "docs": [
+        "§B3 #13"
+      ],
+      "discriminator": [
+        55,
+        70,
+        38,
+        199,
+        160,
+        184,
+        85,
+        251
+      ],
+      "accounts": [
+        {
+          "name": "treasury",
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "lp_vault",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "pair",
+          "type": {
+            "defined": {
+              "name": "LpPair"
+            }
+          }
+        },
+        {
+          "name": "hub_amount",
+          "type": "u64"
+        },
+        {
+          "name": "quote_amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "claim_accrual",
+      "docs": [
+        "Pays a wallet-level StakerAccrual (consignor share credits)."
+      ],
+      "discriminator": [
+        179,
+        84,
+        221,
+        93,
+        63,
+        114,
+        51,
+        191
+      ],
+      "accounts": [
+        {
+          "name": "wallet",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "accrual"
+          ]
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "accrual",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  99,
+                  99,
+                  114,
+                  117,
+                  97,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "wallet"
+              },
+              {
+                "kind": "arg",
+                "path": "epoch_index"
+              }
+            ]
+          }
+        },
+        {
+          "name": "pot",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "epoch_index",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "claim_yield",
+      "docs": [
+        "§B3 #5 (lazy revocation → #8 void_tier)"
+      ],
+      "discriminator": [
+        49,
+        74,
+        111,
+        7,
+        186,
+        22,
+        61,
+        165
+      ],
+      "accounts": [
+        {
+          "name": "claimer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "desk_asset"
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "desk_tier",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  105,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "desk_asset"
+              }
+            ]
+          }
+        },
+        {
+          "name": "epoch",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  112,
+                  111,
+                  99,
+                  104
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "epoch_index"
+              }
+            ]
+          }
+        },
+        {
+          "name": "pot",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "epoch_index",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "consign_desk",
+      "docs": [
+        "§B3 #11"
+      ],
+      "discriminator": [
+        166,
+        87,
+        176,
+        166,
+        3,
+        58,
+        174,
+        123
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "desk_asset",
+          "writable": true
+        },
+        {
+          "name": "desk_collection"
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "consigned_desk",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  115,
+                  105,
+                  103,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "desk_asset"
+              }
+            ]
+          }
+        },
+        {
+          "name": "mpl_core_program"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "finalize_epoch",
+      "docs": [
+        "§B3 #4"
+      ],
+      "discriminator": [
+        159,
+        93,
+        117,
+        217,
+        63,
+        44,
+        249,
+        76
+      ],
+      "accounts": [
+        {
+          "name": "keeper",
+          "docs": [
+            "Permissionless: the math is deterministic, so any keeper may close an ended epoch."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "epoch",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  112,
+                  111,
+                  99,
+                  104
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "epoch_index"
+              }
+            ]
+          }
+        },
+        {
+          "name": "next_epoch",
+          "writable": true
+        },
+        {
+          "name": "pot",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "burn",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  114,
+                  110
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "epoch_index",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "initialize_config",
+      "docs": [
+        "§B3 #1"
+      ],
+      "discriminator": [
+        208,
+        127,
+        21,
+        1,
+        194,
+        190,
+        196,
+        70
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "pot",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "burn",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  114,
+                  110
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "epoch0",
+          "docs": [
+            "Genesis epoch — the open epoch must always exist (§B3 #4 roll-forward chain)."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  112,
+                  111,
+                  99,
+                  104
+                ]
+              },
+              {
+                "kind": "const",
+                "value": [
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0,
+                  0
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "args",
+          "type": {
+            "defined": {
+              "name": "InitializeConfigArgs"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "pause",
+      "docs": [
+        "§B3 #10"
+      ],
+      "discriminator": [
+        211,
+        22,
+        221,
+        251,
+        74,
+        121,
+        193,
+        47
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "record_burn",
+      "docs": [
+        "§B3 #7"
+      ],
+      "discriminator": [
+        254,
+        128,
+        98,
+        33,
+        0,
+        74,
+        165,
+        252
+      ],
+      "accounts": [
+        {
+          "name": "keeper",
+          "docs": [
+            "Must be `burn.authority`: fronts SOL for the market buy, reimbursed here on proof of burn."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "burn",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  114,
+                  110
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "pot",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "hub_burned",
+          "type": "u64"
+        },
+        {
+          "name": "lamports_spent",
+          "type": "u64"
+        },
+        {
+          "name": "burn_tx",
+          "type": {
+            "array": [
+              "u8",
+              64
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "register_consigned_inflow",
+      "docs": [
+        "§B3 #6, source E — consignor-share split (§A6.1)."
+      ],
+      "discriminator": [
+        157,
+        175,
+        147,
+        30,
+        57,
+        195,
+        251,
+        106
+      ],
+      "accounts": [
+        {
+          "name": "treasury",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "epoch",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  112,
+                  111,
+                  99,
+                  104
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "config.current_epoch",
+                "account": "Config"
+              }
+            ]
+          }
+        },
+        {
+          "name": "pot",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "consigned_desk",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  115,
+                  105,
+                  103,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "consigned_desk.asset_id",
+                "account": "ConsignedDesk"
+              }
+            ]
+          }
+        },
+        {
+          "name": "consignor_accrual",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  99,
+                  99,
+                  114,
+                  117,
+                  97,
+                  108
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "consigned_desk.consignor",
+                "account": "ConsignedDesk"
+              },
+              {
+                "kind": "account",
+                "path": "config.current_epoch",
+                "account": "Config"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "lamports",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "register_treasury_inflow",
+      "docs": [
+        "§B3 #6"
+      ],
+      "discriminator": [
+        47,
+        132,
+        148,
+        203,
+        46,
+        53,
+        223,
+        90
+      ],
+      "accounts": [
+        {
+          "name": "treasury",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "epoch",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  112,
+                  111,
+                  99,
+                  104
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "config.current_epoch",
+                "account": "Config"
+              }
+            ]
+          }
+        },
+        {
+          "name": "pot",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "source",
+          "type": {
+            "defined": {
+              "name": "InflowSource"
+            }
+          }
+        },
+        {
+          "name": "lamports",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "unconsign_desk",
+      "docs": [
+        "§B3 #12"
+      ],
+      "discriminator": [
+        133,
+        87,
+        235,
+        90,
+        130,
+        163,
+        82,
+        160
+      ],
+      "accounts": [
+        {
+          "name": "consignor",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "consigned_desk"
+          ]
+        },
+        {
+          "name": "desk_asset",
+          "writable": true
+        },
+        {
+          "name": "desk_collection"
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "consign_epoch",
+          "docs": [
+            "The consignment epoch must be closed so no round is double-counted (§A6.1)."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  112,
+                  111,
+                  99,
+                  104
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "consigned_desk.consigned_epoch",
+                "account": "ConsignedDesk"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "consigned_desk",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  115,
+                  105,
+                  103,
+                  110
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "desk_asset"
+              }
+            ]
+          }
+        },
+        {
+          "name": "mpl_core_program"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "unpause",
+      "docs": [
+        "§B3 #10"
+      ],
+      "discriminator": [
+        169,
+        144,
+        4,
+        38,
+        10,
+        141,
+        188,
+        255
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "update_config",
+      "docs": [
+        "§B3 #9"
+      ],
+      "discriminator": [
+        29,
+        158,
+        252,
+        191,
+        10,
+        83,
+        219,
+        99
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "field",
+          "type": {
+            "defined": {
+              "name": "ConfigField"
+            }
+          }
+        },
+        {
+          "name": "value",
+          "type": {
+            "defined": {
+              "name": "ConfigValue"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "upgrade_tier",
+      "docs": [
+        "§B3 #3 — pays exactly `(target_tier - current) × step_fee`."
+      ],
+      "discriminator": [
+        122,
+        56,
+        170,
+        60,
+        252,
+        234,
+        190,
+        51
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "desk_asset"
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "epoch",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  112,
+                  111,
+                  99,
+                  104
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "config.current_epoch",
+                "account": "Config"
+              }
+            ]
+          }
+        },
+        {
+          "name": "pot",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "ops_wallet",
+          "writable": true
+        },
+        {
+          "name": "desk_tier",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  105,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "desk_asset"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "target_tier",
+          "type": "u8"
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "BurnState",
+      "discriminator": [
+        21,
+        157,
+        214,
+        236,
+        176,
+        133,
+        70,
+        52
+      ]
+    },
+    {
+      "name": "Config",
+      "discriminator": [
+        155,
+        12,
+        170,
+        224,
+        30,
+        250,
+        204,
+        130
+      ]
+    },
+    {
+      "name": "ConsignedDesk",
+      "discriminator": [
+        246,
+        189,
+        11,
+        19,
+        219,
+        54,
+        90,
+        0
+      ]
+    },
+    {
+      "name": "DeskTier",
+      "discriminator": [
+        13,
+        102,
+        197,
+        1,
+        133,
+        89,
+        205,
+        199
+      ]
+    },
+    {
+      "name": "Epoch",
+      "discriminator": [
+        93,
+        83,
+        120,
+        89,
+        151,
+        138,
+        152,
+        108
+      ]
+    },
+    {
+      "name": "StakerAccrual",
+      "discriminator": [
+        213,
+        19,
+        206,
+        218,
+        211,
+        157,
+        148,
+        110
+      ]
+    },
+    {
+      "name": "TreasuryState",
+      "discriminator": [
+        240,
+        56,
+        226,
+        158,
+        138,
+        244,
+        79,
+        154
+      ]
+    }
+  ],
+  "events": [
+    {
+      "name": "AccrualClaimed",
+      "discriminator": [
+        86,
+        99,
+        51,
+        211,
+        226,
+        48,
+        235,
+        238
+      ]
+    },
+    {
+      "name": "BurnRecorded",
+      "discriminator": [
+        217,
+        168,
+        29,
+        198,
+        28,
+        67,
+        77,
+        142
+      ]
+    },
+    {
+      "name": "DeskConsigned",
+      "discriminator": [
+        169,
+        15,
+        200,
+        51,
+        212,
+        46,
+        86,
+        179
+      ]
+    },
+    {
+      "name": "DeskUnconsigned",
+      "discriminator": [
+        26,
+        252,
+        178,
+        11,
+        128,
+        237,
+        38,
+        46
+      ]
+    },
+    {
+      "name": "EpochFinalized",
+      "discriminator": [
+        109,
+        54,
+        231,
+        81,
+        101,
+        249,
+        145,
+        107
+      ]
+    },
+    {
+      "name": "InflowRegistered",
+      "discriminator": [
+        219,
+        9,
+        79,
+        67,
+        127,
+        91,
+        205,
+        111
+      ]
+    },
+    {
+      "name": "LpBuilt",
+      "discriminator": [
+        99,
+        165,
+        50,
+        24,
+        253,
+        107,
+        97,
+        177
+      ]
+    },
+    {
+      "name": "TierActivated",
+      "discriminator": [
+        197,
+        100,
+        54,
+        44,
+        40,
+        207,
+        221,
+        194
+      ]
+    },
+    {
+      "name": "TierUpgraded",
+      "discriminator": [
+        141,
+        12,
+        195,
+        74,
+        212,
+        102,
+        162,
+        123
+      ]
+    },
+    {
+      "name": "TierVoided",
+      "discriminator": [
+        8,
+        138,
+        53,
+        221,
+        230,
+        61,
+        5,
+        126
+      ]
+    },
+    {
+      "name": "YieldClaimed",
+      "discriminator": [
+        177,
+        201,
+        94,
+        68,
+        19,
+        200,
+        227,
+        27
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "Paused",
+      "msg": "Program is paused"
+    },
+    {
+      "code": 6001,
+      "name": "Unauthorized",
+      "msg": "Unauthorized"
+    },
+    {
+      "code": 6002,
+      "name": "BpsOutOfRange",
+      "msg": "Basis-point value out of range"
+    },
+    {
+      "code": 6003,
+      "name": "FieldNotUpdatable",
+      "msg": "Config field is not whitelisted for update"
+    },
+    {
+      "code": 6004,
+      "name": "InvalidTier",
+      "msg": "Tier out of range (1-4)"
+    },
+    {
+      "code": 6005,
+      "name": "InvalidTierStep",
+      "msg": "Tier can only be upgraded by exactly one step from current"
+    },
+    {
+      "code": 6006,
+      "name": "TierMaxed",
+      "msg": "Tier is already at maximum"
+    },
+    {
+      "code": 6007,
+      "name": "TierAlreadyActive",
+      "msg": "Tier is already active; use upgrade_tier"
+    },
+    {
+      "code": 6008,
+      "name": "ClaimBeforeUpgrade",
+      "msg": "Claim all finalized epochs before upgrading"
+    },
+    {
+      "code": 6009,
+      "name": "ClaimOutOfOrder",
+      "msg": "Claims must be made sequentially, starting at the activation epoch"
+    },
+    {
+      "code": 6010,
+      "name": "NotEligibleForEpoch",
+      "msg": "Epoch has no allotment for this tier"
+    },
+    {
+      "code": 6011,
+      "name": "NotCoreAsset",
+      "msg": "Account is not a Metaplex Core AssetV1"
+    },
+    {
+      "code": 6012,
+      "name": "WrongEpoch",
+      "msg": "Wrong epoch account for the current epoch"
+    },
+    {
+      "code": 6013,
+      "name": "EpochNotCurrent",
+      "msg": "Epoch index is not the current open epoch"
+    },
+    {
+      "code": 6014,
+      "name": "ZeroAmount",
+      "msg": "Amount must be greater than zero"
+    },
+    {
+      "code": 6015,
+      "name": "AlreadyConsigned",
+      "msg": "Desk is already consigned"
+    },
+    {
+      "code": 6016,
+      "name": "BurnExceedsPending",
+      "msg": "Burn spend exceeds burn-pending"
+    },
+    {
+      "code": 6017,
+      "name": "AccrualEmpty",
+      "msg": "Accrual has nothing owed"
+    },
+    {
+      "code": 6018,
+      "name": "LpPositionExists",
+      "msg": "LP position for this pair already exists (one per pair)"
+    },
+    {
+      "code": 6019,
+      "name": "ConsignedNotExitable",
+      "msg": "Consigned desks are not eligible for treasury exits"
+    },
+    {
+      "code": 6020,
+      "name": "TierVoided",
+      "msg": "Tier has been voided by an ownership change; re-activate"
+    },
+    {
+      "code": 6021,
+      "name": "NotDeskOwner",
+      "msg": "Caller does not own the desk asset"
+    },
+    {
+      "code": 6022,
+      "name": "WrongCollection",
+      "msg": "Desk asset does not belong to the configured collection"
+    },
+    {
+      "code": 6023,
+      "name": "EpochNotEnded",
+      "msg": "Epoch has not ended yet"
+    },
+    {
+      "code": 6024,
+      "name": "EpochAlreadyFinalized",
+      "msg": "Epoch already finalized"
+    },
+    {
+      "code": 6025,
+      "name": "EpochNotFinalized",
+      "msg": "Epoch is not finalized"
+    },
+    {
+      "code": 6026,
+      "name": "NothingToClaim",
+      "msg": "Nothing to claim"
+    },
+    {
+      "code": 6027,
+      "name": "PotBelowLiability",
+      "msg": "Pot lamports below liability"
+    },
+    {
+      "code": 6028,
+      "name": "InvariantViolated",
+      "msg": "Inflow accounting invariant violated"
+    },
+    {
+      "code": 6029,
+      "name": "ConsignmentDisabled",
+      "msg": "Consignment is disabled"
+    },
+    {
+      "code": 6030,
+      "name": "DeskConsigned",
+      "msg": "Desk is consigned and cannot be sold or transferred by treasury"
+    },
+    {
+      "code": 6031,
+      "name": "ConsignmentInactive",
+      "msg": "Consignment is not active"
+    },
+    {
+      "code": 6032,
+      "name": "UnconsignBeforeFinalize",
+      "msg": "Cannot unconsign until the current epoch is finalized"
+    },
+    {
+      "code": 6033,
+      "name": "LpDisabled",
+      "msg": "LP building is disabled"
+    },
+    {
+      "code": 6034,
+      "name": "LpPhase2Gated",
+      "msg": "HUB/OTC LP is gated until phase-2 conditions hold"
+    },
+    {
+      "code": 6035,
+      "name": "FloorStale",
+      "msg": "Floor moved more than the staleness guard since tx build"
+    },
+    {
+      "code": 6036,
+      "name": "TreasurySelfDeal",
+      "msg": "Treasury may not buy its own exit"
+    },
+    {
+      "code": 6037,
+      "name": "BurnPendingUnderflow",
+      "msg": "Burn-pending underflow"
+    },
+    {
+      "code": 6038,
+      "name": "MathOverflow",
+      "msg": "Arithmetic overflow"
+    },
+    {
+      "code": 6039,
+      "name": "NotImplemented",
+      "msg": "Not implemented in this milestone"
+    }
+  ],
+  "types": [
+    {
+      "name": "AccrualClaimed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "wallet",
+            "type": "pubkey"
+          },
+          {
+            "name": "epoch",
+            "type": "u64"
+          },
+          {
+            "name": "lamports",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "BurnRecorded",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "hub_burned",
+            "type": "u64"
+          },
+          {
+            "name": "lamports_spent",
+            "type": "u64"
+          },
+          {
+            "name": "burn_pending_after",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "BurnState",
+      "docs": [
+        "`Pot` is a system-owned PDA (`[\"pot\"]`); balance = account lamports. It has",
+        "no data — liability is tracked on `Burn`/`Epoch` and Σ StakerAccrual."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "total_hub_burned",
+            "type": "u64"
+          },
+          {
+            "name": "burn_pending_lamports",
+            "type": "u64"
+          },
+          {
+            "name": "last_burn_tx",
+            "type": {
+              "array": [
+                "u8",
+                64
+              ]
+            }
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Config",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "pot",
+            "type": "pubkey"
+          },
+          {
+            "name": "ops_wallet",
+            "type": "pubkey"
+          },
+          {
+            "name": "treasury",
+            "type": "pubkey"
+          },
+          {
+            "name": "otc_program",
+            "docs": [
+              "OTC-side references resolved at runtime (§A2), never hardcoded."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "otc_desk_pot",
+            "type": "pubkey"
+          },
+          {
+            "name": "desk_collection",
+            "type": "pubkey"
+          },
+          {
+            "name": "hub_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "otc_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "tier_weights_bp",
+            "type": {
+              "array": [
+                "u16",
+                4
+              ]
+            }
+          },
+          {
+            "name": "step_fee_lamports",
+            "type": "u64"
+          },
+          {
+            "name": "epoch_hours",
+            "type": "u16"
+          },
+          {
+            "name": "epoch_duration_secs",
+            "docs": [
+              "Effective epoch length; defaults to `epoch_hours * 3600`, shortened on test clusters."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "burn_pct_bp",
+            "type": "u16"
+          },
+          {
+            "name": "ops_pct_bp",
+            "type": "u16"
+          },
+          {
+            "name": "consignment_enabled",
+            "type": "bool"
+          },
+          {
+            "name": "consignor_share_bp",
+            "type": "u16"
+          },
+          {
+            "name": "lp_enabled",
+            "type": "bool"
+          },
+          {
+            "name": "lp_target_sol_lamports",
+            "type": "u64"
+          },
+          {
+            "name": "lp_phase2_open_ts",
+            "docs": [
+              "§A6.2 phase-2 gate: HUB/OTC LP opens only after this timestamp (0 = closed)."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "paused",
+            "type": "bool"
+          },
+          {
+            "name": "current_epoch",
+            "docs": [
+              "Index of the open (accruing) epoch; `Epoch[current_epoch]` always exists."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "genesis_ts",
+            "type": "i64"
+          },
+          {
+            "name": "total_weight_bp",
+            "docs": [
+              "Running Σw (bp) of non-voided DeskTiers; snapshotted into `Epoch` at finalize."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "pot_liability_lamports",
+            "docs": [
+              "Lamports the pot owes (unclaimed allotments + burn-pending + carry). Pot ≥ this, always."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "pot_bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ConfigField",
+      "docs": [
+        "Fields `update_config` may touch (§B3 #9). Rate changes apply to future epochs."
+      ],
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "OpsWallet"
+          },
+          {
+            "name": "OtcProgram"
+          },
+          {
+            "name": "OtcDeskPot"
+          },
+          {
+            "name": "DeskCollection"
+          },
+          {
+            "name": "HubMint"
+          },
+          {
+            "name": "OtcMint"
+          },
+          {
+            "name": "BurnPctBp"
+          },
+          {
+            "name": "OpsPctBp"
+          },
+          {
+            "name": "ConsignmentEnabled"
+          },
+          {
+            "name": "ConsignorShareBp"
+          },
+          {
+            "name": "LpEnabled"
+          },
+          {
+            "name": "LpTargetSolLamports"
+          },
+          {
+            "name": "LpPhase2OpenTs"
+          },
+          {
+            "name": "EpochDurationSecs"
+          },
+          {
+            "name": "Treasury"
+          },
+          {
+            "name": "Authority"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ConfigValue",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Pubkey",
+            "fields": [
+              "pubkey"
+            ]
+          },
+          {
+            "name": "U64",
+            "fields": [
+              "u64"
+            ]
+          },
+          {
+            "name": "U16",
+            "fields": [
+              "u16"
+            ]
+          },
+          {
+            "name": "Bool",
+            "fields": [
+              "bool"
+            ]
+          },
+          {
+            "name": "I64",
+            "fields": [
+              "i64"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "ConsignedDesk",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "asset_id",
+            "type": "pubkey"
+          },
+          {
+            "name": "consignor",
+            "type": "pubkey"
+          },
+          {
+            "name": "consigned_epoch",
+            "type": "u64"
+          },
+          {
+            "name": "active",
+            "type": "bool"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "DeskConsigned",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "asset",
+            "type": "pubkey"
+          },
+          {
+            "name": "consignor",
+            "type": "pubkey"
+          },
+          {
+            "name": "epoch",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "DeskTier",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "asset_id",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner_at_activation",
+            "docs": [
+              "Owner at activation; re-verified lazily at claim/upgrade (§B3 #5)."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "tier",
+            "type": "u8"
+          },
+          {
+            "name": "activated_epoch",
+            "type": "u64"
+          },
+          {
+            "name": "next_claim_epoch",
+            "docs": [
+              "Claims are sequential: the next epoch index this tier may claim."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "voided",
+            "type": "bool"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "DeskUnconsigned",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "asset",
+            "type": "pubkey"
+          },
+          {
+            "name": "consignor",
+            "type": "pubkey"
+          },
+          {
+            "name": "epoch",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Epoch",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "index",
+            "type": "u64"
+          },
+          {
+            "name": "start_ts",
+            "type": "i64"
+          },
+          {
+            "name": "end_ts",
+            "type": "i64"
+          },
+          {
+            "name": "inflow_lamports",
+            "type": "u64"
+          },
+          {
+            "name": "distributed_lamports",
+            "docs": [
+              "90% allotment reserved for stakers at finalize."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "burned_lamports",
+            "type": "u64"
+          },
+          {
+            "name": "burn_pending_lamports",
+            "type": "u64"
+          },
+          {
+            "name": "rolled_forward_lamports",
+            "docs": [
+              "Allotment carried into the next epoch when Σw == 0 (no eligible stakers)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "total_weight_bp",
+            "docs": [
+              "Σw of non-voided DeskTiers at finalize (bp-weighted)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "claimed_lamports",
+            "docs": [
+              "Claim progress; the last claimer receives `distributed - claimed` (no rounding loss)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "claimed_weight_bp",
+            "type": "u64"
+          },
+          {
+            "name": "finalized",
+            "type": "bool"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "EpochFinalized",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "index",
+            "type": "u64"
+          },
+          {
+            "name": "inflow_lamports",
+            "type": "u64"
+          },
+          {
+            "name": "distributed_lamports",
+            "type": "u64"
+          },
+          {
+            "name": "burn_pending_lamports",
+            "type": "u64"
+          },
+          {
+            "name": "rolled_forward_lamports",
+            "type": "u64"
+          },
+          {
+            "name": "total_weight_bp",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "InflowRegistered",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "epoch",
+            "type": "u64"
+          },
+          {
+            "name": "source",
+            "type": "u8"
+          },
+          {
+            "name": "lamports",
+            "type": "u64"
+          },
+          {
+            "name": "consignor_share",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "InflowSource",
+      "docs": [
+        "§A5 inflow sources. `E` (consigned desk yield) uses `register_consigned_inflow`."
+      ],
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "B"
+          },
+          {
+            "name": "C"
+          },
+          {
+            "name": "D"
+          },
+          {
+            "name": "E"
+          },
+          {
+            "name": "F"
+          }
+        ]
+      }
+    },
+    {
+      "name": "InitializeConfigArgs",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "ops_wallet",
+            "type": "pubkey"
+          },
+          {
+            "name": "treasury",
+            "type": "pubkey"
+          },
+          {
+            "name": "otc_program",
+            "type": "pubkey"
+          },
+          {
+            "name": "otc_desk_pot",
+            "type": "pubkey"
+          },
+          {
+            "name": "desk_collection",
+            "type": "pubkey"
+          },
+          {
+            "name": "hub_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "otc_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "epoch_duration_secs",
+            "docs": [
+              "0 → Appendix default (EPOCH_HOURS × 3600). Test clusters pass a short value."
+            ],
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "LpBuilt",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pair",
+            "type": "u8"
+          },
+          {
+            "name": "hub_amount",
+            "type": "u64"
+          },
+          {
+            "name": "quote_amount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "LpPair",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "HubSol"
+          },
+          {
+            "name": "HubOtc"
+          }
+        ]
+      }
+    },
+    {
+      "name": "StakerAccrual",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "wallet",
+            "type": "pubkey"
+          },
+          {
+            "name": "epoch_index",
+            "type": "u64"
+          },
+          {
+            "name": "owed_lamports",
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "TierActivated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "asset",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "tier",
+            "type": "u8"
+          },
+          {
+            "name": "epoch",
+            "type": "u64"
+          },
+          {
+            "name": "fee_lamports",
+            "type": "u64"
+          },
+          {
+            "name": "to_pot",
+            "type": "u64"
+          },
+          {
+            "name": "to_ops",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "TierUpgraded",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "asset",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "from_tier",
+            "type": "u8"
+          },
+          {
+            "name": "to_tier",
+            "type": "u8"
+          },
+          {
+            "name": "epoch",
+            "type": "u64"
+          },
+          {
+            "name": "fee_lamports",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "TierVoided",
+      "docs": [
+        "§B3 #8 — ownership changed since activation; no refund."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "asset",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner_at_activation",
+            "type": "pubkey"
+          },
+          {
+            "name": "current_owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "tier",
+            "type": "u8"
+          },
+          {
+            "name": "epoch",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "TreasuryState",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "multisig",
+            "type": "pubkey"
+          },
+          {
+            "name": "vault",
+            "docs": [
+              "Program-signed custody PDA (`[\"vault\"]`) that owns consigned desks."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "desks_owned",
+            "type": "u32"
+          },
+          {
+            "name": "desks_consigned",
+            "type": "u32"
+          },
+          {
+            "name": "sweep_budget_cap_bp",
+            "type": "u16"
+          },
+          {
+            "name": "sweep_payback_cap_lamports",
+            "type": "u64"
+          },
+          {
+            "name": "exit_discount_bp",
+            "type": "u16"
+          },
+          {
+            "name": "exit_hub_leg_bp",
+            "type": "u16"
+          },
+          {
+            "name": "floor_staleness_bp",
+            "type": "u16"
+          },
+          {
+            "name": "hub_float_cap_bp",
+            "type": "u16"
+          },
+          {
+            "name": "total_exits",
+            "type": "u32"
+          },
+          {
+            "name": "total_sweeps",
+            "type": "u32"
+          },
+          {
+            "name": "lp_hub_sol_active",
+            "docs": [
+              "§A6.2 — one position per pair, HODL both legs."
+            ],
+            "type": "bool"
+          },
+          {
+            "name": "lp_hub_otc_active",
+            "type": "bool"
+          },
+          {
+            "name": "lp_hub_deposited",
+            "type": "u64"
+          },
+          {
+            "name": "lp_quote_deposited",
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "vault_bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "YieldClaimed",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "asset",
+            "type": "pubkey"
+          },
+          {
+            "name": "claimer",
+            "type": "pubkey"
+          },
+          {
+            "name": "epoch",
+            "type": "u64"
+          },
+          {
+            "name": "tier",
+            "type": "u8"
+          },
+          {
+            "name": "lamports",
+            "type": "u64"
+          }
+        ]
+      }
+    }
+  ],
+  "constants": [
+    {
+      "name": "SEEDS_DOC",
+      "type": "string",
+      "value": "\"config|epoch+u64|tier+asset|consign+asset|accrual+wallet+u64|pot|burn|treasury|vault\""
+    }
+  ]
+}

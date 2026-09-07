@@ -9,6 +9,7 @@ use anchor_lang::prelude::*;
 
 pub mod constants;
 pub mod errors;
+pub mod events;
 pub mod instructions;
 pub mod state;
 
@@ -34,9 +35,9 @@ pub mod hub {
         instructions::tiers::activate_tier(ctx)
     }
 
-    /// §B3 #3
-    pub fn upgrade_tier(ctx: Context<UpgradeTier>) -> Result<()> {
-        instructions::tiers::upgrade_tier(ctx)
+    /// §B3 #3 — pays exactly `(target_tier - current) × step_fee`.
+    pub fn upgrade_tier(ctx: Context<UpgradeTier>, target_tier: u8) -> Result<()> {
+        instructions::tiers::upgrade_tier(ctx, target_tier)
     }
 
     /// §B3 #4
@@ -56,6 +57,19 @@ pub mod hub {
         lamports: u64,
     ) -> Result<()> {
         instructions::epochs::register_treasury_inflow(ctx, source, lamports)
+    }
+
+    /// §B3 #6, source E — consignor-share split (§A6.1).
+    pub fn register_consigned_inflow(
+        ctx: Context<RegisterConsignedInflow>,
+        lamports: u64,
+    ) -> Result<()> {
+        instructions::epochs::register_consigned_inflow(ctx, lamports)
+    }
+
+    /// Pays a wallet-level StakerAccrual (consignor share credits).
+    pub fn claim_accrual(ctx: Context<ClaimAccrual>, epoch_index: u64) -> Result<()> {
+        instructions::epochs::claim_accrual(ctx, epoch_index)
     }
 
     /// §B3 #7

@@ -4,6 +4,7 @@ use anchor_lang::prelude::*;
 
 use crate::constants::*;
 use crate::errors::HubError;
+use crate::instructions::pot::transfer_from_signer;
 use crate::state::*;
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
@@ -15,6 +16,8 @@ pub struct InitializeConfigArgs {
     pub desk_collection: Pubkey,
     pub hub_mint: Pubkey,
     pub otc_mint: Pubkey,
+    /// 0 → Appendix default (EPOCH_HOURS × 3600). Test clusters pass a short value.
+    pub epoch_duration_secs: u64,
 }
 
 #[derive(Accounts)]
@@ -23,18 +26,47 @@ pub struct InitializeConfig<'info> {
     pub payer: Signer<'info>,
     #[account(init, payer = payer, space = 8 + Config::INIT_SPACE, seeds = [SEED_CONFIG], bump)]
     pub config: Account<'info, Config>,
-    /// CHECK: system-owned lamport vault PDA; no data.
-    #[account(seeds = [SEED_POT], bump)]
+    /// CHECK: system-owned lamport vault PDA; no data. Funded with the rent floor here.
+    #[account(mut, seeds = [SEED_POT], bump)]
     pub pot: UncheckedAccount<'info>,
     #[account(init, payer = payer, space = 8 + BurnState::INIT_SPACE, seeds = [SEED_BURN], bump)]
     pub burn: Account<'info, BurnState>,
     #[account(init, payer = payer, space = 8 + TreasuryState::INIT_SPACE, seeds = [SEED_TREASURY], bump)]
     pub treasury_state: Account<'info, TreasuryState>,
+    /// CHECK: program-signed custody PDA for consigned desks; never holds data.
+    #[account(seeds = [SEED_VAULT], bump)]
+    pub vault: UncheckedAccount<'info>,
+    /// Genesis epoch — the open epoch must always exist (§B3 #4 roll-forward chain).
+    #[account(init, payer = payer, space = 8 + Epoch::INIT_SPACE, seeds = [SEED_EPOCH, &0u64.to_le_bytes()], bump)]
+    pub epoch0: Account<'info, Epoch>,
     pub system_program: Program<'info, System>,
 }
 
 pub fn initialize_config(ctx: Context<InitializeConfig>, args: InitializeConfigArgs) -> Result<()> {
     let now = Clock::get()?.unix_timestamp;
+    let duration = if args.epoch_duration_secs == 0 {
+        EPOCH_DURATION_SECS
+    } else {
+        args.epoch_duration_secs
+    };
+
+    // Rent-exempt floor so the pot can be drained to exactly its liability.
+    let floor = Rent::get()?.minimum_balance(0);
+    if ctx.accounts.pot.lamports() < floor {
+        transfer_from_signer(
+            &ctx.accounts.system_program,
+            &ctx.accounts.payer.to_account_info(),
+            &ctx.accounts.pot.to_account_info(),
+            floor - ctx.accounts.pot.lamports(),
+        )?;
+    }
+
+    let e = &mut ctx.accounts.epoch0;
+    e.index = 0;
+    e.start_ts = now;
+    e.end_ts = now + duration as i64;
+    e.bump = ctx.bumps.epoch0;
+
     let c = &mut ctx.accounts.config;
     c.authority = ctx.accounts.payer.key();
     c.pot = ctx.accounts.pot.key();
@@ -48,15 +80,19 @@ pub fn initialize_config(ctx: Context<InitializeConfig>, args: InitializeConfigA
     c.tier_weights_bp = TIER_WEIGHTS_BP;
     c.step_fee_lamports = STEP_FEE_LAMPORTS;
     c.epoch_hours = EPOCH_HOURS;
+    c.epoch_duration_secs = duration;
     c.burn_pct_bp = BURN_PCT_BP;
     c.ops_pct_bp = OPS_PCT_BP;
     c.consignment_enabled = CONSIGNMENT_ENABLED;
     c.consignor_share_bp = CONSIGNOR_SHARE_BP;
     c.lp_enabled = LP_ENABLED;
     c.lp_target_sol_lamports = LP_TARGET_SOL_LAMPORTS;
+    c.lp_phase2_open_ts = 0;
     c.paused = false;
     c.current_epoch = 0;
     c.genesis_ts = now;
+    c.total_weight_bp = 0;
+    c.pot_liability_lamports = 0;
     c.bump = ctx.bumps.config;
     c.pot_bump = ctx.bumps.pot;
 
@@ -69,7 +105,8 @@ pub fn initialize_config(ctx: Context<InitializeConfig>, args: InitializeConfigA
 
     let t = &mut ctx.accounts.treasury_state;
     t.multisig = args.treasury;
-    t.vault = args.treasury;
+    t.vault = ctx.accounts.vault.key();
+    t.vault_bump = ctx.bumps.vault;
     t.desks_owned = 0;
     t.desks_consigned = 0;
     t.sweep_budget_cap_bp = SWEEP_BUDGET_CAP_BP;
@@ -132,12 +169,26 @@ pub fn update_config(
         ConfigField::ConsignorShareBp => c.consignor_share_bp = bps(&value)?,
         ConfigField::ConsignmentEnabled => c.consignment_enabled = flag(&value)?,
         ConfigField::LpEnabled => c.lp_enabled = flag(&value)?,
-        ConfigField::LpTargetSolLamports => match value {
-            ConfigValue::U64(x) => c.lp_target_sol_lamports = x,
+        ConfigField::Treasury => c.treasury = pk(&value)?,
+        ConfigField::LpTargetSolLamports => c.lp_target_sol_lamports = u64v(&value)?,
+        ConfigField::EpochDurationSecs => {
+            let v = u64v(&value)?;
+            require!(v > 0, HubError::ZeroAmount);
+            c.epoch_duration_secs = v;
+        }
+        ConfigField::LpPhase2OpenTs => match value {
+            ConfigValue::I64(x) => c.lp_phase2_open_ts = x,
             _ => return err!(HubError::FieldNotUpdatable),
         },
     }
     Ok(())
+}
+
+fn u64v(v: &ConfigValue) -> Result<u64> {
+    match v {
+        ConfigValue::U64(x) => Ok(*x),
+        _ => err!(HubError::FieldNotUpdatable),
+    }
 }
 
 pub fn set_paused(ctx: Context<AuthorityOnly>, paused: bool) -> Result<()> {
