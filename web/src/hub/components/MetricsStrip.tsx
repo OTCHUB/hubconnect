@@ -5,18 +5,19 @@ import {
   roundProgress,
   type ProtocolState,
 } from "@hub-sdk";
-import { fmtBp, fmtNum, fmtSol } from "../lib/format";
+import { fmtBp, fmtBpPct, fmtHub, fmtNum, fmtSol } from "../lib/format";
 import { Stat } from "./ui/Panel";
 
 /** §C3 — live metrics strip across the top of the panel. */
 export function MetricsStrip({ state }: { state: ProtocolState }) {
-  const { config, currentEpoch, potLamports, burn } = state;
+  const { config, currentEpoch, potLamports, burn, supply } = state;
   const surplus = potLamports - config.potLiabilityLamports;
   const pct = Math.round(roundProgress(currentEpoch, config) * 100);
   const ready = canFinalize(currentEpoch, config);
+  const d = supply.decimals;
 
   return (
-    <div className="grid grid-cols-2 gap-2 md:grid-cols-3 lg:grid-cols-6">
+    <div className="grid grid-cols-2 gap-2 md:grid-cols-4 lg:grid-cols-8">
       <Stat label="pot balance" value={fmtSol(potLamports)} sub="system PDA lamports" />
       <Stat
         label="pot liability"
@@ -50,8 +51,32 @@ export function MetricsStrip({ state }: { state: ProtocolState }) {
       />
       <Stat
         label="$HUB burned"
-        value={fmtNum(burn.totalHubBurned)}
-        sub={`pending ${fmtSol(burn.burnPendingLamports)}`}
+        value={fmtHub(supply.burnedUnits, d)}
+        sub={
+          <span className={supply.ledgerDrift ? "text-yellow-500" : undefined}>
+            {supply.ledgerDrift
+              ? `ledger ${fmtHub(supply.ledgerBurnedUnits, d)} · drift`
+              : `pending ${fmtSol(burn.burnPendingLamports)}`}
+          </span>
+        }
+      />
+      <Stat
+        label="burn % of circ."
+        value={
+          <span className="text-orange-300" title="burned ÷ circulating (max − burned − treasury/locked)">
+            {fmtBpPct(supply.burnPctOfCirculatingBp)}
+          </span>
+        }
+        sub={
+          supply.burnPctOfCirculatingBp == null
+            ? `no float yet · ${fmtBpPct(supply.burnPctOfMaxBp)} of ${fmtHub(supply.maxUnits, d, 0)} max burned`
+            : `${fmtBpPct(supply.burnPctOfMaxBp)} of ${fmtHub(supply.maxUnits, d, 0)} max`
+        }
+      />
+      <Stat
+        label="circulating"
+        value={fmtHub(supply.circulatingUnits, d)}
+        sub={`locked ${fmtHub(supply.lockedUnits, d)} · treasury + vault`}
       />
     </div>
   );

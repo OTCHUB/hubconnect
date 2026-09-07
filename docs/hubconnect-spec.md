@@ -271,6 +271,22 @@ hand-seed day-one liquidity. The LP program then deepens beyond the curve:
 
 No emissions, no minted staking rewards — supply is monotonic down after launch.
 
+**Supply definitions (SDK `constants.ts` / `reader.ts`, dashboard §C3/§C6):**
+
+```text
+MAX_SUPPLY   = 1,000,000,000 HUB (× 10⁶ base units), minted once, mint authority revoked
+burned       = MAX_SUPPLY − Mint.supply      # keeper burns with spl-token Burn, so the mint
+                                             # account itself is the burn proof; BurnState.
+                                             # total_hub_burned is the record_burn ledger and
+                                             # must equal it (dashboard flags "drift" if not)
+locked       = HUB in treasury-multisig ATA + vault-PDA ATA + TreasuryState.lp_hub_deposited
+circulating  = MAX_SUPPLY − burned − locked
+burn %       = burned / circulating           # headline; also shown as burned / MAX_SUPPLY
+```
+
+There is no sink/"burn wallet": a burn address in the Dexscreener/CoinGecko sense is
+the mint (supply decreases) plus the BurnState PDA (`["burn"]`) as the on-chain ledger.
+
 ### A8. Sizing formulas (live worked examples — recompute, never promise)
 
 ```text
@@ -612,6 +628,7 @@ standalone shell for app.otchub.dev until the domains are consolidated;
 | Last closed round: how long it took, credited, per-tier payout | previous Epoch |
 | Activated cohort: desks by tier, Σw | DeskTier accounts (index/scan) |
 | Treasury: desks owned / consigned, exit history, burns executed, HUB float vs ≤2% cap | TreasuryState, BurnState, published treasury wallet |
+| $HUB burned, **burn % of circulating**, circulating / locked supply (§A7 definitions) | Mint account (`supply`), treasury + vault ATAs, BurnState (ledger cross-check) |
 | Raw desk-pot take D (trailing 7d and latest day) | OtcSnapshot per_desk history (already ingested) |
 
 ### C4. Yield comparison table (the core view)
@@ -645,6 +662,19 @@ date, last burn tx), LP depth + harvested fees (source F), and the treasury HUB
 float balance against its ≤2% cap — all read from on-chain accounts, no
 hand-maintained numbers. Collapsible evidence sub-sections per the dashboard's
 existing DOS-aesthetic conventions.
+
+**C6.1 Verification info (listing readiness).** A `[ VERIFICATION INFO ]` card with
+copy buttons + Solscan links for everything a Dexscreener / CoinGecko / wallet
+verification form asks for: $HUB mint (CA), program id, BurnState PDA (burn
+proof), treasury multisig (locked), metadata PDA; live mint supply, burned,
+locked, circulating, burn %, decimals; flags `MINT AUTH REVOKED`, `NO FREEZE
+AUTH`, `METADATA`, `METADATA IMMUTABLE`, `LEDGER = MINT`; and the Metaplex Token
+Metadata as indexers read it (name, symbol, uri, update authority, icon and
+website/twitter/telegram/discord from the uri JSON, with a warning when the JSON
+is unreachable or has no socials). Launch checklist derived from it: write Token
+Metadata for the mint (name `OTC Hub`, symbol `HUB`, uri → JSON with `image` +
+`extensions.{website,twitter,telegram}`), revoke mint authority, confirm the
+treasury ATA is the only locked holder.
 
 ### C7. Rules
 

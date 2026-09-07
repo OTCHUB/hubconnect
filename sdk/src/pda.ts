@@ -1,5 +1,10 @@
 import { PublicKey } from "@solana/web3.js";
 import BN from "bn.js";
+import {
+  ASSOCIATED_TOKEN_PROGRAM_ID,
+  TOKEN_METADATA_PROGRAM_ID,
+  TOKEN_PROGRAM_ID,
+} from "./constants";
 
 export const SEEDS = {
   config: Buffer.from("config"),
@@ -42,4 +47,21 @@ export function consignPda(programId: PublicKey, asset: PublicKey) {
 /** Per-wallet ledger: consignor-share credits (`owed`) + lifetime claimed yield. */
 export function accrualPda(programId: PublicKey, wallet: PublicKey) {
   return PublicKey.findProgramAddressSync([SEEDS.accrual, wallet.toBuffer()], programId);
+}
+
+/** SPL associated token account (classic Token program). */
+export function ataPda(owner: PublicKey, mint: PublicKey) {
+  return PublicKey.findProgramAddressSync(
+    [owner.toBuffer(), new PublicKey(TOKEN_PROGRAM_ID).toBuffer(), mint.toBuffer()],
+    new PublicKey(ASSOCIATED_TOKEN_PROGRAM_ID),
+  );
+}
+
+/** Metaplex Token Metadata account for `mint` — what Dexscreener / CoinGecko / wallets read. */
+export function tokenMetadataPda(mint: PublicKey) {
+  const program = new PublicKey(TOKEN_METADATA_PROGRAM_ID);
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("metadata"), program.toBuffer(), mint.toBuffer()],
+    program,
+  );
 }

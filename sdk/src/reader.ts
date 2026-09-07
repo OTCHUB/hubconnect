@@ -14,8 +14,17 @@ import {
   tierPda,
   treasuryPda,
   consignPda,
+  vaultPda,
 } from "./pda";
-import { ACC_SCALE, BPS, TIER_WEIGHTS_BP } from "./constants";
+import {
+  ACC_SCALE,
+  BPS,
+  HUB_MAX_SUPPLY_UNITS,
+  TIER_WEIGHTS_BP,
+  supplyBreakdown,
+  type SupplyBreakdown,
+} from "./constants";
+import { fetchHubTokenState, type HubTokenState } from "./token";
 
 export const HUB_IDL = idl as Hub;
 
@@ -103,14 +112,56 @@ export type StakerAccrualView = {
   totalClaimedLamports: number;
 };
 
+export type SupplyView = SupplyBreakdown & {
+  /** Live `Mint.supply`; null when the mint account is missing on this cluster. */
+  mintSupplyUnits: bigint | null;
+  decimals: number;
+  /** Cumulative `record_burn` ledger — should match `max − mintSupply` once all burns are recorded. */
+  ledgerBurnedUnits: bigint;
+  /** True when `BurnState.total_hub_burned` ≠ `max − Mint.supply` (unrecorded / out-of-band burn). */
+  ledgerDrift: boolean;
+};
+
 export type ProtocolState = {
   config: ConfigView;
   currentEpoch: EpochView;
   previousEpoch: EpochView | null;
   potLamports: number;
   burn: { totalHubBurned: number; burnPendingLamports: number };
-  treasury: { desksOwned: number; desksConsigned: number; totalExits: number; totalSweeps: number };
+  treasury: {
+    desksOwned: number;
+    desksConsigned: number;
+    totalExits: number;
+    totalSweeps: number;
+    lpHubDepositedUnits: bigint;
+  };
+  token: HubTokenState;
+  supply: SupplyView;
 };
+
+/**
+ * Supply math (§A3.1): burned is proven by the mint itself (`max − Mint.supply`, since the
+ * keeper uses spl `Burn`, not a sink wallet); locked = treasury multisig + vault ATAs + LP
+ * deposits; circulating = max − burned − locked.
+ */
+export function toSupplyView(
+  token: HubTokenState,
+  ledgerBurnedUnits: bigint,
+  lpHubDepositedUnits: bigint,
+): SupplyView {
+  const mintSupply = token.mint?.supplyUnits ?? null;
+  const burned =
+    mintSupply != null && mintSupply <= HUB_MAX_SUPPLY_UNITS
+      ? HUB_MAX_SUPPLY_UNITS - mintSupply
+      : ledgerBurnedUnits;
+  return {
+    ...supplyBreakdown(burned, token.lockedUnits + lpHubDepositedUnits),
+    mintSupplyUnits: mintSupply,
+    decimals: token.mint?.decimals ?? 6,
+    ledgerBurnedUnits,
+    ledgerDrift: mintSupply != null && burned !== ledgerBurnedUnits,
+  };
+}
 
 export function toConfigView(
   c: Awaited<ReturnType<HubProgram["account"]["config"]["fetch"]>>,
@@ -194,14 +245,23 @@ export async function fetchProtocolState(program: HubProgram): Promise<ProtocolS
   const [potKey] = potPda(id);
   const [burnKey] = burnPda(id);
   const [tresKey] = treasuryPda(id);
+  const [vaultKey] = vaultPda(id);
+  const connection = program.provider.connection;
 
-  const [cur, prev, potInfo, burn, tres] = await Promise.all([
+  const [cur, prev, potInfo, burn, tres, token] = await Promise.all([
     program.account.epoch.fetch(curKey),
     config.currentEpoch > 0 ? program.account.epoch.fetchNullable(prevKey) : Promise.resolve(null),
-    program.provider.connection.getAccountInfo(potKey),
+    connection.getAccountInfo(potKey),
     program.account.burnState.fetch(burnKey),
     program.account.treasuryState.fetch(tresKey),
+    fetchHubTokenState(connection, new PublicKey(config.hubMint), [
+      new PublicKey(config.treasury),
+      vaultKey,
+    ]),
   ]);
+
+  const ledgerBurned = big(burn.totalHubBurned);
+  const lpHubDepositedUnits = big(tres.lpHubDeposited);
 
   return {
     config,
@@ -217,7 +277,10 @@ export async function fetchProtocolState(program: HubProgram): Promise<ProtocolS
       desksConsigned: tres.desksConsigned,
       totalExits: tres.totalExits,
       totalSweeps: tres.totalSweeps,
+      lpHubDepositedUnits,
     },
+    token,
+    supply: toSupplyView(token, ledgerBurned, lpHubDepositedUnits),
   };
 }
 

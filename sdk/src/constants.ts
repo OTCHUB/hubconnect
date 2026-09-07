@@ -25,6 +25,51 @@ export const TREASURY_HUB_FLOAT_CAP_BP = 200;
 
 export const MPL_CORE_PROGRAM_ID = "CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d";
 export const HUB_PROGRAM_ID = "5tCDEazUAkRjrkasup1uWcYo3t1C2ht76LmQva5rewQv";
+export const TOKEN_PROGRAM_ID = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
+export const ASSOCIATED_TOKEN_PROGRAM_ID = "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL";
+export const TOKEN_METADATA_PROGRAM_ID = "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s";
+
+/**
+ * $HUB token: fixed 1,000,000,000 supply minted once at launch, mint authority revoked
+ * (scripts/hub-authority.ts). No emissions — supply only moves down via buyback-burn.
+ */
+export const HUB_DECIMALS = 6;
+export const HUB_MAX_SUPPLY = 1_000_000_000;
+export const HUB_MAX_SUPPLY_UNITS = BigInt(HUB_MAX_SUPPLY) * 10n ** BigInt(HUB_DECIMALS);
+
+export type SupplyBreakdown = {
+  maxUnits: bigint;
+  burnedUnits: bigint;
+  /** Treasury multisig float + program vault custody + LP-deposited $HUB (§A3.1, ≤2% cap). */
+  lockedUnits: bigint;
+  circulatingUnits: bigint;
+  /** burned / circulating, in bp (null when nothing circulates). */
+  burnPctOfCirculatingBp: number | null;
+  /** burned / max supply, in bp. */
+  burnPctOfMaxBp: number;
+};
+
+const clampNonNeg = (v: bigint) => (v < 0n ? 0n : v);
+
+/** Circulating = max − burned − treasury/locked; ratios in bp, computed in bigint. */
+export function supplyBreakdown(
+  burnedUnits: bigint,
+  lockedUnits: bigint,
+  maxUnits: bigint = HUB_MAX_SUPPLY_UNITS,
+): SupplyBreakdown {
+  const burned = clampNonNeg(burnedUnits > maxUnits ? maxUnits : burnedUnits);
+  const locked = clampNonNeg(lockedUnits);
+  const circulating = clampNonNeg(maxUnits - burned - locked);
+  return {
+    maxUnits,
+    burnedUnits: burned,
+    lockedUnits: locked,
+    circulatingUnits: circulating,
+    burnPctOfCirculatingBp:
+      circulating > 0n ? Number((burned * BigInt(BPS)) / circulating) : null,
+    burnPctOfMaxBp: maxUnits > 0n ? Number((burned * BigInt(BPS)) / maxUnits) : 0,
+  };
+}
 
 /** Display names for tiers 1–4 (§A4): market-role ladder, not metals. */
 export const TIER_NAMES = ["TRADER", "BROKER", "DEALER", "MARKET MAKER"] as const;
