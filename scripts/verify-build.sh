@@ -85,11 +85,13 @@ cmd_deploy() {
 
 cmd_verify() {
   local commit="${1:-$(git rev-parse HEAD)}"
+  # -y -k: after a hash match, write the verify PDA (repo url, commit, build args) signed by the
+  # upgrade authority so third parties can reproduce without trusting this script. Mainnet adds
+  # --remote so the OtterSec API rebuilds it too and explorers (Solana Explorer, SolanaFM,
+  # Solscan) show the program as verified; devnet has no remote API.
   local args=(verify-from-repo -u "$RPC" --program-id "$PROGRAM_ID" "$REPO" \
-    --commit-hash "$commit" --library-name "$LIB")
-  # Mainnet: also upload the verify PDA + ask the OtterSec API to reproduce it, so explorers
-  # (Solana Explorer, SolanaFM, Solscan) show the program as verified. Devnet has no remote API.
-  [ "$CLUSTER" = "mainnet-beta" ] && args+=(--remote -k "$WALLET")
+    --commit-hash "$commit" --library-name "$LIB" -y -k "$WALLET")
+  [ "$CLUSTER" = "mainnet-beta" ] && args+=(--remote)
   if [ -n "$(git status --porcelain)" ] || ! git merge-base --is-ancestor "$commit" "@{u}" 2>/dev/null; then
     echo "warning: $commit must be pushed to $REPO and the tree clean for a faithful reproduction" >&2
   fi
