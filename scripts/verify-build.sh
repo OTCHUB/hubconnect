@@ -8,6 +8,8 @@
 #   scripts/verify-build.sh verify [COMMIT]  rebuild from the public repo at COMMIT and compare
 #                                            with the on-chain hash; writes the verify PDA and, on
 #                                            mainnet, queues the OtterSec remote job
+#   scripts/verify-build.sh orquestra        push IDL + verified-build notes to Orquestra (also
+#                                            runs after deploy/verify when ORQUESTRA_TOKEN is set)
 #
 # Cluster: HUB_CLUSTER=devnet (default) | mainnet-beta. Wallet: HUB_WALLET (must be the upgrade
 # authority). RPC: HUB_RPC_URL, else Helius if HELIUS_API_KEY is set, else the public endpoint.
@@ -47,6 +49,13 @@ need solana-verify "cargo install solana-verify"
 local_hash() { solana-verify get-executable-hash "$SO"; }
 onchain_hash() { solana-verify get-program-hash -u "$RPC" "$PROGRAM_ID"; }
 
+# Push the IDL + verified-build state (hash, commit, security.txt) to Orquestra so its dashboard
+# and REST builders decode the deployed program. Opt-in via ORQUESTRA_TOKEN; never fails the run.
+orquestra_sync() {
+  [ -n "${ORQUESTRA_TOKEN:-}" ] || { echo "orquestra: ORQUESTRA_TOKEN unset — skipping IDL sync"; return 0; }
+  npm run -s orquestra:idl || echo "warning: orquestra IDL sync failed (deploy/verify unaffected)" >&2
+}
+
 cmd_build() {
   # `anchor build` first: the IDL (target/idl, target/types) is generated on the host and is not
   # part of the .so; the docker build then overwrites target/deploy/hub.so with the reproducible one.
@@ -80,7 +89,7 @@ cmd_deploy() {
   solana program deploy "$SO" --program-id "$PROGRAM_ID" -u "$RPC" -k "$WALLET" \
     --with-compute-unit-price 50000 --max-sign-attempts 100 --use-rpc
   # RPC nodes can serve the pre-upgrade account for a few slots after confirmation.
-  for _ in 1 2 3 4 5 6; do cmd_hash && return 0; sleep 10; done
+  for _ in 1 2 3 4 5 6; do cmd_hash && { orquestra_sync; return 0; }; sleep 10; done
   return 2
 }
 
@@ -100,6 +109,7 @@ cmd_verify() {
     solana-verify remote submit-job -u "$RPC" --program-id "$PROGRAM_ID" \
       --uploader "$(solana-keygen pubkey "$WALLET")"
   fi
+  orquestra_sync
 }
 
 case "${1:-}" in
@@ -107,5 +117,6 @@ case "${1:-}" in
   hash)   cmd_hash ;;
   deploy) cmd_deploy ;;
   verify) shift; cmd_verify "$@" ;;
-  *) sed -n 2,13p "$0"; exit 1 ;;
+  orquestra) orquestra_sync ;;
+  *) sed -n 2,15p "$0"; exit 1 ;;
 esac
