@@ -20,7 +20,8 @@ programs/hub/        Anchor program — §B2 accounts, §B3 instructions
 sdk/                 PDA derivation + constants mirror; account decoders (M3)
 keeper/              §B4 services: keeper (epoch+burn), sweeper, treasury (exit), lp
 tests/               anchor-ts suites; HUB_CLUSTER=devnet targets Helius devnet (§B5.1)
-scripts/             devnet-deploy.sh · verify-build.sh · devnet-hub-mint.ts · devnet-mock-desks.ts
+scripts/             devnet-deploy.sh · verify-build.sh · orquestra-idl.ts · devnet-hub-mint.ts · devnet-mock-desks.ts
+assets/              hub.png (1024², $HUB logo) · hub-token.json (Metaplex fungible metadata)
 docs/                spec, master prompt, evidence/ (mainnet read-only verification)
 ```
 
@@ -52,6 +53,54 @@ anchor test --skip-build --validator legacy
 Anchor 1.x runs `anchor test` on surfpool by default; this suite uses `solana-test-validator`
 (`--validator legacy` or `ANCHOR_TEST_VALIDATOR=legacy`) so the `[test.validator.clone]` entries
 in `Anchor.toml` pull Metaplex Core from devnet. `Cargo.lock` regenerates with plain `cargo update`.
+
+## Repositories, branches, clusters
+
+Two GitHub homes, one codebase. Development and devnet staging happen in the `nodecattel`
+account; only reviewed releases are pushed to the `OTCHUB` organisation, which is the public
+source that explorers, `solana-verify`, CI provenance (OIDC `repository_owner=OTCHUB`) and
+Orquestra point at for the mainnet program.
+
+| Branch | Git remote | Repository | Cluster | Wallet |
+|---|---|---|---|---|
+| `develop` | `origin` | `nodecattel/hubconnect` (private, staging) | **devnet** | `~/.config/solana/hubconnect-devnet.json` |
+| `main` | `production` | `OTCHUB/hubconnect` (public, releases) | **mainnet-beta** | upgrade authority (Squads vault) |
+
+```sh
+git remote -v                     # origin → nodecattel/hubconnect, production → OTCHUB/hubconnect
+git remote add production https://github.com/OTCHUB/hubconnect.git   # once, on a fresh clone
+```
+
+`scripts/verify-build.sh` derives the source URL it records on chain and in Orquestra from the
+cluster's remote (`HUB_REPO_URL` overrides) and refuses a **mainnet** `deploy`/`verify` unless
+the checkout is on `main`, clean and already pushed to `production/main` (`HUB_FORCE=1` bypasses;
+devnet only warns). Nothing is ever deployed from an unpushed commit, so every on-chain hash maps
+to a commit anyone can rebuild.
+
+**Devnet (from `develop`)**
+
+```sh
+git switch develop && git push origin develop
+scripts/devnet-deploy.sh                    # build → verify-build.sh deploy (extend/upgrade, hash, Orquestra sync)
+scripts/verify-build.sh verify              # verify PDA on devnet (no explorer badge — OtterSec is mainnet-only)
+```
+
+**Mainnet (from `main`)**
+
+```sh
+git switch main && git merge --ff-only develop         # or a reviewed PR develop → main
+git push origin main                                    # keep the staging mirror in step
+git push production main && git tag vX.Y.Z && git push production vX.Y.Z   # verify.yml runs in OTCHUB only
+export HUB_CLUSTER=mainnet-beta HUB_WALLET=~/.config/solana/hub-mainnet-authority.json
+scripts/verify-build.sh build && scripts/verify-build.sh deploy    # hash MATCH → Orquestra sync (public)
+scripts/verify-build.sh verify                                     # verify PDA + OtterSec remote job → Explorer "Verified"
+```
+
+After every successful `deploy` or `verify` on either cluster the script runs
+`npm run orquestra:idl` (when `ORQUESTRA_TOKEN` is set): the IDL, local/on-chain executable hash,
+commit link, embedded security.txt and PDA seeds are published to the Orquestra project. The
+devnet project may be kept unlisted with `ORQUESTRA_PRIVATE=1`; the mainnet sync is always public
+so the indexed IDL can be checked against the verified hash by anyone.
 
 ## Devnet (§B5.1)
 
@@ -117,13 +166,16 @@ The deployed `.so` is produced by `solana-verify build` inside the pinned
 ```sh
 scripts/verify-build.sh build              # anchor build (IDL) → docker build → target/deploy/hub.so
 scripts/verify-build.sh hash               # local executable hash vs on-chain program hash
-scripts/verify-build.sh deploy             # extend if larger, upgrade, re-check hash
-scripts/verify-build.sh verify <commit>    # rebuild from GitHub at <commit> and compare (3rd-party path)
-HUB_CLUSTER=mainnet-beta HUB_WALLET=... scripts/verify-build.sh verify <commit>   # + --remote: verify PDA + OtterSec API
+scripts/verify-build.sh deploy             # extend if larger, upgrade (or initial deploy), re-check hash, Orquestra sync
+scripts/verify-build.sh verify [commit]    # rebuild from the cluster's repo at commit, compare, write verify PDA
+HUB_CLUSTER=mainnet-beta HUB_WALLET=... scripts/verify-build.sh verify   # + `remote submit-job` → OtterSec / Explorer badge
+scripts/verify-build.sh orquestra          # push IDL + verified-build notes to Orquestra by hand
 ```
 
-`devnet-deploy.sh` uses the same artifact. Local `anchor build` output is fine for tests but is not
-byte-identical to the docker build (host platform-tools differ), so never deploy it directly.
+`devnet-deploy.sh` calls the same `build` and `deploy`. Local `anchor build` output is fine for
+tests but is not byte-identical to the docker build (host platform-tools differ), so never deploy
+it directly. Which repo/branch each cluster is verified against is fixed in
+[Repositories, branches, clusters](#repositories-branches-clusters).
 
 ### CI (`.github/workflows/verify.yml`)
 

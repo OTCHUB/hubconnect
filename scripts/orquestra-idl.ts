@@ -16,8 +16,21 @@ import { clusterRpc, findProject, hasOrquestraAuth, updateIdl, uploadIdl } from 
 const ROOT = path.join(__dirname, "..");
 const IDL_PATH = path.join(ROOT, "target/idl/hub.json");
 const SO_PATH = path.join(ROOT, "target/deploy/hub.so");
-const REPO = process.env.HUB_REPO_URL || "https://github.com/OTCHUB/hubconnect";
 const PROGRAMDATA_HEADER = 45; // UpgradeableLoaderState::ProgramData metadata
+
+/** Source repo per cluster: devnet ↔ `origin` (staging), mainnet ↔ `production` (OTCHUB). */
+export function repoUrl(cluster: string): string {
+  if (process.env.HUB_REPO_URL) return process.env.HUB_REPO_URL;
+  const remote = cluster === "devnet" ? "origin" : "production";
+  try {
+    return execFileSync("git", ["remote", "get-url", remote], { cwd: ROOT, encoding: "utf8" })
+      .trim()
+      .replace(/^git@github\.com:/, "https://github.com/")
+      .replace(/\.git$/, "");
+  } catch {
+    return "https://github.com/OTCHUB/hubconnect";
+  }
+}
 
 /** solana-verify's hash: sha256 over the bytes with trailing zero padding removed. */
 export function executableHash(bytes: Uint8Array): string {
@@ -94,6 +107,7 @@ export function verificationMd(o: {
         : "❌ MISMATCH — redeploy pending"
       : "unknown (no local .so or program not found)";
   const sec = Object.entries(o.sec).map(([k, v]) => `- ${k}: ${v}`);
+  const REPO = repoUrl(o.cluster);
   return [
     "## Verified build",
     `- program: \`${o.programId.toBase58()}\` (${o.cluster})`,

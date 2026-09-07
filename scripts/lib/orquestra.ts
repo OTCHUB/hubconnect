@@ -159,7 +159,8 @@ export function clusterRpc(): string {
   const cluster = process.env.HUB_CLUSTER || "devnet";
   if (cluster === "devnet") return devnetRpc();
   const url = process.env.HUB_RPC_URL?.replace(/\$\{(\w+)\}/g, (_, v) => process.env[v] ?? "");
-  if (url) return url;
+  // .env's HUB_RPC_URL is normally the devnet endpoint; never let it stand in for mainnet.
+  if (url && !/devnet/i.test(url)) return url;
   return process.env.HELIUS_API_KEY
     ? `https://mainnet.helius-rpc.com/?api-key=${process.env.HELIUS_API_KEY}`
     : "https://api.mainnet-beta.solana.com";
