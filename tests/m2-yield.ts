@@ -1,6 +1,7 @@
-// M2 — tiers, epochs, claims, lazy revocation, multi-epoch claims, burn (spec §B5 integration list).
-// Epoch indices are never hardcoded: epochs are schedule-aligned, so tests read state from chain.
+// M2 — tiers, threshold-gated rounds, single-tx accumulator claims, lazy revocation, burn
+// (spec §B5 integration list). Round indices are never hardcoded: tests read state from chain.
 import { expect } from "chai";
+import * as anchor from "@anchor-lang/core";
 import { Keypair, LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
 import {
   setup,
@@ -17,15 +18,20 @@ import {
   activate,
   upgrade,
   claim,
-  claimAll,
+  claimPending,
+  pendingOf,
+  shareOfRound,
+  effectiveInflow,
+  fillToThreshold,
   inflow,
   finalizeCurrent,
   finalizeIdx,
-  openEpoch,
   recordBurn,
   assertSolvent,
   currentEpoch,
+  setConfig,
   balance,
+  big,
   txFee,
 } from "./flows";
 import { epochPda, tierPda } from "../sdk/src/pda";
@@ -81,93 +87,153 @@ describe("M2 — yield engine", () => {
   });
 
   let e0 = 0;
-  it("finalize: 10% burn-pending, 90% distributed, invariant holds; early/double finalize rejected", async function () {
+  it("finalize is gated by min_pot_threshold, not the clock: below → PotBelowThreshold; at → closes; 10/90 split", async function () {
     this.timeout(180_000);
-    e0 = await openEpoch(h, f);
-    await expectFail(finalizeIdx(h, f, e0), "EpochNotEnded");
-    await inflow(h, f, "b", LAMPORTS_PER_SOL);
+    e0 = (await currentEpoch(h, f)).idx;
+    // Activation fees already booked inflow; raise the bar 1 SOL above it to prove the gate.
+    const before = await effectiveInflow(h, f);
+    await setConfig(h, f, "minPotThresholdLamports", {
+      u64: [new anchor.BN(before + LAMPORTS_PER_SOL)],
+    });
+    await expectFail(finalizeIdx(h, f, e0), "PotBelowThreshold");
+    await inflow(h, f, "b", LAMPORTS_PER_SOL - 1);
+    await expectFail(finalizeIdx(h, f, e0), "PotBelowThreshold"); // 1 lamport short
+    await inflow(h, f, "b", 1);
     const inflowTotal = (await currentEpoch(h, f)).epoch.inflowLamports.toNumber();
-    expect(inflowTotal).to.be.gte(LAMPORTS_PER_SOL);
     const burnBefore = (
       await h.program.account.burnState.fetch(f.burn)
     ).burnPendingLamports.toNumber();
+    const acc0 = big((await h.program.account.config.fetch(f.config)).accPerWeight);
 
-    expect(await finalizeCurrent(h, f)).to.eq(e0);
+    await finalizeIdx(h, f, e0); // exactly at threshold → allowed, no waiting
     const e = await h.program.account.epoch.fetch(epochPda(h.program.programId, e0)[0]);
+    const c = await h.program.account.config.fetch(f.config);
     const burn = Math.floor((inflowTotal * K.BURN_PCT_BP) / K.BPS);
     expect(e.finalized).to.eq(true);
+    expect(e.finalizedTs.toNumber()).to.be.gt(0);
     expect(e.burnPendingLamports.toNumber()).to.eq(burn);
-    expect(e.distributedLamports.toNumber()).to.eq(inflowTotal - burn);
-    expect(e.rolledForwardLamports.toNumber()).to.eq(0);
-    expect(e.totalWeightBp.toNumber()).to.eq(
-      (await h.program.account.config.fetch(f.config)).totalWeightBp.toNumber(),
-    );
+    // Zero-sum: inflow == burn + credited + floor remainder (≤ 1 lamport).
+    expect(
+      e.burnPendingLamports.toNumber() +
+        e.distributedLamports.toNumber() +
+        e.rolledForwardLamports.toNumber(),
+    ).to.eq(inflowTotal);
+    expect(e.rolledForwardLamports.toNumber()).to.be.lte(1);
+    expect(e.totalWeightBp.toNumber()).to.eq(c.totalWeightBp.toNumber());
+    // Accumulator advanced by exactly this round's per-weight credit.
+    expect(big(c.accPerWeight) - acc0).to.eq(big(e.perWeightScaled));
+    expect(big(e.accPerWeightAfter)).to.eq(big(c.accPerWeight));
     expect((await h.program.account.burnState.fetch(f.burn)).burnPendingLamports.toNumber()).to.eq(
       burnBefore + burn,
     );
+    // Next round opens with the floor remainder only.
+    const next = await currentEpoch(h, f);
+    expect(next.idx).to.eq(e0 + 1);
+    expect(next.epoch.inflowLamports.toNumber()).to.eq(e.rolledForwardLamports.toNumber());
     await assertSolvent(h, f);
     await expectFail(finalizeIdx(h, f, e0)); // already finalized (next epoch account exists)
+    await setConfig(h, f, "minPotThresholdLamports", { u64: [new anchor.BN(h.thresholdLamports)] });
   });
 
-  it("claims pay exact per-weight lamports; Σ == distributed; out-of-order / unfinalized rejected", async () => {
-    const [eKey] = epochPda(h.program.programId, e0);
+  it("one claim per desk pays ⌊per_w × w⌋ exactly; Σ payouts + dust == credited; re-claim → NothingToClaim", async () => {
+    const e = await h.program.account.epoch.fetch(epochPda(h.program.programId, e0)[0]);
     let paid = 0;
-    for (let i = 0; i < 4; i++) paid += await claimAll(h, f, owners[i], desks[i]);
-    const e = await h.program.account.epoch.fetch(eKey);
-    if (weightBefore === 0)
-      expect(e.claimedLamports.toNumber()).to.eq(e.distributedLamports.toNumber());
-    expect(paid).to.be.gte(e.distributedLamports.toNumber() - 4); // ≤ 1 lamport rounding per claimer
+    for (let i = 0; i < 4; i++) {
+      const expected = await shareOfRound(h, e0, i + 1);
+      const got = await claimPending(h, f, owners[i], desks[i]);
+      // Fresh Σw == these four desks → the round share is the whole pending amount.
+      if (weightBefore === 0) expect(got).to.eq(expected);
+      paid += got;
+    }
+    const dist = e.distributedLamports.toNumber();
+    if (weightBefore === 0) {
+      expect(paid).to.be.lte(dist);
+      expect(paid).to.be.gte(dist - 4); // ≤ 1 lamport floor per claimer, carried as dust
+    }
+    // Ordering follows weights 1.0 / 1.25 / 1.6 / 2.0.
+    expect(await pendingOf(h, f, desks[0])).to.eq(0);
     await assertSolvent(h, f);
-    await expectFail(claim(h, f, owners[0], desks[0], e0), "ClaimOutOfOrder");
-    const cur = await currentEpoch(h, f);
-    await expectFail(claim(h, f, owners[0], desks[0], cur.idx), "EpochNotFinalized");
+    await expectFail(claim(h, f, owners[0], desks[0]), "NothingToClaim");
   });
 
-  it("upgrade requires all finalized epochs claimed; then pays exactly the step difference", async function () {
+  it("upgrade requires pending yield claimed; then pays exactly the step difference", async function () {
     this.timeout(180_000);
-    await finalizeCurrent(h, f); // finalized, unclaimed by everyone
+    await finalizeCurrent(h, f); // closed, unclaimed by everyone
+    expect(await pendingOf(h, f, desks[0])).to.be.gt(0);
     await expectFail(upgrade(h, f, owners[0], desks[0], 2), "ClaimBeforeUpgrade");
-    await claimAll(h, f, owners[0], desks[0]);
+    await claimPending(h, f, owners[0], desks[0]);
     const pot0 = await balance(h, f.pot);
     await upgrade(h, f, owners[0], desks[0], 3);
     expect((await balance(h, f.pot)) - pot0).to.eq(K.splitFee(K.stepFeeLamports(1, 3)).toPot);
-    expect((await tierOf(h, desks[0])).tier).to.eq(3);
+    const t = await tierOf(h, desks[0]);
+    expect(t.tier).to.eq(3);
+    // Stamp advanced at upgrade → new weight only prices future rounds.
+    expect(
+      t.stampAccPerWeight.eq((await h.program.account.config.fetch(f.config)).accPerWeight),
+    ).to.eq(true);
   });
 
-  it("multi-epoch: unclaimed epochs stay claimable after later finalizes (sequential claims)", async function () {
+  it("multi-round: one tx settles every round closed since the stamp (accumulator, not per-epoch)", async function () {
     this.timeout(180_000);
+    // desks[1] skipped the previous round; close one more so two rounds are outstanding.
+    const rA = (await currentEpoch(h, f)).idx - 1;
     await inflow(h, f, "c", LAMPORTS_PER_SOL / 2);
-    await finalizeCurrent(h, f);
-    const t0 = (await tierOf(h, desks[1])).nextClaimEpoch.toNumber();
-    const got = await claimAll(h, f, owners[1], desks[1]);
-    expect((await tierOf(h, desks[1])).nextClaimEpoch.toNumber() - t0).to.be.gte(2);
+    const rB = await finalizeCurrent(h, f);
+    expect(rB).to.eq(rA + 1);
+    const perRound = (await shareOfRound(h, rA, 2)) + (await shareOfRound(h, rB, 2));
+    const pending = await pendingOf(h, f, desks[1]);
+    // Summing floors ≤ flooring the sum ≤ summing floors + (rounds − 1).
+    expect(pending).to.be.gte(perRound);
+    expect(pending).to.be.lte(perRound + 1);
+    const got = await claimPending(h, f, owners[1], desks[1]);
+    expect(got).to.eq(pending);
     expect(got).to.be.gt(0);
     await assertSolvent(h, f);
   });
 
-  it("lazy revocation: transfer voids at claim (no payout); wash-transfer stays voided; re-activate at full price", async () => {
+  it("lazy revocation: transfer voids at claim (pending forfeited to dust); wash-transfer stays voided; re-activate at full price", async () => {
     const buyer = await fundWallet(h, 1.5 * LAMPORTS_PER_SOL);
     await transferDeskAsset(h, desks[2], f.deskCollection, owners[2], buyer.publicKey);
     expect((await coreOwner(h, desks[2])).toBase58()).to.eq(buyer.publicKey.toBase58());
-    const w0 = (await h.program.account.config.fetch(f.config)).totalWeightBp.toNumber();
-    const next = (await tierOf(h, desks[2])).nextClaimEpoch.toNumber();
+    const c0 = await h.program.account.config.fetch(f.config);
+    const w0 = c0.totalWeightBp.toNumber();
+    const forfeit = await pendingOf(h, f, desks[2]);
+    expect(forfeit).to.be.gt(0); // two unclaimed rounds
     const b0 = await balance(h, owners[2].publicKey);
-    await claim(h, f, owners[2], desks[2], next); // Ok, but voids
+    await claim(h, f, owners[2], desks[2]); // Ok, but voids
     expect((await tierOf(h, desks[2])).voided).to.eq(true);
     expect(await balance(h, owners[2].publicKey)).to.eq(b0);
-    expect((await h.program.account.config.fetch(f.config)).totalWeightBp.toNumber()).to.eq(
-      w0 - K.TIER_WEIGHTS_BP[2],
-    );
-    await expectFail(claim(h, f, buyer, desks[2], next), "TierVoided");
+    const c1 = await h.program.account.config.fetch(f.config);
+    expect(c1.totalWeightBp.toNumber()).to.eq(w0 - K.TIER_WEIGHTS_BP[2]);
+    // Forfeited share stays pot liability and re-enters the next round via dust.
+    expect(big(c1.dustScaled) - big(c0.dustScaled) >= BigInt(forfeit) * K.ACC_SCALE).to.eq(true);
+    expect(c1.potLiabilityLamports.toNumber()).to.eq(c0.potLiabilityLamports.toNumber());
+    await expectFail(claim(h, f, buyer, desks[2]), "TierVoided");
     await expectFail(upgrade(h, f, buyer, desks[2], 4), "TierVoided");
     await transferDeskAsset(h, desks[2], f.deskCollection, buyer, owners[2].publicKey);
-    await expectFail(claim(h, f, owners[2], desks[2], next), "TierVoided");
+    await expectFail(claim(h, f, owners[2], desks[2]), "TierVoided");
     const pot0 = await balance(h, f.pot);
     await activate(h, f, owners[2], desks[2]);
     expect((await balance(h, f.pot)) - pot0).to.eq(K.splitFee(K.STEP_FEE_LAMPORTS).toPot);
     const t2 = await tierOf(h, desks[2]);
     expect(t2.tier).to.eq(1);
     expect(t2.voided).to.eq(false);
+    await assertSolvent(h, f);
+  });
+
+  it("dust carry: forfeited / floor lamports re-enter the next round's inflow at finalize", async function () {
+    this.timeout(180_000);
+    await fillToThreshold(h, f);
+    const { idx, epoch, config } = await currentEpoch(h, f);
+    const carry = Number(big(config.dustScaled) / K.ACC_SCALE);
+    expect(carry).to.be.gt(0); // the voided desk's share from the previous test
+    const booked = epoch.inflowLamports.toNumber();
+    await finalizeIdx(h, f, idx);
+    const e = await h.program.account.epoch.fetch(epochPda(h.program.programId, idx)[0]);
+    expect(e.inflowLamports.toNumber()).to.eq(booked + carry);
+    expect(Number(big((await h.program.account.config.fetch(f.config)).dustScaled))).to.be.lt(
+      Number(K.ACC_SCALE),
+    );
     await assertSolvent(h, f);
   });
 

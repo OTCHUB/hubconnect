@@ -23,7 +23,7 @@ pub struct TierUpgraded {
     pub fee_lamports: u64,
 }
 
-/// §B3 #8 — ownership changed since activation; no refund.
+/// §B3 #8 — ownership changed since activation; no refund. Pending yield is forfeited to dust.
 #[event]
 pub struct TierVoided {
     pub asset: Pubkey,
@@ -31,8 +31,10 @@ pub struct TierVoided {
     pub current_owner: Pubkey,
     pub tier: u8,
     pub epoch: u64,
+    pub forfeited_lamports: u64,
 }
 
+/// One claim settles every round closed since the tier's stamp.
 #[event]
 pub struct YieldClaimed {
     pub asset: Pubkey,
@@ -40,6 +42,7 @@ pub struct YieldClaimed {
     pub epoch: u64,
     pub tier: u8,
     pub lamports: u64,
+    pub acc_per_weight: u128,
 }
 
 #[event]
@@ -50,6 +53,8 @@ pub struct EpochFinalized {
     pub burn_pending_lamports: u64,
     pub rolled_forward_lamports: u64,
     pub total_weight_bp: u64,
+    pub per_weight_scaled: u128,
+    pub acc_per_weight: u128,
 }
 
 #[event]
@@ -84,7 +89,6 @@ pub struct DeskUnconsigned {
 #[event]
 pub struct AccrualClaimed {
     pub wallet: Pubkey,
-    pub epoch: u64,
     pub lamports: u64,
 }
 

@@ -1,36 +1,44 @@
 // Pure projection math for the Part C yield table (§C4/§C5). Everything here is an ESTIMATE
 // that scales with Σw — the UI must label it as such.
-import { BPS, TIER_WEIGHTS_BP, cumulativeFeeLamports, type EpochView } from "@hub-sdk";
+import {
+  BPS,
+  TIER_WEIGHTS_BP,
+  cumulativeFeeLamports,
+  effectiveInflowLamports,
+  type ConfigView,
+  type EpochView,
+} from "@hub-sdk";
 
 export type Scenario = "conservative" | "current" | "bull";
 
 export const SCENARIOS: { id: Scenario; label: string; hint: string }[] = [
-  { id: "conservative", label: "CONSERVATIVE", hint: "cohort doubles (Σw ×2), same inflow" },
-  { id: "current", label: "CURRENT", hint: "live inflow and Σw as read on-chain" },
-  { id: "bull", label: "BULL", hint: "inflow doubles, same cohort" },
+  { id: "conservative", label: "CONSERVATIVE", hint: "cohort doubles (Σw ×2), same round size" },
+  { id: "current", label: "CURRENT", hint: "round closes at threshold (or live inflow if above)" },
+  { id: "bull", label: "BULL", hint: "rounds close at 2× the size, same cohort" },
 ];
 
 export type ScenarioInputs = {
-  inflowLamports: number;
+  /** Inflow the next round is projected to close with. */
+  roundInflowLamports: number;
   totalWeightBp: number;
   burnPctBp: number;
 };
 
 export function applyScenario(base: ScenarioInputs, s: Scenario): ScenarioInputs {
   if (s === "conservative") return { ...base, totalWeightBp: base.totalWeightBp * 2 };
-  if (s === "bull") return { ...base, inflowLamports: base.inflowLamports * 2 };
+  if (s === "bull") return { ...base, roundInflowLamports: base.roundInflowLamports * 2 };
   return base;
 }
 
-/** Distributable share of an epoch's inflow after the burn slice (§A5). */
+/** Distributable share of a round's inflow after the burn slice (§A5). */
 export const distributableLamports = (inflowLamports: number, burnPctBp: number) =>
   inflowLamports - Math.floor((inflowLamports * burnPctBp) / BPS);
 
-/** Per-tier payout for one epoch under `inputs`; 0 while Σw is empty. */
+/** Per-tier payout for one round under `inputs`; 0 while Σw is empty. */
 export function tierPayoutLamports(tier: number, inputs: ScenarioInputs) {
   const w = TIER_WEIGHTS_BP[tier - 1] ?? 0;
   if (!w || inputs.totalWeightBp <= 0) return 0;
-  const dist = distributableLamports(inputs.inflowLamports, inputs.burnPctBp);
+  const dist = distributableLamports(inputs.roundInflowLamports, inputs.burnPctBp);
   return Math.floor((dist * w) / inputs.totalWeightBp);
 }
 
@@ -38,51 +46,49 @@ export type TierRow = {
   tier: number;
   weightBp: number;
   cumulativeFeeLamports: number;
-  epochLamports: number;
-  dailyLamports: number;
-  weeklyLamports: number;
-  monthlyLamports: number;
-  /** Epochs until cumulative fee is recovered; null when payout is 0. */
-  breakevenEpochs: number | null;
+  roundLamports: number;
+  /** null when the round cadence is unknown (no closed round yet). */
+  dailyLamports: number | null;
+  /** Rounds until cumulative fee is recovered; null when payout is 0. */
+  breakevenRounds: number | null;
 };
 
-export function buildTierRows(inputs: ScenarioInputs, epochDurationSecs: number): TierRow[] {
-  const perDay = 86400 / Math.max(1, epochDurationSecs);
+/**
+ * Rounds have no clock — they close whenever inflow reaches the threshold. The only on-chain
+ * cadence signal is how long the last closed round took; null before the first close.
+ */
+export function roundsPerDay(previous: EpochView | null): number | null {
+  if (!previous || !previous.finalized) return null;
+  const secs = previous.finalizedTs - previous.startTs;
+  return secs > 0 ? 86400 / secs : null;
+}
+
+export function buildTierRows(inputs: ScenarioInputs, perDay: number | null): TierRow[] {
   return TIER_WEIGHTS_BP.map((weightBp, i) => {
     const tier = i + 1;
-    const epochLamports = tierPayoutLamports(tier, inputs);
-    const dailyLamports = epochLamports * perDay;
+    const roundLamports = tierPayoutLamports(tier, inputs);
     const fee = cumulativeFeeLamports(tier);
     return {
       tier,
       weightBp,
       cumulativeFeeLamports: fee,
-      epochLamports,
-      dailyLamports,
-      weeklyLamports: dailyLamports * 7,
-      monthlyLamports: dailyLamports * 30,
-      breakevenEpochs: epochLamports > 0 ? Math.ceil(fee / epochLamports) : null,
+      roundLamports,
+      dailyLamports: perDay === null ? null : roundLamports * perDay,
+      breakevenRounds: roundLamports > 0 ? Math.ceil(fee / roundLamports) : null,
     };
   });
 }
 
-/** Scenario inputs from the open epoch + config; extracted so scenarios can override each field. */
-export const baseInputs = (
-  e: EpochView,
-  config: { totalWeightBp: number; burnPctBp: number },
-): ScenarioInputs => ({
-  inflowLamports: e.inflowLamports,
+/**
+ * Scenario inputs from the open round + config. A round closes the moment effective inflow
+ * reaches the threshold, so the projected round size is the threshold — or the live inflow when
+ * a large booking has already pushed it past.
+ */
+export const baseInputs = (e: EpochView, config: ConfigView): ScenarioInputs => ({
+  roundInflowLamports: Math.max(config.minPotThresholdLamports, effectiveInflowLamports(e, config)),
   totalWeightBp: config.totalWeightBp,
   burnPctBp: config.burnPctBp,
 });
-
-/** Sum of finalized payouts a tier could still claim across `epochs`. */
-export const unclaimedEstimate = (tier: number, epochs: EpochView[]): number =>
-  epochs.reduce((acc, e) => {
-    const w = TIER_WEIGHTS_BP[tier - 1] ?? 0;
-    if (!e.finalized || !w || e.totalWeightBp === 0) return acc;
-    return acc + Math.floor((e.distributedLamports * w) / e.totalWeightBp);
-  }, 0);
 
 /** §A6.1: warn owners before listing/consigning when unclaimed yield is material. */
 export const CONSIGN_WARN_LAMPORTS = 20_000_000;

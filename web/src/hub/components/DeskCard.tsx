@@ -9,7 +9,7 @@ import { Notice } from "./ui/StateBox";
 type Props = { asset: string; data: DeskLookupResult; state: ProtocolState };
 
 export function DeskCard({ asset, data, state }: Props) {
-  const { tier, consignment, unclaimed } = data;
+  const { tier, consignment, pending } = data;
 
   if (!tier) {
     return (
@@ -24,11 +24,12 @@ export function DeskCard({ asset, data, state }: Props) {
   }
 
   const weightBp = TIER_WEIGHTS_BP[tier.tier - 1] ?? 0;
-  const warn = unclaimed !== null && unclaimed.lamports >= CONSIGN_WARN_LAMPORTS;
-  const range =
-    unclaimed && unclaimed.count > 0
-      ? `#${fmtNum(unclaimed.fromEpoch)} → #${fmtNum(unclaimed.toEpoch)} (${unclaimed.count} ep)`
-      : "none";
+  const warn = pending !== null && pending.lamports >= CONSIGN_WARN_LAMPORTS;
+  const roundsSince = pending
+    ? pending.rounds === 0
+      ? "current — nothing closed since last claim"
+      : `${fmtNum(pending.rounds)}${pending.truncated ? "+" : ""} closed round(s), one claim tx`
+    : "—";
 
   return (
     <div className="space-y-2">
@@ -38,7 +39,9 @@ export function DeskCard({ asset, data, state }: Props) {
             [ UNCLAIMED YIELD ≥ {fmtSol(CONSIGN_WARN_LAMPORTS, 2)} ]
           </div>
           <div className="mt-1 text-amber-200/80">
-            <div>~{fmtSol(unclaimed!.lamports)} is still claimable by the owner-at-activation.</div>
+            <div>
+              {fmtSol(pending!.lamports)} is claimable by the owner-at-activation in one tx.
+            </div>
             <div>Claim before listing or consigning — a transfer voids the tier (§A6.1).</div>
           </div>
         </Notice>
@@ -54,21 +57,33 @@ export function DeskCard({ asset, data, state }: Props) {
           }
         />
         <Row k="owner at activation" v={<AddressLink address={tier.ownerAtActivation} />} />
-        <Row k="activated epoch" v={`#${fmtNum(tier.activatedEpoch)}`} />
-        <Row k="next claim epoch" v={`#${fmtNum(tier.nextClaimEpoch)}`} />
-        <Row k="current epoch" v={`#${fmtNum(state.config.currentEpoch)}`} />
-        <Row k="unclaimed range" v={range} />
+        <Row k="activated round" v={`#${fmtNum(tier.activatedEpoch)}`} />
+        <Row k="open round" v={`#${fmtNum(state.config.currentEpoch)}`} />
+        <Row k="unclaimed" v={roundsSince} />
         <Row
-          k="unclaimed est."
-          v={unclaimed ? `${fmtSol(unclaimed.lamports, 4)}${unclaimed.truncated ? "+" : ""}` : "—"}
+          k="pending yield"
+          v={
+            pending ? (
+              <span className={pending.lamports > 0 ? "text-green-200" : undefined}>
+                {fmtSol(pending.lamports, 4)}
+              </span>
+            ) : (
+              "—"
+            )
+          }
         />
+        <Row k="lifetime claimed" v={fmtSol(tier.totalClaimedLamports, 4)} />
+        <div className="mt-2 text-[10px] text-green-700">
+          pending = ⌊(acc − stamp) × w / 10¹²⌋ — exact program math, settles every closed round in a
+          single claim_yield.
+        </div>
       </Panel>
       <Panel title="CONSIGNMENT">
         {consignment ? (
           <>
             <Row k="status" v={consignment.active ? "ACTIVE (in vault)" : "RETURNED"} />
             <Row k="consignor" v={<AddressLink address={consignment.consignor} />} />
-            <Row k="consigned epoch" v={`#${fmtNum(consignment.consignedEpoch)}`} />
+            <Row k="consigned round" v={`#${fmtNum(consignment.consignedEpoch)}`} />
           </>
         ) : (
           <div className="text-xs text-green-700">not consigned to the treasury.</div>

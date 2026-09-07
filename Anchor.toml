@@ -6,11 +6,11 @@ solana_version = "4.2.2"
 resolution = true
 skip-lint = false
 
-[programs.localnet]
-hub = "DPEioLagahMiVy4xfSzeKLWjWho8GZhbvK85BgTkY8qW"
-
 [programs.devnet]
-hub = "DPEioLagahMiVy4xfSzeKLWjWho8GZhbvK85BgTkY8qW"
+hub = "5tCDEazUAkRjrkasup1uWcYo3t1C2ht76LmQva5rewQv"
+
+[programs.localnet]
+hub = "5tCDEazUAkRjrkasup1uWcYo3t1C2ht76LmQva5rewQv"
 
 [provider]
 cluster = "localnet"
@@ -19,20 +19,21 @@ wallet = "~/.config/solana/hubconnect-devnet.json"
 [scripts]
 test = "npx ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"
 
-# Anchor 1.x defaults `anchor test` to surfpool; this suite runs on solana-test-validator so the
-# devnet clones below apply. Run `anchor test --validator legacy` (or set
-# ANCHOR_TEST_VALIDATOR=legacy).
+[hooks]
+
 [test]
 startup_wait = 20000
+shutdown_wait = 2000
+upgradeable = false
 
-# Localnet clones Metaplex Core from devnet so desk-asset ownership checks run against the
-# real program (§B5.1). Set HELIUS_API_KEY in .env to use Helius for the clone source.
 [test.validator]
+bind_address = "127.0.0.1"
 url = "https://api.devnet.solana.com"
+ledger = ".anchor/test-ledger"
+rpc_port = 8899
 
 [[test.validator.clone]]
 address = "CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d"
 
-# mpl-core ProgramData (upgradeable loader); without it the cloned program is "closed".
 [[test.validator.clone]]
 address = "9ZC25KLUrfgSoFVgjE1rrydZBbZns58UXi8A8ZhTdGfr"

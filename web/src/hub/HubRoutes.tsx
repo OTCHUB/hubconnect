@@ -8,7 +8,7 @@ export type HubRoutesProps = DashboardProps;
 
 /**
  * Relative routes — mount under any parent path, e.g. `<Route path="hub/*" element={<HubRoutes />} />`.
- *   ""              dashboard (metrics · epoch · yield table · wallet portfolio)
+ *   ""              dashboard (metrics · round progress · yield table · wallet portfolio)
  *   "treasury"      treasury transparency panel
  *   "deployments"   program / PDA / dependency registry with Solscan links
  *   "desk/:asset"   per-desk tier / consignment / unclaimed estimate

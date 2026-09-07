@@ -13,7 +13,7 @@ pub mod state;
 use instructions::*;
 use state::*;
 
-declare_id!("DPEioLagahMiVy4xfSzeKLWjWho8GZhbvK85BgTkY8qW");
+declare_id!("5tCDEazUAkRjrkasup1uWcYo3t1C2ht76LmQva5rewQv");
 
 #[program]
 pub mod hub {
@@ -42,9 +42,9 @@ pub mod hub {
         instructions::epochs::finalize_epoch(ctx, epoch_index)
     }
 
-    /// §B3 #5 (lazy revocation → #8 void_tier)
-    pub fn claim_yield(ctx: Context<ClaimYield>, epoch_index: u64) -> Result<()> {
-        instructions::tiers::claim_yield(ctx, epoch_index)
+    /// §B3 #5 (lazy revocation → #8 void_tier). One tx settles every closed round.
+    pub fn claim_yield(ctx: Context<ClaimYield>) -> Result<()> {
+        instructions::tiers::claim_yield(ctx)
     }
 
     /// §B3 #6
@@ -65,8 +65,8 @@ pub mod hub {
     }
 
     /// Pays a wallet-level StakerAccrual (consignor share credits).
-    pub fn claim_accrual(ctx: Context<ClaimAccrual>, epoch_index: u64) -> Result<()> {
-        instructions::epochs::claim_accrual(ctx, epoch_index)
+    pub fn claim_accrual(ctx: Context<ClaimAccrual>) -> Result<()> {
+        instructions::epochs::claim_accrual(ctx)
     }
 
     /// §B3 #7

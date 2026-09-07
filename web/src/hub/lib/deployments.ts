@@ -29,7 +29,7 @@ export type Deployment = {
 // Mainnet $HUB program: not deployed yet — populate when the mainnet deployer ships it.
 const HUB_MAINNET: string | null = null;
 /** Anchor 1.x writes the IDL to a Program Metadata account — written at devnet deploy. */
-const HUB_IDL_DEVNET = "Aa6cpxiNjUsD5Uwz7VMqPBNs9JS8DZdwDy1XFxm3FMYC";
+const HUB_IDL_DEVNET = "CnSKvxwKb3eNS6oF6GaAyAn8m3B8axXSCQYeBYrjdQfS";
 const OTC_PROGRAM_MAINNET = "AjMx5My4YUDHMiCtLpTAtgkiUJgrpJnQqd5AcQnddHQW";
 /** "OTC Desks" Core collection — read from the OTC Config (9b5V…REU4) on mainnet, 2026-09-07. */
 const OTC_DESKS_COLLECTION_MAINNET = "D7sLW9uKZG3G7bNbWfMHvKSgVhU9nXdv7huTfepF5Jrh";

@@ -18,12 +18,10 @@ pub enum HubError {
     TierMaxed,
     #[msg("Tier is already active; use upgrade_tier")]
     TierAlreadyActive,
-    #[msg("Claim all finalized epochs before upgrading")]
+    #[msg("Claim pending yield before upgrading")]
     ClaimBeforeUpgrade,
-    #[msg("Claims must be made sequentially, starting at the activation epoch")]
-    ClaimOutOfOrder,
-    #[msg("Epoch has no allotment for this tier")]
-    NotEligibleForEpoch,
+    #[msg("No active stakers (Σw == 0); nothing to distribute")]
+    NoActiveStakers,
     #[msg("Account is not a Metaplex Core AssetV1")]
     NotCoreAsset,
     #[msg("Wrong epoch account for the current epoch")]
@@ -48,8 +46,8 @@ pub enum HubError {
     NotDeskOwner,
     #[msg("Desk asset does not belong to the configured collection")]
     WrongCollection,
-    #[msg("Epoch has not ended yet")]
-    EpochNotEnded,
+    #[msg("Open epoch inflow is below min_pot_threshold_lamports")]
+    PotBelowThreshold,
     #[msg("Epoch already finalized")]
     EpochAlreadyFinalized,
     #[msg("Epoch is not finalized")]

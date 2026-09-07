@@ -7,8 +7,10 @@ export const TIER_WEIGHTS = TIER_WEIGHTS_BP.map((w) => w / BPS); // [1.00,1.25,1
 export const STEP_FEE_LAMPORTS = LAMPORTS_PER_SOL / 2;
 export const OPS_PCT_BP = 1_000;
 export const BURN_PCT_BP = 1_000;
-export const EPOCH_HOURS = 24;
-export const EPOCH_DURATION_SECS = EPOCH_HOURS * 3600;
+/** A round closes once its inflow reaches this (OTC desk-pot trigger: 0.1 SOL). */
+export const MIN_POT_THRESHOLD_LAMPORTS = LAMPORTS_PER_SOL / 10;
+/** Fixed-point scale of `Config.acc_per_weight` (lamports × ACC_SCALE per bp of weight). */
+export const ACC_SCALE = 1_000_000_000_000n;
 
 export const EXIT_DISCOUNT_BP = 1_000;
 export const EXIT_HUB_LEG_BP = 5_000;
@@ -22,7 +24,7 @@ export const LP_TARGET_SOL_LAMPORTS = 100 * LAMPORTS_PER_SOL;
 export const TREASURY_HUB_FLOAT_CAP_BP = 200;
 
 export const MPL_CORE_PROGRAM_ID = "CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d";
-export const HUB_PROGRAM_ID = "DPEioLagahMiVy4xfSzeKLWjWho8GZhbvK85BgTkY8qW";
+export const HUB_PROGRAM_ID = "5tCDEazUAkRjrkasup1uWcYo3t1C2ht76LmQva5rewQv";
 
 export const TIER_NAMES = ["BRONZE", "SILVER", "GOLD", "DIAMOND"] as const;
 

@@ -1,6 +1,7 @@
 // One full treasury → pot → stakers → burn cycle on devnet, with every invariant asserted.
 //   npx ts-node -T scripts/devnet-yield-cycle.ts [--sweep-price 0.05] [--desk-round 0.144]
-//        [--inflow-c 0] [--hub-per-sol 1000000] [--no-sweep] [--consign] [--quick]
+//        [--inflow-c 0] [--consignor-share <bp>] [--hub-per-sol 1000000] [--no-sweep] [--consign]
+//        [--quick]
 //
 // Mainnet model (§A5): OTC creator fees feed the OTC desk pot; every desk claims a desk-pot
 // round (≈0.144 SOL/desk/day). Rounds claimed by TREASURY-OWNED desks are pot inflow source B,
@@ -9,6 +10,12 @@
 // share 90% by tier weight and 10% buys + burns $HUB. There is no OTC program on devnet, so the
 // payer (= treasury) fronts the rounds; everything from the register call onward is real.
 //
+// Rounds are THRESHOLD-gated, like the OTC desk pot ("the moment the pot clears 0.1 SOL it is
+// spent"): `finalize_epoch` is rejected until the open round's inflow reaches
+// `Config.min_pot_threshold_lamports`, and allowed immediately after — no clock.
+//
+// 0. Bring the wallet current: if the open round is already at threshold, close it and claim, so
+//    the cycle starts on a round that is below threshold.
 // 1. Floor sweep (mock of the ME "accept listing" the multisig executes off-chain): a seller
 //    lists a desk; the treasury pays `sweep-price` SOL and receives the desk in the same tx
 //    (atomic SOL ↔ Core transfer) inside the §A6 caps. The sweep tx also creates the treasury's
@@ -16,14 +23,17 @@
 //    Consignment (§A6.1): an owner-sent desk goes into the vault PDA via `consign_desk`
 //    (TreasuryState.desks_consigned) → its rounds are source E. Existing active consignments are
 //    reused; --consign (or none existing) mints + consigns one more.
-// 2. Inflow: B = desk_round × treasury-owned desks, E = desk_round per consigned desk (minus
-//    `consignor_share_bp` credited to the consignor's StakerAccrual), optional C. Σw must NOT
-//    change — treasury/vault desks feed the pot, they never take a tier.
-// 3. `finalize_epoch`: burn slice = ⌊inflow × burn_pct_bp / 10⁴⌋ → BurnState.burn_pending; the
-//    rest → distributed, Σw snapshotted.
-// 4. `claim_yield` per owned tier, in program order: payout == ⌊distributed × w / Σw⌋ (u128),
-//    the claimer whose weight equals the remaining unclaimed weight takes distributed − claimed
-//    so Σ payouts == distributed exactly (no dust left in the pot).
+// 2. Gate (negative): with the round below threshold, `finalize_epoch` → PotBelowThreshold and
+//    `claim_yield` on a current desk → NothingToClaim.
+//    Inflow: B = desk_round × treasury-owned desks, E = desk_round per consigned desk (minus
+//    `consignor_share_bp` credited to the consignor's per-wallet StakerAccrual), optional C.
+//    Σw must NOT change — treasury/vault desks feed the pot, they never take a tier.
+// 3. `finalize_epoch` (allowed once ≥ threshold; topped up with C if the rounds fell short):
+//    burn slice = ⌊inflow × burn_pct_bp / 10⁴⌋ → BurnState.burn_pending; the rest is credited
+//    to `Config.acc_per_weight` as ⌊distributable × 10¹² / Σw⌋ per bp of weight.
+// 4. `claim_yield` ONCE per owned tier: payout == ⌊(acc − stamp) × w / 10¹²⌋ — every round
+//    closed since the desk's stamp in a single tx; the stamp catches up to `acc`.
+//    `claim_accrual` for the payer's consignor credits: balance += owed, owed → 0, one tx.
 // 5. Burn: keeper burns $HUB from its ATA (mock market buy at --hub-per-sol) and `record_burn`
 //    reimburses burn-pending from the pot; BurnState + mint supply reflect it.
 //
@@ -50,6 +60,7 @@ import {
 } from "@metaplex-foundation/umi-web3js-adapters";
 import { create, fetchAsset, transferV1 } from "@metaplex-foundation/mpl-core";
 import {
+  ACC_SCALE,
   MPL_CORE_PROGRAM_ID,
   SWEEP_BUDGET_CAP_BP,
   SWEEP_PAYBACK_CAP_LAMPORTS,
@@ -69,13 +80,18 @@ import {
   TOKEN_PROGRAM_ID,
   ata,
   claimAllOwned,
+  claimYieldIx,
   devnetCtx,
   explorer,
+  finalizeIx,
   hubAtaIx,
   openEpoch,
   ownedTieredDesks,
+  registerInflow,
+  roundStatus,
   sendIxs,
-  settleEpoch,
+  setConfigValue,
+  settleRound,
   sol,
   tokenAmount,
   withIxs,
@@ -251,28 +267,45 @@ const burnIx = (account: PublicKey, mint: PublicKey, owner: PublicKey, amount: b
   });
 };
 
-async function claimOne(ctx: Ctx, asset: PublicKey, epochIdx: number) {
-  const [pot] = potPda(ctx.program.programId);
-  const [epoch] = epochPda(ctx.program.programId, epochIdx);
-  const [deskTier] = tierPda(ctx.program.programId, asset);
+/** Payer balance delta of one tx, net of its fee. */
+async function netReceived(ctx: Ctx, send: () => Promise<string>) {
   const before = await ctx.connection.getBalance(ctx.payer.publicKey);
-  const sig = await ctx.program.methods
-    .claimYield(new BN(epochIdx))
-    .accountsPartial({
-      claimer: ctx.payer.publicKey,
-      deskAsset: asset,
-      config: ctx.config,
-      deskTier,
-      epoch,
-      pot,
-    })
-    .rpc();
+  const sig = await send();
   const tx = await ctx.connection.getTransaction(sig, {
     commitment: "confirmed",
     maxSupportedTransactionVersion: 0,
   });
   const after = await ctx.connection.getBalance(ctx.payer.publicKey);
-  return after - before + (tx?.meta?.fee ?? 5000);
+  return { got: BigInt(after - before + (tx?.meta?.fee ?? 5000)), sig };
+}
+
+/** Single-tx `claim_yield`; returns lamports received net of fee. */
+async function claimOne(ctx: Ctx, asset: PublicKey) {
+  return netReceived(ctx, async () => sendIxs(ctx, [await claimYieldIx(ctx, asset)]));
+}
+
+/** `(acc − stamp) × w / ACC_SCALE` — the program's `pending_yield` for one desk right now. */
+async function pendingOf(ctx: Ctx, asset: PublicKey) {
+  const t = await ctx.program.account.deskTier.fetch(tierPda(ctx.program.programId, asset)[0]);
+  const c = await ctx.program.account.config.fetch(ctx.config);
+  if (t.voided) return 0n;
+  const w = BigInt(TIER_WEIGHTS_BP[t.tier - 1]);
+  return ((big(c.accPerWeight) - big(t.stampAccPerWeight)) * w) / ACC_SCALE;
+}
+
+/** Program error code name from an Anchor rpc failure, or the raw message. */
+const errName = (e: unknown) => {
+  const m = String((e as Error)?.message ?? e);
+  return m.match(/Error Code: (\w+)/)?.[1] ?? m.slice(0, 80);
+};
+async function expectErr(p: Promise<unknown>, code: string) {
+  try {
+    await p;
+    return { ok: false, detail: "call succeeded" };
+  } catch (e) {
+    const name = errName(e);
+    return { ok: name === code, detail: name };
+  }
 }
 
 const mintSupply = async (ctx: Ctx, mint: PublicKey) =>
@@ -295,14 +328,25 @@ async function main() {
   const price = lam(argNum("--sweep-price", 0.05));
   const deskRound = lam(argNum("--desk-round", MAINNET_DESK_ROUND_SOL));
   const inflowC = lam(argNum("--inflow-c", 0));
+  const consignorShare = argNum("--consignor-share", -1);
   const hubPerSol = argNum("--hub-per-sol", 1_000_000);
   const collection = cfg0.deskCollection;
 
-  // Bring every owned tier current so the cycle epoch is the only one left to claim.
-  const start = await openEpoch(ctx);
-  if (start.idx > 0) {
-    const r = await claimAllOwned(ctx, start.idx - 1);
-    if (r.claims) console.log(`caught up ${r.claims} pending claim(s) → +${sol(r.received)}`);
+  console.log("\n[0] BRING CURRENT");
+  // A leftover round already at threshold would make the negative gate check meaningless:
+  // close it (and claim) first so the cycle starts on a round below threshold.
+  const start = await roundStatus(ctx);
+  if (start.ready) {
+    console.log(
+      `  open round #${start.idx} already at ${sol(start.effective)} ≥ threshold — closing`,
+    );
+    await settleRound(ctx);
+  }
+  const r0 = await claimAllOwned(ctx);
+  if (r0.claims) console.log(`  caught up ${r0.claims} pending claim(s) → +${sol(r0.received)}`);
+  else console.log(`  ${r0.desks} owned tier(s), nothing pending`);
+  if (consignorShare >= 0) {
+    await setConfigValue(ctx, "consignorShareBp", { u16: consignorShare });
   }
 
   console.log(`\n[1] DESK CUSTODY${quick ? " (--quick: reuse existing)" : ""}`);
@@ -317,35 +361,45 @@ async function main() {
     `  treasury-owned (source B): ${swept.length} desk(s) · consigned in vault (source E): ${consignments.length}`,
   );
 
-  console.log("\n[2] INFLOW — desk-pot rounds (mock OTC creator-fee take) → pot");
+  console.log("\n[2] GATE + INFLOW — desk-pot rounds (mock OTC creator-fee take) → pot");
+  const gate = await roundStatus(ctx);
+  const ownedNow = await ownedTieredDesks(ctx);
+  check(
+    `round #${gate.idx} below threshold before inflow`,
+    gate.effective < gate.threshold,
+    `${sol(gate.effective)} < ${sol(gate.threshold)}${gate.carry ? ` (incl. ${gate.carry} lamport dust carry)` : ""}`,
+  );
+  {
+    const r = await expectErr(finalizeIx(ctx, gate.idx), "PotBelowThreshold");
+    check("finalize_epoch rejected below threshold", r.ok, r.detail);
+  }
+  if (ownedNow.length) {
+    // Every owned tier was brought current in [0]; with no round closed since, nothing to claim.
+    const r = await expectErr(
+      sendIxs(ctx, [await claimYieldIx(ctx, ownedNow[0].asset)]),
+      "NothingToClaim",
+    );
+    check("claim_yield rejected — no round closed since stamp", r.ok, r.detail);
+  }
+
   console.log(
     `  desk_round ${sol(deskRound)} per desk (mainnet ref ≈ ${MAINNET_DESK_ROUND_SOL} SOL/desk/day)`,
   );
   const e0 = await openEpoch(ctx);
   const shareBp = BigInt(e0.cfg.consignorShareBp);
   const inflowB = deskRound * swept.length;
-  const [treasuryState] = treasuryPda(ctx.program.programId);
   const registerTreasury = async (source: "b" | "c", lamports: number) => {
-    const sig = await ctx.program.methods
-      .registerTreasuryInflow({ [source]: {} } as never, new BN(lamports))
-      .accountsPartial({
-        treasury: ctx.payer.publicKey,
-        config: ctx.config,
-        epoch: e0.key,
-        pot: potKey,
-        treasuryState,
-      })
-      .rpc();
+    const sig = await registerInflow(ctx, source, lamports);
     console.log(`  source ${source.toUpperCase()} ${sol(lamports)} (${sig})`);
   };
   if (inflowB > 0) await registerTreasury("b", inflowB);
   if (inflowC > 0) await registerTreasury("c", inflowC);
   let inflowE = 0n;
   let shareE = 0n;
-  // Per consignor: accrual PDA for this epoch, owed before, and the share we expect it to gain.
+  // Per consignor: the per-wallet accrual PDA, owed before, and the share we expect it to gain.
   const accruals = new Map<string, { key: PublicKey; before: bigint; expected: bigint }>();
   for (const c of consignments) {
-    const [consignorAccrual] = accrualPda(ctx.program.programId, c.consignor, e0.idx);
+    const [consignorAccrual] = accrualPda(ctx.program.programId, c.consignor);
     const id = c.consignor.toBase58();
     if (!accruals.has(id)) {
       const prev = await ctx.program.account.stakerAccrual.fetchNullable(consignorAccrual);
@@ -402,20 +456,48 @@ async function main() {
     }
   }
 
-  console.log("\n[3] FINALIZE EPOCH");
+  console.log("\n[3] FINALIZE ROUND — allowed once inflow ≥ min_pot_threshold");
+  const pre = await roundStatus(ctx);
+  if (!pre.ready && pre.shortfall > 0) {
+    console.log(
+      `  rounds booked ${sol(pre.effective)} < threshold ${sol(pre.threshold)} — topping up ${sol(pre.shortfall)} (C)`,
+    );
+  }
   const burnBefore = (await ctx.program.account.burnState.fetch(burnKey)).burnPendingLamports;
-  const { idx, epoch } = await settleEpoch(ctx);
+  const acc0 = big(pre.cfg.accPerWeight);
+  const { idx, epoch } = await settleRound(ctx, true);
+  const cfg3 = await ctx.program.account.config.fetch(ctx.config);
   const inflow = big(epoch.inflowLamports);
+  check(
+    "finalize allowed at/above threshold (no clock)",
+    inflow >= BigInt(pre.threshold),
+    `${sol(inflow)} ≥ ${sol(pre.threshold)}`,
+  );
   const expBurn = (inflow * BigInt(e1.cfg.burnPctBp)) / BPS; // bps_of: u128 floor
   check(
     `burn_pending == ⌊inflow × ${e1.cfg.burnPctBp} bp⌋`,
     big(epoch.burnPendingLamports) === expBurn,
     sol(expBurn),
   );
+  const distributable = inflow - expBurn;
+  const sw = big(epoch.totalWeightBp);
+  const expPerW = (distributable * ACC_SCALE) / sw;
   check(
-    "distributed == inflow − burn",
-    big(epoch.distributedLamports) === inflow - expBurn,
-    sol(epoch.distributedLamports),
+    "per_weight_scaled == ⌊distributable × 10¹² / Σw⌋",
+    big(epoch.perWeightScaled) === expPerW,
+    `${expPerW} per bp`,
+  );
+  check(
+    "credited + floor remainder == distributable (remainder ≤ 1 lamport)",
+    big(epoch.distributedLamports) + big(epoch.rolledForwardLamports) === distributable &&
+      big(epoch.rolledForwardLamports) <= 1n,
+    `credited ${sol(epoch.distributedLamports)} · remainder ${epoch.rolledForwardLamports} lamport(s)`,
+  );
+  check(
+    "Config.acc_per_weight += per_weight_scaled",
+    big(cfg3.accPerWeight) - acc0 === expPerW &&
+      big(epoch.accPerWeightAfter) === big(cfg3.accPerWeight),
+    `${acc0} → ${cfg3.accPerWeight}`,
   );
   check("Σw snapshot == Config.total_weight_bp", epoch.totalWeightBp.eq(e1.cfg.totalWeightBp));
   const burnAfter = (await ctx.program.account.burnState.fetch(burnKey)).burnPendingLamports;
@@ -424,56 +506,120 @@ async function main() {
     big(burnAfter) - big(burnBefore) === expBurn,
     sol(burnAfter),
   );
+  const next = await openEpoch(ctx);
+  check(
+    `next round #${next.idx} opens with the floor remainder only`,
+    next.idx === idx + 1 && next.epoch.inflowLamports.eq(epoch.rolledForwardLamports),
+    sol(next.epoch.inflowLamports),
+  );
 
-  console.log("\n[4] CLAIMS — pro-rata by tier weight, program order");
+  console.log("\n[4] CLAIMS — one tx per desk settles every closed round");
   const desks = await ownedTieredDesks(ctx);
   const dist = big(epoch.distributedLamports);
-  const sw = big(epoch.totalWeightBp);
   TIER_NAMES.forEach((name, i) => {
     const w = BigInt(TIER_WEIGHTS_BP[i]);
     console.log(
-      `  T${i + 1} ${name.padEnd(7)} w ${w} bp → ⌊dist × w / Σw⌋ = ${sol((dist * w) / sw)}`,
+      `  T${i + 1} ${name.padEnd(7)} w ${w} bp → ⌊per_w × w / 10¹²⌋ = ${sol((expPerW * w) / ACC_SCALE)}`,
     );
   });
   let claimedW = 0n;
-  let claimedL = 0n;
   let sum = 0n;
-  let remainder = 0n;
+  const dust0 = big(cfg3.dustScaled);
   for (const { asset, tier } of desks) {
     const w = BigInt(TIER_WEIGHTS_BP[tier.tier - 1]);
-    const floorShare = (dist * w) / sw;
-    // Mirrors claim_yield: the claimer holding exactly the remaining weight sweeps the dust.
-    const last = w === sw - claimedW;
-    const expected = last ? dist - claimedL : floorShare;
-    if (last) remainder = expected - floorShare;
-    const got = BigInt(await claimOne(ctx, asset, idx));
+    const expected = await pendingOf(ctx, asset); // (acc − stamp) × w / 10¹², all rounds since stamp
+    const thisRound = (expPerW * w) / ACC_SCALE;
+    const { got } = await claimOne(ctx, asset);
+    const t = await ctx.program.account.deskTier.fetch(tierPda(ctx.program.programId, asset)[0]);
     claimedW += w;
-    claimedL += expected;
     sum += got;
     check(
-      `T${tier.tier} ${asset.toBase58().slice(0, 4)}… paid ${sol(got)}${last ? " (last claimer)" : ""}`,
-      got === expected,
-      `expected ${sol(expected)}${last && remainder ? ` incl. ${remainder} lamport remainder` : ""}`,
+      `T${tier.tier} ${asset.toBase58().slice(0, 4)}… paid ${sol(got)} in one tx`,
+      got === expected && expected >= thisRound,
+      `expected ${sol(expected)}${expected > thisRound ? ` (incl. ${sol(expected - thisRound)} from earlier rounds)` : ""}`,
+    );
+    check(
+      `  stamp caught up to acc · lifetime ${sol(t.totalClaimedLamports)}`,
+      t.stampAccPerWeight.eq(cfg3.accPerWeight) && big(t.totalClaimedLamports) >= got,
     );
   }
-  const closed = await ctx.program.account.epoch.fetch(epochPda(ctx.program.programId, idx)[0]);
+  const cfg4 = await ctx.program.account.config.fetch(ctx.config);
   const fullCohort = claimedW === sw;
-  check(
-    "Σ payouts == Σ expected · Epoch.claimed_lamports matches",
-    sum === claimedL && big(closed.claimedLamports) === claimedL,
-    `${desks.length} desks · ${sol(sum)}`,
-  );
   if (fullCohort) {
+    // Every staker is the payer → in scaled units, credited × 10¹² == per_w × Σw + slack, where
+    // `slack` went to dust at finalize and each claim's sub-lamport fraction goes to dust now.
+    // So (credited − Σ payouts) × 10¹² == Δdust since finalize + slack, exactly (zero-sum).
+    const slack = dist * ACC_SCALE - expPerW * sw;
+    const dustDelta = big(cfg4.dustScaled) - dust0;
     check(
-      "Σ payouts == distributed (no dust left in pot)",
-      sum === dist && big(closed.claimedLamports) === dist,
-      `remainder ${remainder} lamport(s) absorbed by the last claimer`,
+      "Σ payouts + dust == credited (zero-sum; ≤ 1 lamport floor per claimer)",
+      sum <= dist &&
+        dist - sum <= BigInt(desks.length) &&
+        dustDelta + slack === (dist - sum) * ACC_SCALE,
+      `${desks.length} desks · ${sol(sum)} paid · ${dist - sum} lamport(s) to dust`,
     );
-    check("claimed weight == Σw", closed.claimedWeightBp.eq(epoch.totalWeightBp));
+  } else {
+    check(
+      "Σ payouts ≤ credited",
+      sum <= dist,
+      `payer holds ${claimedW}/${sw} bp — other stakers own the rest (${sol(dist - sum)} still owed)`,
+    );
+  }
+  if (desks.length) {
+    const r = await expectErr(
+      sendIxs(ctx, [await claimYieldIx(ctx, desks[0].asset)]),
+      "NothingToClaim",
+    );
+    check("second claim in the same round rejected", r.ok, r.detail);
+  }
+
+  console.log("\n[4b] CONSIGNOR ACCRUAL — claim_accrual (payer-owned consignments)");
+  const [payerAccrual] = accrualPda(ctx.program.programId, ctx.payer.publicKey);
+  const acc = await ctx.program.account.stakerAccrual.fetchNullable(payerAccrual);
+  if (acc && !acc.owedLamports.isZero()) {
+    const owed = big(acc.owedLamports);
+    const liab0 = big(cfg4.potLiabilityLamports);
+    const { got } = await netReceived(ctx, () =>
+      ctx.program.methods
+        .claimAccrual()
+        .accountsPartial({
+          wallet: ctx.payer.publicKey,
+          config: ctx.config,
+          accrual: payerAccrual,
+          pot: potKey,
+        })
+        .rpc(),
+    );
+    const a1 = await ctx.program.account.stakerAccrual.fetch(payerAccrual);
+    const liab1 = big((await ctx.program.account.config.fetch(ctx.config)).potLiabilityLamports);
+    check("claim_accrual pays owed_lamports in one tx", got === owed, `${sol(owed)}`);
+    check(
+      "owed → 0 · total_claimed += owed · liability −= owed",
+      a1.owedLamports.isZero() &&
+        big(a1.totalClaimedLamports) - big(acc.totalClaimedLamports) === owed &&
+        liab0 - liab1 === owed,
+      `lifetime ${sol(a1.totalClaimedLamports)}`,
+    );
+    const r = await expectErr(
+      ctx.program.methods
+        .claimAccrual()
+        .accountsPartial({
+          wallet: ctx.payer.publicKey,
+          config: ctx.config,
+          accrual: payerAccrual,
+          pot: potKey,
+        })
+        .rpc(),
+      "AccrualEmpty",
+    );
+    check("second claim_accrual rejected", r.ok, r.detail);
   } else {
     console.log(
-      `  note: payer holds ${claimedW}/${sw} bp — other stakers own the rest; unclaimed ${sol(dist - sum)} rolls forward`,
+      `  nothing owed to the payer (consignor_share_bp = ${e0.cfg.consignorShareBp}; pass --consignor-share 5000 to exercise)`,
     );
+  }
+  if (consignorShare >= 0 && consignorShare !== cfg0.consignorShareBp) {
+    await setConfigValue(ctx, "consignorShareBp", { u16: cfg0.consignorShareBp });
   }
 
   console.log("\n[5] BURN ($HUB) + record_burn");

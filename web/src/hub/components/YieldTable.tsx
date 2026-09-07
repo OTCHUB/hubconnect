@@ -5,6 +5,7 @@ import {
   applyScenario,
   baseInputs,
   buildTierRows,
+  roundsPerDay,
   type Scenario,
   type TierRow,
 } from "../lib/yield";
@@ -24,8 +25,9 @@ const th = "px-2 py-1 text-left text-[10px] uppercase tracking-widest text-green
 const td = "px-2 py-1 text-xs text-green-300 whitespace-nowrap";
 
 function TierRowView({ r, raw }: { r: TierRow; raw: number }) {
-  const uplift = raw > 0 ? `+${((r.dailyLamports / raw) * 100).toFixed(0)}%` : "—";
-  const breakeven = r.breakevenEpochs === null ? "—" : `${fmtNum(r.breakevenEpochs)} ep`;
+  const daily = r.dailyLamports;
+  const uplift = raw > 0 && daily !== null ? `+${((daily / raw) * 100).toFixed(0)}%` : "—";
+  const breakeven = r.breakevenRounds === null ? "—" : `${fmtNum(r.breakevenRounds)} rounds`;
   return (
     <tr className="border-t border-green-500/10">
       <td className={td}>
@@ -33,10 +35,10 @@ function TierRowView({ r, raw }: { r: TierRow; raw: number }) {
         <span className="ml-1 text-green-700">{fmtWeight(r.weightBp)}</span>
       </td>
       <td className={td}>{fmtSol(r.cumulativeFeeLamports, 1)}</td>
-      <td className={td}>{fmtSol(r.epochLamports, 4)}</td>
-      <td className={td}>{fmtSol(raw + r.dailyLamports, 4)}</td>
-      <td className={td}>{fmtSol((raw + r.dailyLamports) * 7)}</td>
-      <td className={td}>{fmtSol((raw + r.dailyLamports) * 30)}</td>
+      <td className={td}>{fmtSol(r.roundLamports, 4)}</td>
+      <td className={td}>{daily === null ? "—" : fmtSol(raw + daily, 4)}</td>
+      <td className={td}>{daily === null ? "—" : fmtSol((raw + daily) * 7)}</td>
+      <td className={td}>{daily === null ? "—" : fmtSol((raw + daily) * 30)}</td>
       <td className={td}>{uplift}</td>
       <td className={td}>{breakeven}</td>
     </tr>
@@ -50,9 +52,14 @@ export function YieldTable({ state, rawDeskDailyLamports }: Props) {
 
   const raw = rawDeskDailyLamports ?? Math.max(0, Number(rawSol) || 0) * LAMPORTS_PER_SOL;
   const inputs = applyScenario(baseInputs(state.currentEpoch, state.config), scenario);
-  const rows = buildTierRows(inputs, state.config.epochDurationSecs);
+  const perDay = roundsPerDay(state.previousEpoch);
+  const rows = buildTierRows(inputs, perDay);
   const toggle = <ScenarioToggle value={scenario} onChange={setScenario} />;
-  const basis = `inflow ${fmtSol(inputs.inflowLamports)} · Σw ${fmtNum(inputs.totalWeightBp)} bp`;
+  const basis = `round size ${fmtSol(inputs.roundInflowLamports)} · Σw ${fmtNum(inputs.totalWeightBp)} bp`;
+  const cadence =
+    perDay === null
+      ? "day/week/month need a closed round to infer cadence — none yet."
+      : `cadence ≈ ${perDay.toFixed(1)} rounds/day (from the last closed round); day/week/month extrapolate linearly.`;
 
   return (
     <Panel title="YIELD BY TIER" right={toggle}>
@@ -68,7 +75,7 @@ export function YieldTable({ state, rawDeskDailyLamports }: Props) {
             <tr>
               <th className={th}>tier</th>
               <th className={th}>fee (cum.)</th>
-              <th className={th}>/ epoch</th>
+              <th className={th}>/ round</th>
               <th className={th}>/ day</th>
               <th className={th}>/ week</th>
               <th className={th}>/ month</th>
@@ -98,7 +105,7 @@ export function YieldTable({ state, rawDeskDailyLamports }: Props) {
       </div>
       <div className="mt-2 text-[10px] text-green-700">
         <div>{basis}</div>
-        <div>burn slice removed before distribution · day/week/month extrapolate linearly.</div>
+        <div>burn slice removed before distribution · {cadence}</div>
       </div>
     </Panel>
   );

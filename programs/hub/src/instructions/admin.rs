@@ -16,8 +16,8 @@ pub struct InitializeConfigArgs {
     pub desk_collection: Pubkey,
     pub hub_mint: Pubkey,
     pub otc_mint: Pubkey,
-    /// 0 → Appendix default (EPOCH_HOURS × 3600). Test clusters pass a short value.
-    pub epoch_duration_secs: u64,
+    /// 0 → Appendix default (MIN_POT_THRESHOLD_LAMPORTS = 0.1 SOL).
+    pub min_pot_threshold_lamports: u64,
 }
 
 #[derive(Accounts)]
@@ -44,10 +44,10 @@ pub struct InitializeConfig<'info> {
 
 pub fn initialize_config(ctx: Context<InitializeConfig>, args: InitializeConfigArgs) -> Result<()> {
     let now = Clock::get()?.unix_timestamp;
-    let duration = if args.epoch_duration_secs == 0 {
-        EPOCH_DURATION_SECS
+    let threshold = if args.min_pot_threshold_lamports == 0 {
+        MIN_POT_THRESHOLD_LAMPORTS
     } else {
-        args.epoch_duration_secs
+        args.min_pot_threshold_lamports
     };
 
     // Rent-exempt floor so the pot can be drained to exactly its liability.
@@ -64,7 +64,7 @@ pub fn initialize_config(ctx: Context<InitializeConfig>, args: InitializeConfigA
     let e = &mut ctx.accounts.epoch0;
     e.index = 0;
     e.start_ts = now;
-    e.end_ts = now + duration as i64;
+    e.finalized_ts = 0;
     e.bump = ctx.bumps.epoch0;
 
     let c = &mut ctx.accounts.config;
@@ -79,8 +79,7 @@ pub fn initialize_config(ctx: Context<InitializeConfig>, args: InitializeConfigA
     c.otc_mint = args.otc_mint;
     c.tier_weights_bp = TIER_WEIGHTS_BP;
     c.step_fee_lamports = STEP_FEE_LAMPORTS;
-    c.epoch_hours = EPOCH_HOURS;
-    c.epoch_duration_secs = duration;
+    c.min_pot_threshold_lamports = threshold;
     c.burn_pct_bp = BURN_PCT_BP;
     c.ops_pct_bp = OPS_PCT_BP;
     c.consignment_enabled = CONSIGNMENT_ENABLED;
@@ -93,6 +92,8 @@ pub fn initialize_config(ctx: Context<InitializeConfig>, args: InitializeConfigA
     c.genesis_ts = now;
     c.total_weight_bp = 0;
     c.pot_liability_lamports = 0;
+    c.acc_per_weight = 0;
+    c.dust_scaled = 0;
     c.bump = ctx.bumps.config;
     c.pot_bump = ctx.bumps.pot;
 
@@ -171,10 +172,10 @@ pub fn update_config(
         ConfigField::LpEnabled => c.lp_enabled = flag(&value)?,
         ConfigField::Treasury => c.treasury = pk(&value)?,
         ConfigField::LpTargetSolLamports => c.lp_target_sol_lamports = u64v(&value)?,
-        ConfigField::EpochDurationSecs => {
+        ConfigField::MinPotThresholdLamports => {
             let v = u64v(&value)?;
             require!(v > 0, HubError::ZeroAmount);
-            c.epoch_duration_secs = v;
+            c.min_pot_threshold_lamports = v;
         }
         ConfigField::LpPhase2OpenTs => match value {
             ConfigValue::I64(x) => c.lp_phase2_open_ts = x,

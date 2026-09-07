@@ -21,7 +21,13 @@ docs/                spec, master prompt, evidence/ (mainnet read-only verificat
 ```
 
 `Pot` is a data-less system-owned PDA (`["pot"]`); its lamport balance is the pot.
-Liability is tracked on `Epoch` / `BurnState` / Σ `StakerAccrual`.
+Liability is tracked on `Config.pot_liability_lamports` (staker yield via the `acc_per_weight`
+accumulator + consignor `StakerAccrual` credits) and `BurnState.burn_pending_lamports`.
+
+Distribution is threshold-gated like the OTC desk pot: inflow fills the open round (`Epoch`);
+`finalize_epoch` is allowed the moment the round reaches `min_pot_threshold_lamports` (0.1 SOL),
+credits `⌊distributable × 10¹² / Σw⌋` to `Config.acc_per_weight`, and one `claim_yield` per desk
+pays `⌊(acc − stamp) × w / 10¹²⌋` across every round closed since the desk's stamp.
 
 ## Toolchain
 
@@ -75,24 +81,27 @@ Scale + cycle validation (payer = Config.authority = Config.treasury = BurnState
 ```sh
 npm run devnet:desks -- --count 10 --tiers 1,1,1,1,2,2,2,3,3,4 --recycle
                                   # batch activate/upgrade in one tx per desk; --recycle finalizes the
-                                  # epoch + claims owned yield whenever the payer runs short (10 desks
+                                  # round + claims owned yield whenever the payer runs short (10 desks
                                   # ≈ 1 SOL net instead of 9); asserts Σw and pot ≥ liability
 npm run devnet:cycle              # sweep mock (seller → treasury, atomic; creates the buyer's $HUB ATA
-                                  # if missing) → owner-sent desk consigned into the vault PDA → desk-pot
-                                  # rounds (--desk-round, default 0.144 SOL/desk = §A5 mainnet take) booked
-                                  # as source B per treasury-owned desk + source E per vault desk →
-                                  # finalize (⌊inflow×burn_bp⌋) → claim every tier in program order
-                                  # (⌊dist×w/Σw⌋, last claimer absorbs the remainder) → burn → record_burn
+                                  # if missing) → owner-sent desk consigned into the vault PDA → gate
+                                  # (finalize/claim rejected below 0.1 SOL) → desk-pot rounds
+                                  # (--desk-round, default 0.144 SOL/desk = §A5 mainnet take) booked as
+                                  # source B per treasury-owned desk + source E per vault desk → finalize
+                                  # (⌊inflow×burn_bp⌋ burn, rest → acc_per_weight) → one claim_yield per
+                                  # tier settles every closed round → claim_accrual → burn → record_burn
 npm run devnet:cycle -- --quick   # streamlined: inflow → finalize → claim → burn on existing desks
+npm run devnet:cycle -- --consignor-share 5000   # also exercises the consignor's claim_accrual path
 npm run authority -- status       # program upgrade authority vs $HUB mint/freeze authority
 npm run authority -- revoke-mint --yes   # irreversible: mint + freeze authority → None
 ```
 
 `update_config` is the single admin entry point (`setConfigValue` in `scripts/lib/devnet.ts`):
 `setConfigValue(ctx, "hubMint", { pubkey })`, `("burnPctBp", { u16: 1000 })`,
-`("epochDurationSecs", { u64: 120 })`, `("lpEnabled", { bool: true })`. Rate fields apply to epochs
-finalized after the call; the duration applies to the next epoch `finalize_epoch` opens.
-`HUB_DEVNET_EPOCH_SECS` (default 120) is the epoch length the scripts restore after a catch-up finalize.
+`("minPotThresholdLamports", { u64: 100_000_000 })`, `("lpEnabled", { bool: true })`. Rate fields
+apply to rounds finalized after the call. Rounds have no clock: `finalize_epoch` is rejected
+(`PotBelowThreshold`) until the open round's inflow (+ whole-lamport dust carry) reaches
+`min_pot_threshold_lamports`, and succeeds immediately after.
 
 ## Verified builds
 
@@ -117,7 +126,7 @@ byte-identical to the docker build (host platform-tools differ), so never deploy
 | | Gate |
 |---|---|
 | M1 | scaffold builds; `initialize_config` writes Appendix constants; admin paths enforce authority ✔ |
-| M2 | tier math, epoch math (90/10, roll-forward), lazy revocation, consignment, LP gates, invariants |
+| M2 | tier math, round math (threshold gate, 90/10, accumulator + dust zero-sum), lazy revocation, consignment, LP gates, invariants ✔ |
 | M3 | integration + adversarial suites on localnet, then Helius devnet with mock OTC accounts |
 | M4 | keepers (dry-run, resume-safe journals) |
 | M5 | mainnet read-only verification checklist → `docs/evidence/` |

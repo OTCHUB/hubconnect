@@ -122,12 +122,28 @@ Pot inflow sources:
 - **F — LP swap fees**: $HUB/SOL and $HUB/OTC LP positions held by the treasury
   (§A6.2); harvested swap fees → pot.
 
-Per epoch (`EPOCH_HOURS = 24`; unclaimed rolls forward):
+Distribution is **threshold-gated, not clocked** — the same mechanic as the OTC desk
+pot ("the moment the pot clears 0.1 SOL it is spent"). Inflow accumulates in the
+open *round* (`Epoch` account); `finalize_epoch` is rejected until the round's
+inflow (plus whole lamports of dust carried from earlier rounds) reaches
+`MIN_POT_THRESHOLD = 0.1 SOL`, and succeeds the moment it does. A round can be
+seconds or days long depending on flow.
 
 ```text
-epoch_yield_i = (w_i / Σ w_j) × 0.90 × pot_inflow_epoch
-burn          =             0.10 × pot_inflow_epoch   [buy $HUB → burn]
+burn           = ⌊0.10 × round_inflow⌋                 [buy $HUB → burn]
+distributable  = round_inflow − burn
+per_weight     = ⌊distributable × 10¹² / Σ w_j⌋          [scaled, u128]
+acc_per_weight += per_weight                            [Config, lifetime]
+yield_i        = ⌊(acc_per_weight − stamp_i) × w_i / 10¹²⌋
 ```
+
+Each `DeskTier` stores `stamp_acc_per_weight` (set at activation and on every
+claim), so one `claim_yield` pays everything a desk earned across **every round
+closed since its stamp** in a single transaction — there is no per-round claiming
+and nothing to catch up. Sub-lamport fractions (from the ⌊⌋ floors) accumulate in
+`Config.dust_scaled`; whole lamports of dust re-enter the next round as inflow,
+so the accounting is exactly zero-sum. Desks activated after a round closed do
+not share in it (their stamp is already past it).
 
 Direct-to-holder stream (no tier needed, per wallet, pro-rata on HUB held):
 `0.70 × f × V_HUB_volume` of OTC bought daily, where `f` = creator-fee rate
@@ -169,17 +185,18 @@ Any desk owner can **consign** their desk to the treasury instead of selling it:
 - `consign_desk` transfers the desk NFT into the **treasury vault** and records a
   `ConsignedDesk` entry (asset_id → consignor). The owner keeps the withdrawal
   right; the desk is off the market while consigned.
-- From the consignment epoch onward, the treasury claims that desk's desk-pot
+- From the consignment round onward, the treasury claims that desk's desk-pot
   rounds exactly like its owned desks (same OTC claim instruction). Proceeds are
   pot inflow **(source E)** and are distributed to **connected (activated) desks**
-  per the normal epoch formula.
+  per the normal round formula.
 - Optional contributor reward: `CONSIGNOR_SHARE` (default **0%** — all yield goes
   to the pool, per the community-first ethos) can later be raised via config to
-  credit a share directly to the consignor's accrual. Consigned-desk claim
-  proceeds are tracked separately so the split is always auditable.
-- `unconsign_desk` returns the desk to the consignor after the current epoch
-  finalizes (no epoch is double-counted); yield earned through the withdrawal
-  epoch is credited as normal.
+  credit a share directly to the consignor's per-wallet `StakerAccrual`
+  (`owed_lamports`), claimable any time in one `claim_accrual` tx. Consigned-desk
+  claim proceeds are tracked separately so the split is always auditable.
+- `unconsign_desk` returns the desk to the consignor once the round it was
+  consigned in has closed (no round is double-counted); any accrued consignor
+  share stays claimable.
 - Guardrails: consigned desks are **never eligible for discount exits** (the exit
   pool is treasury-*owned* desks only); the program-enforced `ConsignedDesk`
   record blocks any treasury transfer/sale of a consigned desk; a
@@ -292,11 +309,11 @@ for the devnet test stage (§B5.1)**.
 
 | Account | Seeds (all under program id) | Key fields |
 |---|---|---|
-| `Config` | `["config"]` | authority, pot PDA, ops wallet, tier weights[4], step_fee_lamports, epoch_hours, burn_pct_bp (1000), ops_pct_bp, consignment_enabled, consignor_share_bp, lp_enabled, lp_target_sol_lamports, paused |
-| `Epoch` | `["epoch", epoch_index u64]` | index, start_ts, end_ts, inflow_lamports, distributed_lamports, burned_lamports, finalized |
-| `DeskTier` | `["tier", asset_id]` | asset_id, tier 1–4, activated_epoch, last_claimed_epoch, voided |
+| `Config` | `["config"]` | authority, pot PDA, ops wallet, tier weights[4], step_fee_lamports, min_pot_threshold_lamports (0.1 SOL), burn_pct_bp (1000), ops_pct_bp, consignment_enabled, consignor_share_bp, lp_enabled, lp_target_sol_lamports, paused, current_epoch, total_weight_bp, pot_liability_lamports, **acc_per_weight (u128, lifetime)**, **dust_scaled (u128)** |
+| `Epoch` (one round) | `["epoch", epoch_index u64]` | index, start_ts, finalized_ts, inflow_lamports, distributed_lamports (credited), burn_pending_lamports, rolled_forward_lamports (floor remainder), total_weight_bp (Σw at close), per_weight_scaled, acc_per_weight_after, finalized |
+| `DeskTier` | `["tier", asset_id]` | asset_id, owner_at_activation, tier 1–4, activated_epoch, **stamp_acc_per_weight**, total_claimed_lamports, voided |
 | `ConsignedDesk` | `["consign", asset_id]` | asset_id, consignor, consigned_epoch, active |
-| `StakerAccrual` | `["accrual", wallet, epoch_index]` | owed_lamports (rolled forward at finalize) |
+| `StakerAccrual` | `["accrual", wallet]` | per-wallet consignor credits: owed_lamports, total_claimed_lamports |
 | `Pot` (SOL escrow) | `["pot"]` | balance via system PDA lamports |
 | `Burn` | `["burn"]` | total_hub_burned, last_burn_tx, authority |
 | `TreasuryState` | `["treasury"]` | multisig set, desks owned count, sweep budget caps, exit params (discount 900 bp, hub leg 5000 bp) |
@@ -313,12 +330,13 @@ the OTC program config on-chain and proposes updates.
 | 1 | `initialize_config` | payer, Config | once; sets constants from §A4/A5 |
 | 2 | `activate_tier` | payer, desk NFT (Metaplex Core asset), Config, Pot, ops wallet, DeskTier | verify payer owns desk asset via Core plugin/DAS **inside the instruction**; tier = current+1 (or 1); pay 0.5 SOL: 90% → Pot, 10% → ops; mark 10% of inflow as burn-pending |
 | 3 | `upgrade_tier` | payer, desk NFT, Config, Pot, ops, DeskTier | pay step difference; same ownership check |
-| 4 | `finalize_epoch` | keeper, Config, Epoch, treasury SOL source | epoch boundary; compute per-weight distribution; 10% of epoch inflow → burn-pending; roll unclaimed into next epoch accruals |
-| 5 | `claim_yield` | claimer, desk NFT, DeskTier, StakerAccrual, Pot | **lazy revocation**: re-verify desk ownership on-chain NOW; if caller ≠ owner → void tier (voided = true, no refund) and revert; pay owed_lamports |
-| 6 | `register_treasury_inflow` | treasury multisig, Config, Pot | record source B/C/D/E inflows from treasury ops; same 10% burn-pending marking; for consigned-desk (E) proceeds, credit `consignor_share_bp` directly to the consignor's StakerAccrual, remainder → pot |
+| 4 | `finalize_epoch` | keeper (permissionless), Config, Epoch, next Epoch, Pot, Burn | **threshold gate**: rejected (`PotBelowThreshold`) until inflow + dust carry ≥ `min_pot_threshold_lamports`; Σw > 0; 10% → burn-pending; `acc_per_weight += ⌊distributable × 10¹² / Σw⌋`; opens the next round with the floor remainder |
+| 5 | `claim_yield` | claimer, desk NFT, DeskTier, Config, Pot | **lazy revocation**: re-verify desk ownership on-chain NOW; if caller ≠ owner → void tier (voided = true, no refund) and revert; pay `⌊(acc − stamp) × w / 10¹²⌋` for every round since the stamp in one tx; stamp := acc; `NothingToClaim` when zero |
+| 5b | `claim_accrual` | wallet, StakerAccrual, Config, Pot | pay the wallet's consignor credits (`owed_lamports`) in one tx; `AccrualEmpty` when zero |
+| 6 | `register_treasury_inflow` / `register_consigned_inflow` | treasury multisig, Config, Epoch, Pot (+ ConsignedDesk, consignor StakerAccrual) | record source B/C/D/F (or E) inflows into the open round; for consigned-desk (E) proceeds, credit `consignor_share_bp` to the consignor's StakerAccrual, remainder → round inflow |
 | 7 | `record_burn` | keeper, Config, Burn, Pot | after the keeper buys HUB and burns it: mark burn executed, decrement burn-pending |
 | 8 | `void_tier` (internal path in 3/5) | — | ownership change discovered at claim/upgrade voids the tier |
-| 9 | `update_config` | authority (multisig), Config | only whitelisted fields; rate changes apply to future epochs |
+| 9 | `update_config` | authority (multisig), Config | only whitelisted fields (incl. `min_pot_threshold_lamports`, must be > 0); rate changes apply to rounds finalized afterwards |
 | 10 | `pause` / `unpause` | authority | halts activate/claim on anomaly |
 | 11 | `consign_desk` | owner, desk NFT, treasury vault, ConsignedDesk, Config | verify owner holds the desk asset (Core/DAS); `consignment_enabled` must be true; transfer NFT to vault; record consignor + epoch |
 | 12 | `unconsign_desk` | consignor, desk NFT, treasury vault, ConsignedDesk, Config | only after the current epoch finalizes (no double-count); return NFT; set `active = false`; accrued consignor share (if any) stays claimable |
@@ -336,7 +354,8 @@ consignor share split). Consigned desks are claimed but never sold (§A6.1).
 
 ### B4. Keeper services (off-chain, TypeScript)
 
-1. **Keeper (buyback-burn)** — per epoch finalize: (a) call `finalize_epoch`;
+1. **Keeper (buyback-burn)** — whenever the open round is at threshold (poll
+   `Epoch.inflow + dust carry ≥ min_pot_threshold`; anyone may call): (a) call `finalize_epoch`;
    (b) route burn-pending SOL through a public AMM (Jupiter) with slippage caps
    to buy HUB; (c) burn HUB (send to a published burn address); (d) call
    `record_burn`. Publishes every tx. Idempotent: resume-safe journal, no
@@ -370,11 +389,16 @@ keeper-anyone with a small reward? — start permissioned, open later).
 **Integration (bankrun + devnet):**
 - Happy path: initialize → activate 4 desks across tiers → finalize → claim →
   verify exact lamports per weight and the 10% burn-pending.
-- **Lazy revocation**: transfer the desk NFT mid-epoch → old owner's claim
+- **Threshold gate**: `finalize_epoch` rejected below `min_pot_threshold`;
+  allowed immediately once reached (no clock); `claim_yield` with nothing closed
+  since the stamp → `NothingToClaim`.
+- **Lazy revocation**: transfer the desk NFT mid-round → old owner's claim
   reverts and voids the tier; new owner cannot claim without re-activating; no
   refund emitted.
 - Upgrade path T1→T4 pays exactly the difference; double-upgrade rejected.
-- Rollover: unclaimed epoch-1 yield is claimable in epoch 3 after finalize.
+- Multi-round catch-up: a desk that skips rounds 1–2 claims both in one tx in
+  round 3; Σ payouts + dust == credited exactly (zero-sum, ≤ 1 lamport floor per
+  claim); whole-lamport dust re-enters the next round as inflow.
 - Reentrancy/negative scenarios: claim with wrong desk, claim twice, finalize
   twice, inflow/liability invariant after every instruction (assert program
   panic if violated).
@@ -520,19 +544,23 @@ read-only account decoders in its SDK (`sdk`); no privileged endpoints exist.
 
 | Metric | Source |
 |---|---|
-| Pot balance + liability (unclaimed accruals) | Pot PDA lamports vs Σ StakerAccrual |
-| Current epoch: inflow-so-far, time remaining | Epoch account |
+| Pot balance + liability | Pot PDA lamports vs `Config.pot_liability_lamports` |
+| Open round: inflow + dust carry vs `min_pot_threshold`, % to threshold, READY flag | Epoch + Config (no countdown — rounds have no clock) |
+| Last closed round: how long it took, credited, per-tier payout | previous Epoch |
 | Activated cohort: desks by tier, Σw | DeskTier accounts (index/scan) |
 | Treasury: desks owned / consigned, exit history, burns executed, HUB float vs ≤2% cap | TreasuryState, Burn, published treasury wallet |
 | Raw desk-pot take D (trailing 7d and latest day) | OtcSnapshot per_desk history (already ingested) |
 
 ### C4. Yield comparison table (the core view)
 
-For each tier T1–T4, recomputed live from current epoch data:
+For each tier T1–T4, recomputed live from the open round + config:
 
 ```text
-proj_daily_i   = (w_i / Σw_live) × 0.90 × pot_inflow_per_day_live
-breakeven_days = cumulative_cost_i / proj_daily_i
+round_size     = max(min_pot_threshold, effective_inflow_live)
+proj_round_i   = (w_i / Σw_live) × 0.90 × round_size
+rounds_per_day = 86400 / (last_round.finalized_ts − last_round.start_ts)   # null before first close
+proj_daily_i   = proj_round_i × rounds_per_day
+breakeven      = cumulative_cost_i / proj_round_i                          # in rounds
 vs_raw         = proj_daily_i / D_live              # multiplier vs raw desk take
 ```
 
@@ -572,7 +600,8 @@ existing DOS-aesthetic conventions.
 |---|---|
 | TIER_STEPS / WEIGHTS | 4 / [1.00, 1.25, 1.60, 2.00] |
 | STEP_FEE | 0.5 SOL (90% pot / 10% ops) |
-| EPOCH_HOURS | 24 |
+| MIN_POT_THRESHOLD | 0.1 SOL per round (no clock; `update_config`-adjustable) |
+| ACC_SCALE | 10¹² (accumulator precision) |
 | BUYBACK_BURN_PCT | 10% of every pot inflow |
 | REWARD_STOCK ($HUB launch) | OTC |
 | LAUNCHER_SHARE | 0% |

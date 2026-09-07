@@ -28,17 +28,14 @@ export const rpcHost = (url: string) => {
 export const fmtUtc = (ts: number) =>
   new Date(ts * 1000).toISOString().replace("T", " ").slice(0, 16) + "Z";
 
-/** "HH:MM:SS" remaining until `endTs`; clamps at zero. */
-export const fmtCountdown = (endTs: number, nowTs: number) => {
-  const s = Math.max(0, endTs - nowTs);
-  const h = Math.floor(s / 3600);
+/** Compact elapsed time, e.g. "3d 4h", "2h 05m", "7m 12s". */
+export const fmtDuration = (secs: number) => {
+  const s = Math.max(0, Math.floor(secs));
+  const d = Math.floor(s / 86400);
+  const h = Math.floor((s % 86400) / 3600);
   const m = Math.floor((s % 3600) / 60);
   const sec = s % 60;
-  return [h, m, sec].map((x) => String(x).padStart(2, "0")).join(":");
-};
-
-export const fmtDuration = (secs: number) => {
-  if (secs % 86400 === 0) return `${secs / 86400}d`;
-  if (secs % 3600 === 0) return `${secs / 3600}h`;
-  return `${Math.floor(secs / 60)}m`;
+  if (d > 0) return `${d}d ${h}h`;
+  if (h > 0) return `${h}h ${String(m).padStart(2, "0")}m`;
+  return `${m}m ${String(sec).padStart(2, "0")}s`;
 };

@@ -10,7 +10,7 @@
 //    tx also initializes the owner's $HUB ATA when missing (idempotent), the way a mainnet desk
 //    buyer needs one before their first burn / $HUB leg.
 // 3. For each desk with tier target > 0: activate_tier + upgrade_tier(2..target) batched in one
-//    transaction, 0.5 SOL per step (90% pot / 10% ops). --recycle finalizes the epoch and claims
+//    transaction, 0.5 SOL per step (90% pot / 10% ops). --recycle finalizes the round and claims
 //    yield on owned tiers whenever the payer runs short, so a 10-desk run fits a small faucet budget.
 // 4. Verifies Config.total_weight_bp == Σ TIER_WEIGHTS_BP, pot ≥ liability (+ exact liability Δ when
 //    not recycling), and that the dashboard's owner+collection scan (`fetchOwnedDesks`, shared
@@ -39,7 +39,7 @@ import {
   openEpoch,
   sendIxs,
   setConfigPubkey,
-  settleEpoch,
+  settleRound,
   sol,
   withIxs,
   type Ctx,
@@ -143,8 +143,9 @@ const netStepCost = (steps: number, opsIsPayer: boolean) =>
   steps * STEP_FEE_LAMPORTS * (opsIsPayer ? 0.9 : 1) + 0.02 * LAMPORTS_PER_SOL;
 
 /**
- * --recycle: when the payer cannot fund the next desk's steps, close the open epoch and claim
- * yield on every owned tier — 90% of the step fees paid so far come back (10% is burn slice).
+ * --recycle: when the payer cannot fund the next desk's steps, close the open round (step fees
+ * already booked ≥ 0.45 SOL, well past the 0.1 SOL threshold) and claim yield on every owned
+ * tier — 90% of the step fees paid so far come back (10% is burn slice).
  */
 async function ensureFunds(ctx: Ctx, lamports: number, recycle: boolean) {
   const bal = await ctx.connection.getBalance(ctx.payer.publicKey);
@@ -155,9 +156,9 @@ async function ensureFunds(ctx: Ctx, lamports: number, recycle: boolean) {
     );
   }
   console.log(`payer ${sol(bal)} < ${sol(lamports)} — recycling via finalize + claim_yield`);
-  const { idx } = await settleEpoch(ctx);
-  const r = await claimAllOwned(ctx, idx);
-  console.log(`  claimed ${r.claims} epoch-rounds on ${r.desks} desks → +${sol(r.received)}`);
+  await settleRound(ctx);
+  const r = await claimAllOwned(ctx);
+  console.log(`  ${r.claims} single-tx claim(s) on ${r.desks} desks → +${sol(r.received)}`);
   const now = await ctx.connection.getBalance(ctx.payer.publicKey);
   if (now < lamports) throw new Error(`still short after recycle: ${sol(now)} < ${sol(lamports)}`);
 }
@@ -217,8 +218,8 @@ async function main() {
   console.log(
     `Σ_WEIGHT on-chain ${after.totalWeightBp.toNumber()} bp · expected ${expected} bp · ${ok ? "OK" : "MISMATCH"}`,
   );
-  // Pot liability: every step books 0.45 SOL of inflow. With --recycle the epoch may have been
-  // finalized/claimed mid-run, so reconcile against the open epoch's inflow + burn + rounds instead.
+  // Pot liability: every step books 0.45 SOL of inflow. With --recycle a round may have been
+  // finalized/claimed mid-run, so only solvency is checked in that mode.
   const [potKey] = potPda(ctx.program.programId);
   const potLamports = await ctx.connection.getBalance(potKey);
   const floor = await ctx.connection.getMinimumBalanceForRentExemption(0);

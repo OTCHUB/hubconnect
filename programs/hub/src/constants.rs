@@ -18,9 +18,13 @@ pub const OPS_PCT_BP: u16 = 1_000;
 /// BUYBACK_BURN_PCT = 10% of every pot inflow.
 pub const BURN_PCT_BP: u16 = 1_000;
 
-/// EPOCH_HOURS = 24. Stored on Config as seconds so tests/devnet can shorten it.
-pub const EPOCH_HOURS: u16 = 24;
-pub const EPOCH_DURATION_SECS: u64 = EPOCH_HOURS as u64 * 3600;
+/// MIN_POT_THRESHOLD = 0.1 SOL. A round (epoch) closes as soon as its inflow reaches this —
+/// the same trigger the OTC desk pot uses ("the moment the pot clears 0.1 SOL it is spent").
+pub const MIN_POT_THRESHOLD_LAMPORTS: u64 = LAMPORTS_PER_SOL / 10;
+
+/// Fixed-point scale for `Config.acc_per_weight` (lamports × ACC_SCALE per bp of weight).
+/// u128 headroom: distributable ≤ 2⁶⁴ × 10¹² / Σw(≥10⁴) ≈ 10²⁷ per round.
+pub const ACC_SCALE: u128 = 1_000_000_000_000;
 
 /// EXIT_DISCOUNT 10% off live floor / HUB leg 50% burned / SOL leg 50% → pot.
 pub const EXIT_DISCOUNT_BP: u16 = 1_000;

@@ -1,9 +1,11 @@
 //! §B3 #2 activate_tier, #3 upgrade_tier, #5 claim_yield (+ #8 void_tier internal path).
 //!
 //! Weight model: `Config.total_weight_bp` is the running Σw of live tiers and is
-//! snapshotted into `Epoch` at finalize. Claims are sequential per tier
-//! (`next_claim_epoch`), and upgrades require all finalized epochs to be claimed
-//! first, so the weight used at claim time is always the weight that was in Σw.
+//! snapshotted into `Epoch` at finalize. Each finalize adds `distributable × ACC_SCALE / Σw`
+//! to `Config.acc_per_weight`; a tier's stamp is the counter value at activation / last
+//! claim, so `(acc − stamp) × w` is exactly its share of every round it was in (OTC
+//! "counter minus stamp"). Upgrades require the pending share to be settled first, so the
+//! weight used to price a round is always the weight that was in that round's Σw.
 
 use anchor_lang::prelude::*;
 
@@ -76,7 +78,8 @@ pub fn activate_tier(ctx: Context<ActivateTier>) -> Result<()> {
     t.owner_at_activation = asset.owner;
     t.tier = 1;
     t.activated_epoch = epoch_idx;
-    t.next_claim_epoch = epoch_idx;
+    t.stamp_acc_per_weight = config.acc_per_weight;
+    t.total_claimed_lamports = 0;
     t.voided = false;
     t.bump = ctx.bumps.desk_tier;
     config.total_weight_bp = add(config.total_weight_bp, config.weight_bp(1)?)?;
@@ -136,10 +139,16 @@ pub fn upgrade_tier(ctx: Context<UpgradeTier>, target_tier: u8) -> Result<()> {
         HubError::NotDeskOwner
     );
     require!(t.tier < TIER_COUNT as u8, HubError::TierMaxed);
-    require!(
-        t.next_claim_epoch >= config.current_epoch,
-        HubError::ClaimBeforeUpgrade
-    );
+    // Pending rounds must be settled at the old weight; a sub-lamport remainder is not
+    // claimable, so it is moved to dust here and the stamp advanced.
+    let (owed, frac) = pending_yield(
+        config.acc_per_weight,
+        t.stamp_acc_per_weight,
+        config.weight_bp(t.tier)?,
+    )?;
+    require!(owed == 0, HubError::ClaimBeforeUpgrade);
+    add_dust(config, frac)?;
+    t.stamp_acc_per_weight = config.acc_per_weight;
 
     let from = t.tier;
     let fee = config.step_fee(from, target_tier)?;
@@ -176,7 +185,6 @@ pub fn upgrade_tier(ctx: Context<UpgradeTier>, target_tier: u8) -> Result<()> {
 }
 
 #[derive(Accounts)]
-#[instruction(epoch_index: u64)]
 pub struct ClaimYield<'info> {
     #[account(mut)]
     pub claimer: Signer<'info>,
@@ -189,20 +197,18 @@ pub struct ClaimYield<'info> {
         constraint = !desk_tier.voided @ HubError::TierVoided
     )]
     pub desk_tier: Account<'info, DeskTier>,
-    #[account(
-        mut, seeds = [SEED_EPOCH, &epoch_index.to_le_bytes()], bump = epoch.bump,
-        constraint = epoch.finalized @ HubError::EpochNotFinalized
-    )]
-    pub epoch: Account<'info, Epoch>,
     /// CHECK: system-owned lamport vault PDA.
     #[account(mut, seeds = [SEED_POT], bump = config.pot_bump)]
     pub pot: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
 }
 
+/// One transaction settles every round closed since the tier's stamp:
+/// `owed = ⌊(acc − stamp) × w / ACC_SCALE⌋`, the sub-lamport remainder goes to dust.
+///
 /// Lazy revocation: if the desk changed hands since activation the tier is voided
 /// (persisted, no refund, no payout) and the call returns Ok so the void sticks.
-pub fn claim_yield(ctx: Context<ClaimYield>, epoch_index: u64) -> Result<()> {
+pub fn claim_yield(ctx: Context<ClaimYield>) -> Result<()> {
     let asset = require_desk(
         &ctx.accounts.desk_asset,
         &ctx.accounts.config.desk_collection,
@@ -218,26 +224,14 @@ pub fn claim_yield(ctx: Context<ClaimYield>, epoch_index: u64) -> Result<()> {
         ctx.accounts.claimer.key(),
         HubError::NotDeskOwner
     );
-    require!(epoch_index == t.next_claim_epoch, HubError::ClaimOutOfOrder);
 
-    let e = &mut ctx.accounts.epoch;
     let w = config.weight_bp(t.tier)?;
-    let remaining_weight = sub(e.total_weight_bp, e.claimed_weight_bp)?;
-    require!(
-        e.total_weight_bp > 0 && w <= remaining_weight,
-        HubError::NotEligibleForEpoch
-    );
+    let (owed, frac) = pending_yield(config.acc_per_weight, t.stamp_acc_per_weight, w)?;
+    require!(owed > 0, HubError::NothingToClaim);
 
-    let owed = if w == remaining_weight {
-        sub(e.distributed_lamports, e.claimed_lamports)?
-    } else {
-        let v = (e.distributed_lamports as u128 * w as u128) / e.total_weight_bp as u128;
-        u64::try_from(v).map_err(|_| error!(HubError::MathOverflow))?
-    };
-
-    e.claimed_lamports = add(e.claimed_lamports, owed)?;
-    e.claimed_weight_bp = add(e.claimed_weight_bp, w)?;
-    t.next_claim_epoch = add(epoch_index, 1)?;
+    t.stamp_acc_per_weight = config.acc_per_weight;
+    t.total_claimed_lamports = add(t.total_claimed_lamports, owed)?;
+    add_dust(config, frac)?;
     config.pot_liability_lamports = sub(config.pot_liability_lamports, owed)?;
 
     pay_from_pot(
@@ -251,20 +245,25 @@ pub fn claim_yield(ctx: Context<ClaimYield>, epoch_index: u64) -> Result<()> {
     emit!(YieldClaimed {
         asset: t.asset_id,
         claimer: ctx.accounts.claimer.key(),
-        epoch: epoch_index,
+        epoch: config.current_epoch,
         tier: t.tier,
         lamports: owed,
+        acc_per_weight: config.acc_per_weight,
     });
     Ok(())
 }
 
-/// §B3 #8 — internal path used by upgrade/claim when ownership changed.
+/// §B3 #8 — internal path used by upgrade/claim when ownership changed. The tier's
+/// unclaimed share is forfeited to dust (re-enters the pot at the next finalize).
 pub(crate) fn void_tier(
     config: &mut Config,
     t: &mut DeskTier,
     current_owner: Pubkey,
 ) -> Result<()> {
     let w = config.weight_bp(t.tier)?;
+    let (forfeited, frac) = pending_yield(config.acc_per_weight, t.stamp_acc_per_weight, w)?;
+    add_dust(config, (forfeited as u128) * ACC_SCALE + frac)?;
+    t.stamp_acc_per_weight = config.acc_per_weight;
     config.total_weight_bp = config.total_weight_bp.saturating_sub(w);
     t.voided = true;
     emit!(TierVoided {
@@ -273,6 +272,7 @@ pub(crate) fn void_tier(
         current_owner,
         tier: t.tier,
         epoch: config.current_epoch,
+        forfeited_lamports: forfeited,
     });
     Ok(())
 }

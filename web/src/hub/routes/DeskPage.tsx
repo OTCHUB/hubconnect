@@ -8,7 +8,7 @@ import { ErrorBox, LoadingBox, Notice } from "../components/ui/StateBox";
 import { parsePubkey, useDeskTier } from "../hooks/useDeskTier";
 
 function DeskBody({ asset, state }: { asset: string; state: ProtocolState }) {
-  const q = useDeskTier(asset, state.config.currentEpoch);
+  const q = useDeskTier(asset, state.config);
   if (!parsePubkey(asset)) return <Notice tone="red">"{asset}" is not a valid pubkey.</Notice>;
   if (q.isPending) return <LoadingBox label={`READING DESK ${asset.slice(0, 8)}…`} />;
   if (q.isError) return <ErrorBox message={(q.error as Error).message} />;

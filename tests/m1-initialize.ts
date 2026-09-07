@@ -1,6 +1,7 @@
 // M1 gate: initialize_config writes Appendix constants; admin paths enforce authority.
 import { expect } from "chai";
-import { Keypair } from "@solana/web3.js";
+import * as anchor from "@anchor-lang/core";
+import { Keypair, LAMPORTS_PER_SOL } from "@solana/web3.js";
 import { setup, Harness, ensureInitialized, Fixture, expectFail } from "./harness";
 import { epochPda } from "../sdk/src/pda";
 import * as K from "../sdk/src/constants";
@@ -22,7 +23,9 @@ describe("M1 — initialize_config", () => {
     expect(c.deskCollection.toBase58()).to.eq(f.deskCollection.toBase58());
     expect(c.tierWeightsBp).to.deep.eq([...K.TIER_WEIGHTS_BP]);
     expect(c.stepFeeLamports.toNumber()).to.eq(K.STEP_FEE_LAMPORTS);
-    expect(c.epochHours).to.eq(K.EPOCH_HOURS);
+    expect(c.minPotThresholdLamports.toNumber()).to.eq(h.thresholdLamports);
+    expect(c.accPerWeight.isZero()).to.eq(true);
+    expect(c.dustScaled.isZero()).to.eq(true);
     expect(c.burnPctBp).to.eq(K.BURN_PCT_BP);
     expect(c.opsPctBp).to.eq(K.OPS_PCT_BP);
     expect(c.consignmentEnabled).to.eq(K.CONSIGNMENT_ENABLED);
@@ -45,7 +48,8 @@ describe("M1 — initialize_config", () => {
     const [e0] = epochPda(h.program.programId, 0);
     const e = await h.program.account.epoch.fetch(e0);
     expect(e.index.toNumber()).to.eq(0);
-    expect(e.endTs.toNumber() - e.startTs.toNumber()).to.eq(c.epochDurationSecs.toNumber());
+    expect(e.finalized).to.eq(false);
+    expect(e.finalizedTs.toNumber()).to.eq(0);
 
     // Pot holds at least its rent floor so it can be drained to exactly its liability.
     const rent = await h.provider.connection.getMinimumBalanceForRentExemption(0);
@@ -64,7 +68,7 @@ describe("M1 — initialize_config", () => {
           deskCollection: f.deskCollection,
           hubMint: Keypair.generate().publicKey,
           otcMint: Keypair.generate().publicKey,
-          epochDurationSecs: new (await import("@anchor-lang/core")).BN(0),
+          minPotThresholdLamports: new (await import("@anchor-lang/core")).BN(0),
         })
         .accountsPartial({ payer: h.payer.publicKey, ...f, epoch0 })
         .rpc(),
@@ -103,5 +107,19 @@ describe("M1 — initialize_config", () => {
     expect((await h.program.account.config.fetch(f.config)).burnPctBp).to.eq(1_500);
     await expectFail(set(20_000), "BpsOutOfRange");
     await set(K.BURN_PCT_BP);
+  });
+
+  it("update_config: min_pot_threshold_lamports applies; zero rejected", async () => {
+    const set = (v: number) =>
+      h.program.methods
+        .updateConfig({ minPotThresholdLamports: {} }, { u64: [new anchor.BN(v)] })
+        .accountsPartial({ authority: h.payer.publicKey, config: f.config })
+        .rpc();
+    await set(LAMPORTS_PER_SOL);
+    expect(
+      (await h.program.account.config.fetch(f.config)).minPotThresholdLamports.toNumber(),
+    ).to.eq(LAMPORTS_PER_SOL);
+    await expectFail(set(0), "ZeroAmount");
+    await set(h.thresholdLamports);
   });
 });

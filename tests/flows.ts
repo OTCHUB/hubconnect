@@ -2,11 +2,12 @@
 import { expect } from "chai";
 import * as anchor from "@anchor-lang/core";
 import { Keypair, PublicKey, SystemProgram } from "@solana/web3.js";
-import { Harness, Fixture, MPL_CORE, waitForEpochEnd } from "./harness";
+import { Harness, Fixture, MPL_CORE } from "./harness";
 import { epochPda, tierPda, consignPda, accrualPda } from "../sdk/src/pda";
 import * as K from "../sdk/src/constants";
 
 export const bn = (n: number | bigint) => new anchor.BN(n.toString());
+export const big = (v: { toString(): string }) => BigInt(v.toString());
 
 export async function currentEpoch(h: Harness, f: Fixture) {
   const c = await h.program.account.config.fetch(f.config);
@@ -66,26 +67,28 @@ export async function upgrade(
     .rpc();
 }
 
-export async function claim(
-  h: Harness,
-  f: Fixture,
-  claimer: Keypair,
-  asset: PublicKey,
-  epochIdx: number,
-) {
+/** Single-tx claim of everything the tier is owed across every closed round. */
+export async function claim(h: Harness, f: Fixture, claimer: Keypair, asset: PublicKey) {
   const [deskTier] = tierPda(h.program.programId, asset);
-  const [epoch] = epochPda(h.program.programId, epochIdx);
   return h.program.methods
-    .claimYield(bn(epochIdx))
+    .claimYield()
     .accountsPartial({
       claimer: claimer.publicKey,
       deskAsset: asset,
       config: f.config,
       deskTier,
-      epoch,
       pot: f.pot,
     })
     .signers([claimer])
+    .rpc();
+}
+
+export async function claimAccrual(h: Harness, f: Fixture, wallet: Keypair) {
+  const [accrual] = accrualPda(h.program.programId, wallet.publicKey);
+  return h.program.methods
+    .claimAccrual()
+    .accountsPartial({ wallet: wallet.publicKey, config: f.config, accrual, pot: f.pot })
+    .signers([wallet])
     .rpc();
 }
 
@@ -118,7 +121,7 @@ export async function consignedInflow(
 ) {
   const { key: epoch, idx } = await currentEpoch(h, f);
   const [consignedDesk] = consignPda(h.program.programId, asset);
-  const [consignorAccrual] = accrualPda(h.program.programId, consignor, idx);
+  const [consignorAccrual] = accrualPda(h.program.programId, consignor);
   await h.program.methods
     .registerConsignedInflow(bn(lamports))
     .accountsPartial({
@@ -151,61 +154,58 @@ export function finalizeIdx(h: Harness, f: Fixture, idx: number) {
     .rpc();
 }
 
-/** Wait for the open epoch to end, then finalize it. Returns the finalized index. */
+/** Open-round inflow the program will see at finalize (booked inflow + whole-lamport dust carry). */
+export async function effectiveInflow(h: Harness, f: Fixture) {
+  const { epoch, config } = await currentEpoch(h, f);
+  return epoch.inflowLamports.toNumber() + Number(big(config.dustScaled) / K.ACC_SCALE);
+}
+
+/** Top the open round up to `min_pot_threshold_lamports` (source C) if it is short. */
+export async function fillToThreshold(h: Harness, f: Fixture) {
+  const { config } = await currentEpoch(h, f);
+  const short = config.minPotThresholdLamports.toNumber() - (await effectiveInflow(h, f));
+  if (short > 0) await inflow(h, f, "c", short);
+}
+
+/** Make sure the threshold is met, then close the open round. Returns the closed index. */
 export async function finalizeCurrent(h: Harness, f: Fixture) {
-  const { idx, epoch } = await currentEpoch(h, f);
-  await waitForEpochEnd(h, epoch.endTs.toNumber());
+  await fillToThreshold(h, f);
+  const { idx } = await currentEpoch(h, f);
   await finalizeIdx(h, f, idx);
   return idx;
 }
 
-/**
- * Epochs are schedule-aligned (`next.start = prev.end`), so after a slow stretch the current
- * epoch may already be over. Catch up until the current epoch has ≥ `marginSecs` left.
- */
-export async function openEpoch(h: Harness, f: Fixture, marginSecs = 3) {
-  for (;;) {
-    const { idx, epoch } = await currentEpoch(h, f);
-    const now = await chainTime(h);
-    const end = epoch.endTs.toNumber();
-    if (end - now >= marginSecs) return idx;
-    if (now >= end) await finalizeIdx(h, f, idx);
-    else await new Promise((r) => setTimeout(r, 500));
-  }
+/** Mirror of on-chain `pending_yield`: ⌊(acc − stamp) × w / ACC_SCALE⌋ for a live tier. */
+export async function pendingOf(h: Harness, f: Fixture, asset: PublicKey) {
+  const t = await h.program.account.deskTier.fetch(tierPda(h.program.programId, asset)[0]);
+  const c = await h.program.account.config.fetch(f.config);
+  if (t.voided) return 0;
+  const w = BigInt(K.TIER_WEIGHTS_BP[t.tier - 1]);
+  return Number(((big(c.accPerWeight) - big(t.stampAccPerWeight)) * w) / K.ACC_SCALE);
+}
+
+/** Exact share `tier` received from one closed round (⌊per_weight_scaled × w / ACC_SCALE⌋). */
+export async function shareOfRound(h: Harness, idx: number, tier: number) {
+  const e = await h.program.account.epoch.fetch(epochPda(h.program.programId, idx)[0]);
+  return Number((big(e.perWeightScaled) * BigInt(K.TIER_WEIGHTS_BP[tier - 1])) / K.ACC_SCALE);
 }
 
 /**
- * Claim every finalized epoch from `tier.next_claim_epoch` up to `current_epoch − 1`,
- * asserting each payout equals the program's pro-rata math. Returns lamports received.
+ * Claim everything pending for `asset` in ONE transaction, asserting the payout equals the
+ * accumulator math and that the stamp caught up. Returns lamports received (0 → no claim sent).
  */
-export async function claimAll(h: Harness, f: Fixture, owner: Keypair, asset: PublicKey) {
-  const [deskTier] = tierPda(h.program.programId, asset);
-  let total = 0;
-  for (;;) {
-    const t = await h.program.account.deskTier.fetch(deskTier);
-    const c = await h.program.account.config.fetch(f.config);
-    const idx = t.nextClaimEpoch.toNumber();
-    if (idx >= c.currentEpoch.toNumber()) return total;
-    const e = await h.program.account.epoch.fetch(epochPda(h.program.programId, idx)[0]);
-    const w = K.TIER_WEIGHTS_BP[t.tier - 1];
-    const totalW = e.totalWeightBp.toNumber();
-    const remainingW = totalW - e.claimedWeightBp.toNumber();
-    const dist = e.distributedLamports.toNumber();
-    const expected =
-      w === remainingW ? dist - e.claimedLamports.toNumber() : Math.floor((dist * w) / totalW);
-    const b0 = await balance(h, owner.publicKey);
-    await claim(h, f, owner, asset, idx);
-    const got = (await balance(h, owner.publicKey)) - b0;
-    expect(got, `claim epoch ${idx}`).to.eq(expected);
-    total += got;
-  }
-}
-
-export async function chainTime(h: Harness) {
-  const slot = await h.provider.connection.getSlot();
-  const t = await h.provider.connection.getBlockTime(slot);
-  if (t === null) throw new Error("no block time for current slot");
-  return t;
+export async function claimPending(h: Harness, f: Fixture, owner: Keypair, asset: PublicKey) {
+  const expected = await pendingOf(h, f, asset);
+  if (expected === 0) return 0;
+  const b0 = await balance(h, owner.publicKey);
+  await claim(h, f, owner, asset);
+  const got = (await balance(h, owner.publicKey)) - b0;
+  expect(got, "single-tx claim").to.eq(expected);
+  const t = await h.program.account.deskTier.fetch(tierPda(h.program.programId, asset)[0]);
+  const c = await h.program.account.config.fetch(f.config);
+  expect(t.stampAccPerWeight.eq(c.accPerWeight), "stamp == acc").to.eq(true);
+  expect(t.totalClaimedLamports.toNumber(), "lifetime ledger").to.be.gte(got);
+  return got;
 }
 
 export async function txFee(h: Harness, sig: string) {

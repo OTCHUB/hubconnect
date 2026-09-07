@@ -72,6 +72,44 @@ pub fn pay_from_pot<'info>(
     )
 }
 
+/// Split one round across Σw: `(per_weight_scaled, credited_lamports, ceil_slack_scaled)`.
+/// `credited = ⌈per_w × Σw / ACC_SCALE⌉ ≤ distributable`; the slack (< ACC_SCALE) is the part of
+/// `credited` the accumulator does not hand out, so it goes to dust and stays zero-sum.
+pub fn round_credit(distributable: u64, total_weight_bp: u64) -> Result<(u128, u64, u128)> {
+    require!(total_weight_bp > 0, HubError::NoActiveStakers);
+    let scaled = (distributable as u128)
+        .checked_mul(ACC_SCALE)
+        .ok_or_else(|| error!(HubError::MathOverflow))?;
+    let per_w = scaled / total_weight_bp as u128;
+    let handed = per_w
+        .checked_mul(total_weight_bp as u128)
+        .ok_or_else(|| error!(HubError::MathOverflow))?;
+    let credited = handed.div_ceil(ACC_SCALE);
+    let slack = credited * ACC_SCALE - handed;
+    let credited = u64::try_from(credited).map_err(|_| error!(HubError::MathOverflow))?;
+    Ok((per_w, credited, slack))
+}
+
+/// Pending yield of a tier with weight `w`: `(owed_lamports, sub_lamport_frac_scaled)`.
+pub fn pending_yield(acc: u128, stamp: u128, w: u64) -> Result<(u64, u128)> {
+    let delta = acc
+        .checked_sub(stamp)
+        .ok_or_else(|| error!(HubError::MathOverflow))?;
+    let exact = delta
+        .checked_mul(w as u128)
+        .ok_or_else(|| error!(HubError::MathOverflow))?;
+    let owed = u64::try_from(exact / ACC_SCALE).map_err(|_| error!(HubError::MathOverflow))?;
+    Ok((owed, exact % ACC_SCALE))
+}
+
+pub fn add_dust(config: &mut Config, scaled: u128) -> Result<()> {
+    config.dust_scaled = config
+        .dust_scaled
+        .checked_add(scaled)
+        .ok_or_else(|| error!(HubError::MathOverflow))?;
+    Ok(())
+}
+
 /// Record `lamports` as inflow of the open epoch and as pot liability.
 pub fn book_inflow(config: &mut Config, epoch: &mut Epoch, lamports: u64) -> Result<()> {
     require!(epoch.index == config.current_epoch, HubError::WrongEpoch);
@@ -119,8 +157,7 @@ mod tests {
             otc_mint: Pubkey::default(),
             tier_weights_bp: TIER_WEIGHTS_BP,
             step_fee_lamports: STEP_FEE_LAMPORTS,
-            epoch_hours: EPOCH_HOURS,
-            epoch_duration_secs: EPOCH_DURATION_SECS,
+            min_pot_threshold_lamports: MIN_POT_THRESHOLD_LAMPORTS,
             burn_pct_bp: BURN_PCT_BP,
             ops_pct_bp: OPS_PCT_BP,
             consignment_enabled: true,
@@ -133,6 +170,8 @@ mod tests {
             genesis_ts: 0,
             total_weight_bp: 0,
             pot_liability_lamports: 0,
+            acc_per_weight: 0,
+            dust_scaled: 0,
             bump: 0,
             pot_bump: 0,
         }
@@ -165,33 +204,53 @@ mod tests {
         assert!(c.weight_bp(5).is_err());
     }
 
-    /// Four desks T1..T4, 10 SOL inflow: 1 SOL burn, 9 SOL split 1.0/1.25/1.6/2.0; last claimer
-    /// receives the remainder so Σ payouts == distributed exactly.
+    /// Four desks T1..T4, 10 SOL round: 1 SOL burn, 9 SOL credited through the accumulator in
+    /// 1.0/1.25/1.6/2.0 proportion. Σ payouts + dust == credited × ACC_SCALE exactly — nothing is
+    /// stranded, nothing is over-paid.
     #[test]
-    fn epoch_distribution_no_rounding_loss() {
+    fn round_distribution_is_zero_sum() {
         let inflow = 10_000_000_000u64;
         let burn = bps_of(inflow, BURN_PCT_BP).unwrap();
-        let distributed = inflow - burn;
+        let distributable = inflow - burn;
         assert_eq!(burn, 1_000_000_000);
         let total_w: u64 = TIER_WEIGHTS_BP.iter().map(|w| *w as u64).sum();
-        let mut claimed = 0u64;
-        let mut claimed_w = 0u64;
+        let (per_w, credited, slack) = round_credit(distributable, total_w).unwrap();
+        assert!(credited <= distributable && distributable - credited <= 1);
+        assert!(slack < ACC_SCALE);
+
+        let mut paid = 0u64;
+        let mut dust = slack;
         let mut payouts = vec![];
         for w in TIER_WEIGHTS_BP {
-            let w = w as u64;
-            let remaining = total_w - claimed_w;
-            let owed = if w == remaining {
-                distributed - claimed
-            } else {
-                ((distributed as u128 * w as u128) / total_w as u128) as u64
-            };
-            claimed += owed;
-            claimed_w += w;
+            let (owed, frac) = pending_yield(per_w, 0, w as u64).unwrap();
+            paid += owed;
+            dust += frac;
             payouts.push(owed);
         }
-        assert_eq!(claimed, distributed);
+        assert_eq!(
+            paid as u128 * ACC_SCALE + dust,
+            credited as u128 * ACC_SCALE
+        );
         assert_eq!(payouts[0], 9_000_000_000 * 10_000 / 58_500);
         assert!(payouts[3] > payouts[2] && payouts[2] > payouts[1] && payouts[1] > payouts[0]);
+        // Dust carries whole lamports back into the next round.
+        assert!(dust / ACC_SCALE + paid as u128 == credited as u128);
+    }
+
+    /// Rounds accumulate: a tier that skips claiming still receives every round in one claim.
+    #[test]
+    fn one_claim_settles_many_rounds() {
+        let total_w = 58_500u64;
+        let mut acc = 0u128;
+        let mut expected = 0u128;
+        for dist in [90_000_000u64, 135_000_000, 45_000_000] {
+            let (per_w, _, _) = round_credit(dist, total_w).unwrap();
+            acc += per_w;
+            expected += per_w * 20_000;
+        }
+        let (owed, frac) = pending_yield(acc, 0, 20_000).unwrap();
+        assert_eq!(owed as u128 * ACC_SCALE + frac, expected);
+        assert!(pending_yield(0, acc, 20_000).is_err()); // stamp ahead of counter is impossible
     }
 
     #[test]
@@ -199,15 +258,14 @@ mod tests {
         let mut e = Epoch {
             index: 0,
             start_ts: 0,
-            end_ts: 0,
+            finalized_ts: 0,
             inflow_lamports: 1_000,
             distributed_lamports: 900,
-            burned_lamports: 0,
             burn_pending_lamports: 100,
             rolled_forward_lamports: 0,
             total_weight_bp: 1,
-            claimed_lamports: 0,
-            claimed_weight_bp: 0,
+            per_weight_scaled: 0,
+            acc_per_weight_after: 0,
             finalized: true,
             bump: 0,
         };

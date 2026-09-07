@@ -37,8 +37,8 @@ export type Harness = {
   payer: Keypair;
   cluster: "localnet" | "devnet";
   umi: Umi;
-  /** Shortened epoch used by initialize_config on test clusters. */
-  epochSecs: number;
+  /** Round-close threshold passed to initialize_config (Appendix default 0.1 SOL). */
+  thresholdLamports: number;
 };
 
 export const MPL_CORE = new PublicKey("CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d");
@@ -108,8 +108,10 @@ export async function setup(): Promise<Harness> {
   // the RPC default (`finalized`), which lags ~30s behind on a freshly started test validator.
   const umi = createUmi(provider.connection.rpcEndpoint, "confirmed").use(mplCore());
   umi.use(keypairIdentity(fromWeb3JsKeypair(payer)));
-  const epochSecs = Number(process.env.HUB_TEST_EPOCH_SECS || (cluster === "devnet" ? 20 : 8));
-  return { provider, program, payer, cluster, umi, epochSecs };
+  const thresholdLamports = Number(
+    process.env.HUB_TEST_THRESHOLD_LAMPORTS || LAMPORTS_PER_SOL / 10,
+  );
+  return { provider, program, payer, cluster, umi, thresholdLamports };
 }
 
 /** Fund a fresh keypair from the payer (airdrops are rate-limited on devnet). */
@@ -188,7 +190,7 @@ let fixture: Fixture | null = null;
 
 /**
  * Config is a singleton per deployment. First caller initializes it with a real mock
- * Core collection and a short epoch; later callers (or devnet re-runs) read it back.
+ * Core collection; later callers (or devnet re-runs) read it back.
  */
 export async function ensureInitialized(h: Harness): Promise<Fixture> {
   if (fixture) return fixture;
@@ -228,7 +230,7 @@ export async function ensureInitialized(h: Harness): Promise<Fixture> {
       deskCollection,
       hubMint: Keypair.generate().publicKey,
       otcMint: Keypair.generate().publicKey,
-      epochDurationSecs: new anchor.BN(h.epochSecs),
+      minPotThresholdLamports: new anchor.BN(h.thresholdLamports),
     })
     .accountsPartial({ payer: h.payer.publicKey, config, pot, burn, treasuryState, vault, epoch0 })
     .rpc();
@@ -246,16 +248,6 @@ export async function ensureInitialized(h: Harness): Promise<Fixture> {
 }
 
 export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-/** Wait until the on-chain clock passes `endTs`. */
-export async function waitForEpochEnd(h: Harness, endTs: number) {
-  for (;;) {
-    const slot = await h.provider.connection.getSlot();
-    const now = await h.provider.connection.getBlockTime(slot);
-    if (now !== null && now >= endTs) return;
-    await sleep(1000);
-  }
-}
 
 export async function expectFail(p: Promise<unknown>, code?: string) {
   try {

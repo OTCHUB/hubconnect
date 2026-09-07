@@ -18,14 +18,18 @@ import { keypairIdentity, type TransactionBuilder, type Umi } from "@metaplex-fo
 import { fromWeb3JsInstruction, fromWeb3JsKeypair } from "@metaplex-foundation/umi-web3js-adapters";
 import { mplCore } from "@metaplex-foundation/mpl-core";
 import {
+  ACC_SCALE,
   HUB_IDL,
   burnPda,
   configPda,
   epochPda,
   fetchDeskTier,
   fetchOwnedDesks,
+  pendingYieldLamports,
   potPda,
   tierPda,
+  toConfigView,
+  treasuryPda,
   type DeskTierView,
   type HubProgram,
 } from "../../sdk/src";
@@ -98,7 +102,7 @@ export type PubkeyField =
   | "authority";
 export type BpsField = "burnPctBp" | "opsPctBp" | "consignorShareBp";
 export type BoolField = "consignmentEnabled" | "lpEnabled";
-export type U64Field = "lpTargetSolLamports" | "epochDurationSecs";
+export type U64Field = "lpTargetSolLamports" | "minPotThresholdLamports";
 export type ConfigValueArg =
   | { pubkey: PublicKey }
   | { u16: number }
@@ -109,8 +113,8 @@ export type ConfigValueArg =
 /**
  * `update_config(field, value)` — the single admin entry point for protocol parameters
  * (§B3 #9). Signer must be `Config.authority`. Rate fields (burn/ops/consignor bps) apply
- * to epochs finalized after the call; `epochDurationSecs` applies to the next epoch opened
- * by `finalize_epoch`. Returns the signature, or null when the value is already set.
+ * to rounds finalized after the call; `minPotThresholdLamports` gates the next finalize.
+ * Returns the signature, or null when the value is already set.
  */
 export async function setConfigValue(
   ctx: Ctx,
@@ -223,11 +227,6 @@ export async function tokenAmount(ctx: Ctx, tokenAccount: PublicKey) {
   return info ? info.data.readBigUInt64LE(64) : null;
 }
 
-export async function chainNow(ctx: Ctx) {
-  const slot = await ctx.connection.getSlot("confirmed");
-  return (await ctx.connection.getBlockTime(slot)) ?? Math.floor(Date.now() / 1000);
-}
-
 export async function openEpoch(ctx: Ctx) {
   const cfg = await ctx.program.account.config.fetch(ctx.config);
   const [key] = epochPda(ctx.program.programId, cfg.currentEpoch);
@@ -236,28 +235,31 @@ export async function openEpoch(ctx: Ctx) {
 }
 
 /**
- * Close the open epoch: wait for `end_ts`, then `finalize_epoch` (permissionless keeper call).
- * Epochs are schedule-aligned (`next.start = prev.end`), so after an idle stretch the next
- * epoch would already be over. To avoid a chain of catch-up finalizes (one Epoch account each)
- * the duration is set so the next epoch ends `nextLenSecs` from now, then restored.
+ * Where the open round stands against `min_pot_threshold_lamports`. `effective` is what the
+ * program will see at finalize: booked inflow + whole lamports of dust carried from earlier rounds.
  */
-export async function settleEpoch(ctx: Ctx, nextLenSecs = DEVNET_EPOCH_SECS) {
-  const { cfg, idx, epoch } = await openEpoch(ctx);
-  const now = await chainNow(ctx);
-  const end = epoch.endTs.toNumber();
-  if (now < end) {
-    console.log(`epoch #${idx} ends in ${end - now}s — waiting`);
-    await sleep((end - now + 3) * 1000);
-  }
-  const catchUp = (await chainNow(ctx)) + nextLenSecs - end;
-  const baseline = cfg.epochDurationSecs.toNumber();
-  if (catchUp > baseline + 5) await setConfigValue(ctx, "epochDurationSecs", { u64: catchUp });
+export async function roundStatus(ctx: Ctx) {
+  const o = await openEpoch(ctx);
+  const carry = Number(BigInt(o.cfg.dustScaled.toString()) / ACC_SCALE);
+  const effective = o.epoch.inflowLamports.toNumber() + carry;
+  const threshold = o.cfg.minPotThresholdLamports.toNumber();
+  return {
+    ...o,
+    carry,
+    effective,
+    threshold,
+    shortfall: Math.max(0, threshold - effective),
+    ready: effective >= threshold && !o.cfg.totalWeightBp.isZero(),
+  };
+}
 
+/** Raw `finalize_epoch(idx)` — no readiness check, so callers can assert the negative case. */
+export function finalizeIx(ctx: Ctx, idx: number) {
   const [nextEpoch] = epochPda(ctx.program.programId, idx + 1);
   const [pot] = potPda(ctx.program.programId);
   const [burn] = burnPda(ctx.program.programId);
   const [key] = epochPda(ctx.program.programId, idx);
-  const sig = await ctx.program.methods
+  return ctx.program.methods
     .finalizeEpoch(new BN(idx))
     .accountsPartial({
       keeper: ctx.payer.publicKey,
@@ -268,14 +270,52 @@ export async function settleEpoch(ctx: Ctx, nextLenSecs = DEVNET_EPOCH_SECS) {
       burn,
     })
     .rpc();
-  if (catchUp > baseline + 5) {
-    await setConfigValue(ctx, "epochDurationSecs", { u64: nextLenSecs });
+}
+
+/**
+ * Close the open round. Rounds are threshold-gated (OTC desk-pot semantics): `finalize_epoch`
+ * succeeds the moment effective inflow ≥ `min_pot_threshold_lamports`; there is nothing to
+ * wait for. Throws when the round is not ready — `topUp` (source C) fills the shortfall first.
+ */
+export async function settleRound(ctx: Ctx, topUp = false) {
+  let s = await roundStatus(ctx);
+  if (!s.ready && s.shortfall > 0 && topUp) {
+    console.log(
+      `round #${s.idx} short ${sol(s.shortfall)} of ${sol(s.threshold)} — topping up (C)`,
+    );
+    await registerInflow(ctx, "c", s.shortfall);
+    s = await roundStatus(ctx);
   }
-  const closed = await ctx.program.account.epoch.fetch(key);
+  if (!s.ready) {
+    throw new Error(
+      s.cfg.totalWeightBp.isZero()
+        ? `round #${s.idx}: no active stakers (Σw == 0)`
+        : `round #${s.idx} at ${sol(s.effective)} < threshold ${sol(s.threshold)} (short ${sol(s.shortfall)})`,
+    );
+  }
+  const sig = await finalizeIx(ctx, s.idx);
+  const closed = await ctx.program.account.epoch.fetch(s.key);
   console.log(
-    `finalized epoch #${idx}: inflow ${sol(closed.inflowLamports)} · burn-pending ${sol(closed.burnPendingLamports)} · distributed ${sol(closed.distributedLamports)} · Σw ${closed.totalWeightBp.toString()} bp  (${sig})`,
+    `finalized round #${s.idx}: inflow ${sol(closed.inflowLamports)} · burn-pending ${sol(closed.burnPendingLamports)} · credited ${sol(closed.distributedLamports)} · Σw ${closed.totalWeightBp.toString()} bp  (${sig})`,
   );
-  return { idx, epoch: closed, sig };
+  return { idx: s.idx, epoch: closed, sig };
+}
+
+/** Treasury books `lamports` of source B/C/D/F into the open round. */
+export async function registerInflow(ctx: Ctx, source: "b" | "c" | "d" | "f", lamports: number) {
+  const { key } = await openEpoch(ctx);
+  const [pot] = potPda(ctx.program.programId);
+  const [treasuryState] = treasuryPda(ctx.program.programId);
+  return ctx.program.methods
+    .registerTreasuryInflow({ [source]: {} } as never, new BN(lamports))
+    .accountsPartial({
+      treasury: ctx.payer.publicKey,
+      config: ctx.config,
+      epoch: key,
+      pot,
+      treasuryState,
+    })
+    .rpc();
 }
 
 /** Active (non-voided) tiers among the payer's desks in the configured collection. */
@@ -290,45 +330,40 @@ export async function ownedTieredDesks(ctx: Ctx) {
   return out;
 }
 
-/**
- * `claim_yield` for every owned active tier that has not yet claimed `upTo` (sequential per
- * desk from `next_claim_epoch`). Batches 5 claims per transaction. Returns lamports per asset.
- */
-export async function claimAllOwned(ctx: Ctx, upTo: number) {
-  const desks = await ownedTieredDesks(ctx);
+/** `claim_yield` instruction for one owned desk (single tx settles every closed round). */
+export function claimYieldIx(ctx: Ctx, asset: PublicKey) {
   const [pot] = potPda(ctx.program.programId);
+  const [deskTier] = tierPda(ctx.program.programId, asset);
+  return ctx.program.methods
+    .claimYield()
+    .accountsPartial({
+      claimer: ctx.payer.publicKey,
+      deskAsset: asset,
+      config: ctx.config,
+      deskTier,
+      pot,
+    })
+    .instruction();
+}
+
+/**
+ * One `claim_yield` per owned active tier with pending yield — each claim settles every round
+ * closed since that desk's stamp. Batches 5 desks per transaction. Returns lamports received.
+ */
+export async function claimAllOwned(ctx: Ctx) {
+  const desks = await ownedTieredDesks(ctx);
+  const cfg = toConfigView(await ctx.program.account.config.fetch(ctx.config));
+  const due = desks.filter(({ tier }) => pendingYieldLamports(tier, cfg) > 0);
   const ixs: TransactionInstruction[] = [];
-  const plan: { asset: PublicKey; epoch: number }[] = [];
-  for (const { asset, tier } of desks) {
-    for (let e = tier.nextClaimEpoch; e <= upTo; e++) {
-      const [epoch] = epochPda(ctx.program.programId, e);
-      const [deskTier] = tierPda(ctx.program.programId, asset);
-      ixs.push(
-        await ctx.program.methods
-          .claimYield(new BN(e))
-          .accountsPartial({
-            claimer: ctx.payer.publicKey,
-            deskAsset: asset,
-            config: ctx.config,
-            deskTier,
-            epoch,
-            pot,
-          })
-          .instruction(),
-      );
-      plan.push({ asset, epoch: e });
-    }
-  }
+  for (const { asset } of due) ixs.push(await claimYieldIx(ctx, asset));
   const before = await ctx.connection.getBalance(ctx.payer.publicKey);
   for (let i = 0; i < ixs.length; i += 5) await sendIxs(ctx, ixs.slice(i, i + 5));
   const after = await ctx.connection.getBalance(ctx.payer.publicKey);
-  return { claims: plan.length, desks: desks.length, received: after - before };
+  return { claims: due.length, desks: desks.length, received: after - before };
 }
 
 export const sol = (l: BN | number | bigint) =>
   `${(Number(l.toString()) / LAMPORTS_PER_SOL).toFixed(4)} SOL`;
-/** Devnet epoch length used by the operator scripts (mainnet: 24h). */
-export const DEVNET_EPOCH_SECS = Number(process.env.HUB_DEVNET_EPOCH_SECS || 120);
 
 export const explorer = (sigOrAddr: string, kind: "tx" | "address" = "address") =>
   `https://explorer.solana.com/${kind}/${sigOrAddr}?cluster=devnet`;

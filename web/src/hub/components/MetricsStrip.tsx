@@ -1,14 +1,19 @@
-import { epochProgress, type ProtocolState } from "@hub-sdk";
-import { useNow } from "../hooks/useNow";
-import { fmtBp, fmtCountdown, fmtNum, fmtSol } from "../lib/format";
+import {
+  canFinalize,
+  effectiveInflowLamports,
+  lamportsToThreshold,
+  roundProgress,
+  type ProtocolState,
+} from "@hub-sdk";
+import { fmtBp, fmtNum, fmtSol } from "../lib/format";
 import { Stat } from "./ui/Panel";
 
 /** §C3 — live metrics strip across the top of the panel. */
 export function MetricsStrip({ state }: { state: ProtocolState }) {
-  const now = useNow();
   const { config, currentEpoch, potLamports, burn } = state;
   const surplus = potLamports - config.potLiabilityLamports;
-  const pct = Math.round(epochProgress(currentEpoch, now) * 100);
+  const pct = Math.round(roundProgress(currentEpoch, config) * 100);
+  const ready = canFinalize(currentEpoch, config);
 
   return (
     <div className="grid grid-cols-2 gap-2 md:grid-cols-3 lg:grid-cols-6">
@@ -23,13 +28,19 @@ export function MetricsStrip({ state }: { state: ProtocolState }) {
         }
       />
       <Stat
-        label="epoch"
+        label="round"
         value={`#${fmtNum(currentEpoch.index)}`}
-        sub={`${fmtCountdown(currentEpoch.endTs, now)} left · ${pct}%`}
+        sub={
+          ready ? (
+            <span className="text-green-400">ready to close · {pct}%</span>
+          ) : (
+            `${pct}% of ${fmtSol(config.minPotThresholdLamports, 2)} · ${fmtSol(lamportsToThreshold(currentEpoch, config))} to go`
+          )
+        }
       />
       <Stat
-        label="epoch inflow"
-        value={fmtSol(currentEpoch.inflowLamports)}
+        label="round inflow"
+        value={fmtSol(effectiveInflowLamports(currentEpoch, config))}
         sub={`burn slice ${fmtBp(config.burnPctBp, 0)}`}
       />
       <Stat

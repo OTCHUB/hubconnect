@@ -15,6 +15,7 @@ import {
   consign,
   unconsign,
   consignedInflow,
+  claimAccrual,
   finalizeCurrent,
   setConfig,
   assertSolvent,
@@ -22,7 +23,7 @@ import {
   bn,
   currentEpoch,
 } from "./flows";
-import { consignPda } from "../sdk/src/pda";
+import { accrualPda, consignPda } from "../sdk/src/pda";
 import * as K from "../sdk/src/constants";
 
 describe("M3 — consignment & LP", () => {
@@ -66,44 +67,31 @@ describe("M3 — consignment & LP", () => {
     expect(eAfter.inflowLamports.toNumber() - in0).to.eq(100_000_000);
 
     await setConfig(h, f, "consignorShareBp", { u16: [5_000] });
-    const { epochIdx, consignorAccrual } = await consignedInflow(
-      h,
-      f,
-      desk,
-      owner.publicKey,
-      100_000_000,
-    );
+    const { consignorAccrual } = await consignedInflow(h, f, desk, owner.publicKey, 100_000_000);
+    // Two inflows in the same round accrue into the one per-wallet ledger (no epoch in the seed).
+    await consignedInflow(h, f, desk, owner.publicKey, 20_000_000);
     const a = await h.program.account.stakerAccrual.fetch(consignorAccrual);
-    expect(a.owedLamports.toNumber()).to.eq(50_000_000);
-    const { epoch: eAfter2 } = await currentEpoch(h, f);
-    expect(eAfter2.inflowLamports.toNumber() - eAfter.inflowLamports.toNumber()).to.eq(50_000_000);
+    expect(a.wallet.toBase58()).to.eq(owner.publicKey.toBase58());
+    expect(a.owedLamports.toNumber()).to.eq(60_000_000);
+    const { epoch: eAfter2, config } = await currentEpoch(h, f);
+    expect(eAfter2.inflowLamports.toNumber() - eAfter.inflowLamports.toNumber()).to.eq(60_000_000);
     await assertSolvent(h, f);
 
+    // Accrual is claimable now — it does not wait for any round to close.
+    expect(eAfter2.finalized).to.eq(false);
+    const liab0 = config.potLiabilityLamports.toNumber();
     const b0 = await balance(h, owner.publicKey);
-    await h.program.methods
-      .claimAccrual(bn(epochIdx))
-      .accountsPartial({
-        wallet: owner.publicKey,
-        config: f.config,
-        accrual: consignorAccrual,
-        pot: f.pot,
-      })
-      .signers([owner])
-      .rpc();
-    expect((await balance(h, owner.publicKey)) - b0).to.eq(50_000_000); // provider wallet pays the fee
-    await expectFail(
-      h.program.methods
-        .claimAccrual(bn(epochIdx))
-        .accountsPartial({
-          wallet: owner.publicKey,
-          config: f.config,
-          accrual: consignorAccrual,
-          pot: f.pot,
-        })
-        .signers([owner])
-        .rpc(),
-      "AccrualEmpty",
+    await claimAccrual(h, f, owner);
+    expect((await balance(h, owner.publicKey)) - b0).to.eq(60_000_000); // provider wallet pays the fee
+    const a1 = await h.program.account.stakerAccrual.fetch(consignorAccrual);
+    expect(a1.owedLamports.toNumber()).to.eq(0);
+    expect(a1.totalClaimedLamports.toNumber()).to.eq(60_000_000);
+    expect((await h.program.account.config.fetch(f.config)).potLiabilityLamports.toNumber()).to.eq(
+      liab0 - 60_000_000,
     );
+    await expectFail(claimAccrual(h, f, owner), "AccrualEmpty");
+    const stranger = await fundWallet(h, 0.1 * LAMPORTS_PER_SOL);
+    await expectFail(claimAccrual(h, f, stranger)); // no ledger for this wallet
     await setConfig(h, f, "consignorShareBp", { u16: [K.CONSIGNOR_SHARE_BP] });
   });
 
@@ -111,10 +99,9 @@ describe("M3 — consignment & LP", () => {
     const stranger = await fundWallet(h, 0.2 * LAMPORTS_PER_SOL);
     const other = await createDeskAsset(h, f.deskCollection, stranger.publicKey);
     await expectFail(consignedInflow(h, f, other, stranger.publicKey, 1_000)); // no ConsignedDesk account
-    const { key: epoch, idx } = await currentEpoch(h, f);
+    const { key: epoch } = await currentEpoch(h, f);
     const [consignedDesk] = consignPda(h.program.programId, desk);
-    const { accrualPda } = await import("../sdk/src/pda");
-    const [acc] = accrualPda(h.program.programId, owner.publicKey, idx);
+    const [acc] = accrualPda(h.program.programId, owner.publicKey);
     await expectFail(
       h.program.methods
         .registerConsignedInflow(bn(1_000))

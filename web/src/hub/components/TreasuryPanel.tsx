@@ -1,6 +1,6 @@
 import { burnPda, potPda, treasuryPda, vaultPda, type ProtocolState } from "@hub-sdk";
 import { useHub } from "../HubProvider";
-import { fmtBp, fmtDuration, fmtNum, fmtSol, fmtUtc } from "../lib/format";
+import { fmtBp, fmtNum, fmtSol, fmtUtc } from "../lib/format";
 import { AddressLink } from "./ui/AddressLink";
 import { CollapsibleCard, Flag, Panel, Row, Stat } from "./ui/Panel";
 
@@ -52,7 +52,7 @@ export function TreasuryPanel({ state }: { state: ProtocolState }) {
           <Row k="step fee" v={fmtSol(config.stepFeeLamports, 2)} />
           <Row k="ops / burn slice" v={split} />
           <Row k="tier weights" v={config.tierWeightsBp.map((w) => `${w / 100}%`).join(" · ")} />
-          <Row k="epoch length" v={fmtDuration(config.epochDurationSecs)} />
+          <Row k="round threshold" v={fmtSol(config.minPotThresholdLamports, 2)} />
           <Row k="genesis" v={fmtUtc(config.genesisTs)} />
           <Row k="consignor share" v={fmtBp(config.consignorShareBp, 0)} />
           <Row k="pot balance / liability" v={potVsLiability} />

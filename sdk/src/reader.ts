@@ -5,8 +5,17 @@ import { AnchorProvider, BorshAccountsCoder, Idl, Program } from "@anchor-lang/c
 import { Connection, PublicKey } from "@solana/web3.js";
 import idl from "../idl/hub.json";
 import type { Hub } from "../idl/hub";
-import { burnPda, configPda, epochPda, potPda, tierPda, treasuryPda, consignPda } from "./pda";
-import { BPS, TIER_WEIGHTS_BP } from "./constants";
+import {
+  accrualPda,
+  burnPda,
+  configPda,
+  epochPda,
+  potPda,
+  tierPda,
+  treasuryPda,
+  consignPda,
+} from "./pda";
+import { ACC_SCALE, BPS, TIER_WEIGHTS_BP } from "./constants";
 
 export const HUB_IDL = idl as Hub;
 
@@ -27,6 +36,8 @@ export function accountsCoder() {
 }
 
 const n = (v: { toNumber(): number } | number) => (typeof v === "number" ? v : v.toNumber());
+// u128 fields (accumulator, dust) exceed Number; keep them as bigint.
+const big = (v: { toString(): string }) => BigInt(v.toString());
 
 export type ConfigView = {
   authority: string;
@@ -40,7 +51,7 @@ export type ConfigView = {
   otcMint: string;
   tierWeightsBp: number[];
   stepFeeLamports: number;
-  epochDurationSecs: number;
+  minPotThresholdLamports: number;
   burnPctBp: number;
   opsPctBp: number;
   consignmentEnabled: boolean;
@@ -51,19 +62,24 @@ export type ConfigView = {
   genesisTs: number;
   totalWeightBp: number;
   potLiabilityLamports: number;
+  /** Lifetime Σ(distributable × ACC_SCALE / Σw) over closed rounds. */
+  accPerWeight: bigint;
+  /** Sub-lamport remainders (× ACC_SCALE); whole lamports re-enter at the next finalize. */
+  dustScaled: bigint;
 };
 
 export type EpochView = {
   index: number;
   startTs: number;
-  endTs: number;
+  /** 0 while open. */
+  finalizedTs: number;
   inflowLamports: number;
   distributedLamports: number;
   burnPendingLamports: number;
   rolledForwardLamports: number;
   totalWeightBp: number;
-  claimedLamports: number;
-  claimedWeightBp: number;
+  perWeightScaled: bigint;
+  accPerWeightAfter: bigint;
   finalized: boolean;
 };
 
@@ -72,8 +88,19 @@ export type DeskTierView = {
   ownerAtActivation: string;
   tier: number;
   activatedEpoch: number;
-  nextClaimEpoch: number;
+  /** `Config.accPerWeight` at activation / last claim. */
+  stampAccPerWeight: bigint;
+  /** Lifetime SOL this desk has been paid by `claim_yield` (reset on re-activation). */
+  totalClaimedLamports: number;
   voided: boolean;
+};
+
+export type StakerAccrualView = {
+  wallet: string;
+  /** Consignor-share credits claimable via `claim_accrual`. */
+  owedLamports: number;
+  /** Lifetime SOL paid out to this wallet by `claim_accrual`. */
+  totalClaimedLamports: number;
 };
 
 export type ProtocolState = {
@@ -100,7 +127,7 @@ export function toConfigView(
     otcMint: c.otcMint.toBase58(),
     tierWeightsBp: [...c.tierWeightsBp],
     stepFeeLamports: n(c.stepFeeLamports),
-    epochDurationSecs: n(c.epochDurationSecs),
+    minPotThresholdLamports: n(c.minPotThresholdLamports),
     burnPctBp: c.burnPctBp,
     opsPctBp: c.opsPctBp,
     consignmentEnabled: c.consignmentEnabled,
@@ -111,6 +138,8 @@ export function toConfigView(
     genesisTs: n(c.genesisTs),
     totalWeightBp: n(c.totalWeightBp),
     potLiabilityLamports: n(c.potLiabilityLamports),
+    accPerWeight: big(c.accPerWeight),
+    dustScaled: big(c.dustScaled),
   };
 }
 
@@ -120,14 +149,14 @@ export function toEpochView(
   return {
     index: n(e.index),
     startTs: n(e.startTs),
-    endTs: n(e.endTs),
+    finalizedTs: n(e.finalizedTs),
     inflowLamports: n(e.inflowLamports),
     distributedLamports: n(e.distributedLamports),
     burnPendingLamports: n(e.burnPendingLamports),
     rolledForwardLamports: n(e.rolledForwardLamports),
     totalWeightBp: n(e.totalWeightBp),
-    claimedLamports: n(e.claimedLamports),
-    claimedWeightBp: n(e.claimedWeightBp),
+    perWeightScaled: big(e.perWeightScaled),
+    accPerWeightAfter: big(e.accPerWeightAfter),
     finalized: e.finalized,
   };
 }
@@ -140,8 +169,19 @@ export function toDeskTierView(
     ownerAtActivation: t.ownerAtActivation.toBase58(),
     tier: t.tier,
     activatedEpoch: n(t.activatedEpoch),
-    nextClaimEpoch: n(t.nextClaimEpoch),
+    stampAccPerWeight: big(t.stampAccPerWeight),
+    totalClaimedLamports: n(t.totalClaimedLamports),
     voided: t.voided,
+  };
+}
+
+export function toStakerAccrualView(
+  a: Awaited<ReturnType<HubProgram["account"]["stakerAccrual"]["fetch"]>>,
+): StakerAccrualView {
+  return {
+    wallet: a.wallet.toBase58(),
+    owedLamports: n(a.owedLamports),
+    totalClaimedLamports: n(a.totalClaimedLamports),
   };
 }
 
@@ -209,14 +249,47 @@ export async function fetchEpoch(program: HubProgram, index: number): Promise<Ep
   return e ? toEpochView(e) : null;
 }
 
-/** 0..1 progress of an epoch at `nowTs` (unix seconds). */
-export function epochProgress(e: EpochView, nowTs = Math.floor(Date.now() / 1000)) {
-  const len = Math.max(1, e.endTs - e.startTs);
-  return Math.min(1, Math.max(0, (nowTs - e.startTs) / len));
+export async function fetchStakerAccrual(
+  program: HubProgram,
+  wallet: PublicKey,
+): Promise<StakerAccrualView | null> {
+  const [key] = accrualPda(program.programId, wallet);
+  const a = await program.account.stakerAccrual.fetchNullable(key);
+  return a ? toStakerAccrualView(a) : null;
 }
 
-/** Projected staker allotment for `tier` if the open epoch closed with its current inflow and Σw. */
-export function projectEpochYield(
+/** Whole lamports of dust that will be folded into the open round at the next finalize. */
+export function dustCarryLamports(c: ConfigView) {
+  return Number(c.dustScaled / ACC_SCALE);
+}
+
+/** Open-round inflow as the program will see it at finalize (includes dust carry). */
+export function effectiveInflowLamports(e: EpochView, c: ConfigView) {
+  return e.inflowLamports + dustCarryLamports(c);
+}
+
+/** 0..1 progress of the open round toward `min_pot_threshold_lamports`. */
+export function roundProgress(e: EpochView, c: ConfigView) {
+  const t = Math.max(1, c.minPotThresholdLamports);
+  return Math.min(1, effectiveInflowLamports(e, c) / t);
+}
+
+/** True when `finalize_epoch` would succeed right now (threshold met and Σw > 0). */
+export function canFinalize(e: EpochView, c: ConfigView) {
+  return (
+    !e.finalized &&
+    c.totalWeightBp > 0 &&
+    effectiveInflowLamports(e, c) >= c.minPotThresholdLamports
+  );
+}
+
+/** Lamports still needed before the open round can close (0 when ready). */
+export function lamportsToThreshold(e: EpochView, c: ConfigView) {
+  return Math.max(0, c.minPotThresholdLamports - effectiveInflowLamports(e, c));
+}
+
+/** Projected staker allotment for `tier` if the open round closed with its current inflow and Σw. */
+export function projectRoundYield(
   e: EpochView,
   tier: number,
   totalWeightBp: number,
@@ -228,9 +301,19 @@ export function projectEpochYield(
   return Math.floor((distributable * w) / totalWeightBp);
 }
 
-/** Exact payout owed to `tier` for a finalized epoch (ignores last-claimer remainder). */
+/** Exact share `tier` received from a closed round: ⌊per_weight_scaled × w / ACC_SCALE⌋. */
 export function owedForEpoch(e: EpochView, tier: number) {
   const w = TIER_WEIGHTS_BP[tier - 1] ?? 0;
-  if (!e.finalized || !w || e.totalWeightBp === 0) return 0;
-  return Math.floor((e.distributedLamports * w) / e.totalWeightBp);
+  if (!e.finalized || !w) return 0;
+  return Number((e.perWeightScaled * BigInt(w)) / ACC_SCALE);
+}
+
+/**
+ * Everything a live tier can take in one `claim_yield` right now — mirrors on-chain
+ * `pending_yield`: ⌊(acc − stamp) × w / ACC_SCALE⌋ across every round closed since its stamp.
+ */
+export function pendingYieldLamports(t: DeskTierView, c: ConfigView) {
+  const w = TIER_WEIGHTS_BP[t.tier - 1] ?? 0;
+  if (t.voided || !w || c.accPerWeight <= t.stampAccPerWeight) return 0;
+  return Number(((c.accPerWeight - t.stampAccPerWeight) * BigInt(w)) / ACC_SCALE);
 }

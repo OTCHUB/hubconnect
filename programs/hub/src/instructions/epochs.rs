@@ -3,6 +3,10 @@
 //!
 //! Burn-pending is marked once, at finalize, with the rate in effect then
 //! (§B3 #9: rate changes apply to future epochs).
+//!
+//! Rounds are threshold-gated, not clock-gated: `finalize_epoch` is callable the moment the open
+//! epoch's inflow reaches `Config.min_pot_threshold_lamports` (OTC desk-pot semantics). The 90%
+//! is credited to `Config.acc_per_weight`, so stakers settle every closed round in one claim.
 
 use anchor_lang::prelude::*;
 
@@ -15,7 +19,8 @@ use crate::state::*;
 #[derive(Accounts)]
 #[instruction(epoch_index: u64)]
 pub struct FinalizeEpoch<'info> {
-    /// Permissionless: the math is deterministic, so any keeper may close an ended epoch.
+    /// Permissionless: the math is deterministic, so anyone may close a round once the
+    /// threshold is met (they pay the next Epoch account's rent).
     #[account(mut)]
     pub keeper: Signer<'info>,
     #[account(mut, seeds = [SEED_CONFIG], bump = config.bump)]
@@ -46,30 +51,44 @@ pub fn finalize_epoch(ctx: Context<FinalizeEpoch>, epoch_index: u64) -> Result<(
         epoch_index == config.current_epoch,
         HubError::EpochNotCurrent
     );
-    require!(now >= e.end_ts, HubError::EpochNotEnded);
+
+    // Whole lamports of dust (already pot liability, owed to nobody) re-enter as inflow.
+    let carry = u64::try_from(config.dust_scaled / ACC_SCALE)
+        .map_err(|_| error!(HubError::MathOverflow))?;
+    config.dust_scaled %= ACC_SCALE;
+    e.inflow_lamports = add(e.inflow_lamports, carry)?;
+    require!(
+        e.inflow_lamports >= config.min_pot_threshold_lamports,
+        HubError::PotBelowThreshold
+    );
 
     let burn = bps_of(e.inflow_lamports, config.burn_pct_bp)?;
     let distributable = sub(e.inflow_lamports, burn)?;
+    let (per_w, credited, slack) = round_credit(distributable, config.total_weight_bp)?;
+    config.acc_per_weight = config
+        .acc_per_weight
+        .checked_add(per_w)
+        .ok_or_else(|| error!(HubError::MathOverflow))?;
+    add_dust(config, slack)?;
+
     e.total_weight_bp = config.total_weight_bp;
     e.burn_pending_lamports = burn;
-    if e.total_weight_bp == 0 {
-        e.rolled_forward_lamports = distributable;
-        e.distributed_lamports = 0;
-    } else {
-        e.distributed_lamports = distributable;
-        e.rolled_forward_lamports = 0;
-    }
+    e.distributed_lamports = credited;
+    e.rolled_forward_lamports = sub(distributable, credited)?;
+    e.per_weight_scaled = per_w;
+    e.acc_per_weight_after = config.acc_per_weight;
+    e.finalized_ts = now;
     e.finalized = true;
     assert_epoch_balanced(e)?;
 
     let b = &mut ctx.accounts.burn;
     b.burn_pending_lamports = add(b.burn_pending_lamports, burn)?;
 
-    // Roll forward: the carry stays pot liability and becomes next epoch's opening inflow.
+    // The floor remainder stays pot liability and opens the next round.
     let n = &mut ctx.accounts.next_epoch;
     n.index = add(epoch_index, 1)?;
-    n.start_ts = e.end_ts;
-    n.end_ts = e.end_ts + config.epoch_duration_secs as i64;
+    n.start_ts = now;
+    n.finalized_ts = 0;
     n.inflow_lamports = e.rolled_forward_lamports;
     n.bump = ctx.bumps.next_epoch;
     config.current_epoch = n.index;
@@ -82,6 +101,8 @@ pub fn finalize_epoch(ctx: Context<FinalizeEpoch>, epoch_index: u64) -> Result<(
         burn_pending_lamports: burn,
         rolled_forward_lamports: e.rolled_forward_lamports,
         total_weight_bp: e.total_weight_bp,
+        per_weight_scaled: per_w,
+        acc_per_weight: config.acc_per_weight,
     });
     Ok(())
 }
@@ -160,7 +181,7 @@ pub struct RegisterConsignedInflow<'info> {
     pub consigned_desk: Account<'info, ConsignedDesk>,
     #[account(
         init_if_needed, payer = treasury, space = 8 + StakerAccrual::INIT_SPACE,
-        seeds = [SEED_ACCRUAL, consigned_desk.consignor.as_ref(), &config.current_epoch.to_le_bytes()], bump
+        seeds = [SEED_ACCRUAL, consigned_desk.consignor.as_ref()], bump
     )]
     pub consignor_accrual: Account<'info, StakerAccrual>,
     pub system_program: Program<'info, System>,
@@ -186,7 +207,6 @@ pub fn register_consigned_inflow(
 
     let a = &mut ctx.accounts.consignor_accrual;
     a.wallet = ctx.accounts.consigned_desk.consignor;
-    a.epoch_index = config.current_epoch;
     a.owed_lamports = add(a.owed_lamports, share)?;
     a.bump = ctx.bumps.consignor_accrual;
     config.pot_liability_lamports = add(config.pot_liability_lamports, share)?;
@@ -202,14 +222,13 @@ pub fn register_consigned_inflow(
 }
 
 #[derive(Accounts)]
-#[instruction(epoch_index: u64)]
 pub struct ClaimAccrual<'info> {
     #[account(mut)]
     pub wallet: Signer<'info>,
     #[account(mut, seeds = [SEED_CONFIG], bump = config.bump, constraint = !config.paused @ HubError::Paused)]
     pub config: Account<'info, Config>,
     #[account(
-        mut, seeds = [SEED_ACCRUAL, wallet.key().as_ref(), &epoch_index.to_le_bytes()], bump = accrual.bump,
+        mut, seeds = [SEED_ACCRUAL, wallet.key().as_ref()], bump = accrual.bump,
         has_one = wallet @ HubError::Unauthorized
     )]
     pub accrual: Account<'info, StakerAccrual>,
@@ -219,12 +238,14 @@ pub struct ClaimAccrual<'info> {
     pub system_program: Program<'info, System>,
 }
 
-/// Pays a wallet-level accrual (consignor share). Independent of tiers and epoch finalize.
-pub fn claim_accrual(ctx: Context<ClaimAccrual>, epoch_index: u64) -> Result<()> {
+/// Pays everything a wallet is owed from consignor shares in one tx. Independent of tiers
+/// and of any finalize.
+pub fn claim_accrual(ctx: Context<ClaimAccrual>) -> Result<()> {
     let a = &mut ctx.accounts.accrual;
     let owed = a.owed_lamports;
     require!(owed > 0, HubError::AccrualEmpty);
     a.owed_lamports = 0;
+    a.total_claimed_lamports = add(a.total_claimed_lamports, owed)?;
     let config = &mut ctx.accounts.config;
     config.pot_liability_lamports = sub(config.pot_liability_lamports, owed)?;
     pay_from_pot(
@@ -237,7 +258,6 @@ pub fn claim_accrual(ctx: Context<ClaimAccrual>, epoch_index: u64) -> Result<()>
     assert_pot_solvent(config, &ctx.accounts.pot)?;
     emit!(AccrualClaimed {
         wallet: ctx.accounts.wallet.key(),
-        epoch: epoch_index,
         lamports: owed
     });
     Ok(())

@@ -39,9 +39,7 @@ export function tierPda(programId: PublicKey, asset: PublicKey) {
 export function consignPda(programId: PublicKey, asset: PublicKey) {
   return PublicKey.findProgramAddressSync([SEEDS.consign, asset.toBuffer()], programId);
 }
-export function accrualPda(programId: PublicKey, wallet: PublicKey, epoch: BN | number | bigint) {
-  return PublicKey.findProgramAddressSync(
-    [SEEDS.accrual, wallet.toBuffer(), u64le(epoch)],
-    programId,
-  );
+/** Per-wallet ledger: consignor-share credits (`owed`) + lifetime claimed yield. */
+export function accrualPda(programId: PublicKey, wallet: PublicKey) {
+  return PublicKey.findProgramAddressSync([SEEDS.accrual, wallet.toBuffer()], programId);
 }
