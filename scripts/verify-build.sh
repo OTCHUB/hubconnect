@@ -63,7 +63,7 @@ cmd_hash() {
   echo "local:    $l"
   echo "on-chain: $o"
   if [ "$l" = "$o" ]; then echo "MATCH — on-chain bytes equal the local verified build"; else
-    echo "MISMATCH — deploy the verified build ($0 deploy) or rebuild from the deployed commit" >&2; exit 2; fi
+    echo "MISMATCH — deploy the verified build ($0 deploy) or rebuild from the deployed commit" >&2; return 2; fi
 }
 
 cmd_deploy() {
