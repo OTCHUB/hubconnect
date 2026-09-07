@@ -26,7 +26,8 @@ export const TREASURY_HUB_FLOAT_CAP_BP = 200;
 export const MPL_CORE_PROGRAM_ID = "CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d";
 export const HUB_PROGRAM_ID = "5tCDEazUAkRjrkasup1uWcYo3t1C2ht76LmQva5rewQv";
 
-export const TIER_NAMES = ["BRONZE", "SILVER", "GOLD", "DIAMOND"] as const;
+/** Display names for tiers 1–4 (§A4): market-role ladder, not metals. */
+export const TIER_NAMES = ["TRADER", "BROKER", "DEALER", "MARKET MAKER"] as const;
 
 /** Cumulative step fee to reach `tier` from tier 0 (§A4). */
 export const cumulativeFeeLamports = (tier: number) => STEP_FEE_LAMPORTS * tier;

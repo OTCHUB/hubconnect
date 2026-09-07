@@ -5,7 +5,7 @@
 // wallets answer with `wallet-standard:register-wallet` — so no extra dependency is needed.
 
 type InjectedProvider = {
-  connect: (opts?: { onlyIfTrusted?: boolean }) => Promise<{ publicKey?: unknown } | void>;
+  connect: (opts?: { onlyIfTrusted?: boolean }) => Promise<{ publicKey?: unknown } | undefined>;
   publicKey?: unknown;
 };
 

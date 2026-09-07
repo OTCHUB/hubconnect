@@ -125,10 +125,13 @@ conflict.
 
 | Tier | Weight | Cumulative cost | To pot (90%) | To ops (10%) |
 |---|---|---|---|---|
-| T1 BRONZE | 1.00x | 0.5 SOL | 0.45 | 0.05 |
-| T2 SILVER | 1.25x | 1.0 SOL | 0.90 | 0.10 |
-| T3 GOLD | 1.60x | 1.5 SOL | 1.35 | 0.15 |
-| T4 DIAMOND | 2.00x | 2.0 SOL | 1.80 | 0.20 |
+| T1 TRADER | 1.00x | 0.5 SOL | 0.45 | 0.05 |
+| T2 BROKER | 1.25x | 1.0 SOL | 0.90 | 0.10 |
+| T3 DEALER | 1.60x | 1.5 SOL | 1.35 | 0.15 |
+| T4 MARKET MAKER | 2.00x | 2.0 SOL | 1.80 | 0.20 |
+
+Display names are UI-only (`sdk/src/constants.ts` `TIER_NAMES`); the program
+stores tier indices 1–4 and weights in basis points.
 
 ### A5. Yield engine
 
@@ -590,6 +593,15 @@ read-only account decoders in its SDK (`sdk`); no privileged endpoints exist.
 The interim standalone dashboard (`web/`, deployed at app.otchub.dev) reads the
 same accounts and lists every address below in its registry view
 (`web/src/hub/lib/deployments.ts`).
+
+**Merge status (2026-09-07):** `web/src/hub` and `sdk/` are vendored into the
+otchub repo (`otchub/src/hub`, `otchub/src/hub-sdk`, alias `@hub-sdk`) and the
+module is mounted at the otchub domain root — `/` (dashboard), `/treasury`,
+`/deployments`, `/desk/:asset`; the OTC_DESK analytics moved to `/otc` and
+`/hub/*` redirects. otchub supplies `rpcUrl` / `cluster` / `programId` via
+`VITE_HUB_*` (defaults: public devnet RPC, IDL program id). `web/` remains the
+standalone shell for app.otchub.dev until the domains are consolidated;
+`hubconnect` stays the source of truth — re-copy on change.
 
 ### C3. Live metrics strip (top of panel)
 
