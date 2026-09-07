@@ -53,6 +53,23 @@ parameterized and re-verified on-chain.
 **Desk pot** (source: otcdesks.cash stats + on-chain pot account):
 - Distributes a 13-stock desk rotation per desk, per round. Lifetime desk-channel
   distribution ≈ 2,570 SOL over 2,487 rounds.
+- **OTC is itself one of the 13 rotation stocks** (slot 10, verified on-chain
+  2026-09-07: OTC mint `MukLD…pump` sits in `ConfigExt` slot 10; lifetime OTC
+  distributed to desks 98.1 SOL ≈ 0.044 SOL/desk, 6th of 13 by volume). So a
+  treasury-owned desk accrues OTC directly (source B), independent of the
+  launcher's reward-stock channel (source C).
+- Rotation layout (verified by scanning the OTC `Config` / `ConfigExt` PDAs):
+  `Config["config"]` = `9b5V…REU4` holds slots 0–9 as 32-byte mints from offset
+  216 (AAPLx, MSFTx, NVDAx, AMZNx, CRCLx, SPCXx, ANTHROPIC, POLYMARKET, KALSHI,
+  NEURALINK); `ConfigExt["config_ext"]` = `78rNUh8esjSWLhH8zPB5UNsx7uKbRygKQg1G2XgeqFUz`
+  holds slots 10–12 (OTC, ANDURIL, OPENAI). `claim(index)` / `distribute(index)`
+  for slots 10–12 additionally require `config_ext` + the desk's
+  `["vault_ext", vault]` PDA. 12 of 13 mints are Token-2022 (OTC is classic SPL);
+  stock ATAs use the custom seed order `[owner, tokenProgram, mint]`.
+- Pot inflow channels reported by the OTC_HUB snapshot (`pot_sources`): `mint`,
+  `royalty`, `launchpad`, `other`. The `launchpad` leg (launched coins' 10% →
+  desk pot) is live and material — e.g. 272.8 SOL on 2026-09-07 vs 23.0 mint /
+  28.8 royalty — so desk-pot yield now scales with launcher volume.
 - Latest closed day take: **0.1443 SOL/desk/day**; 7-day average 0.1464.
 - Desk mint surcharge: 0.5 SOL (0.45 to pot, 0.05 to protocol) + 100,000 OTC burned.
 - Magic Eden buyer cost model: list price × (1 + 2% taker fee + 5% creator royalty).
@@ -68,6 +85,11 @@ parameterized and re-verified on-chain.
 - Desk pot: `BZcvtxDy4WihU24k3pezzajuiqYtTUHPfH7b5m26BucR`
 - NFT collection & desk stock rotation list: resolve from OTC program config /
   IDL (reference implementation exists in the OTC Hub dashboard's shared sources).
+- Read-only mainnet data feed for keepers/dashboard: **OTC_HUB MCP**
+  `https://otchub.dev/api/mcp` (tools `query_otcsnapshot` — 5-min snapshots with
+  `by_stock`, `per_desk`, `pot_sources`, `buybacks`; `query_nftholding` —
+  per-desk owner/listing/accrued value; `query_claimlog`; `query_contractmap`).
+  Sort `-created_date`, `limit ≤ 500`; response shape `{count, records[]}`.
 
 ### A3. $HUB launch configuration
 
@@ -364,7 +386,15 @@ consignor share split). Consigned desks are claimed but never sold (§A6.1).
    stock on-chain (non-empty required); applies §A6 formula (resolve OTC-side
    constants from config first); proposes sweeps within budget/payback caps;
    executes via treasury multisig; claims desk-pot rounds for owned and
-   consigned desks and registers inflow.
+   consigned desks and registers inflow. **Harvest mechanics (source B/E):**
+   per desk, for each of the 13 slots with a non-zero `["vault", asset_id]`
+   stock ATA balance, call OTC `claim(index)` (slots 10–12 with `config_ext` +
+   `vault_ext`) to the treasury's stock ATA (custom `[owner, tokenProgram, mint]`
+   ATA order; Token-2022 for all but OTC), sell each stock for SOL via Jupiter
+   with slippage caps, then `register_treasury_inflow` (or
+   `register_consigned_inflow` for E) with the net SOL. OTC claimed from desks
+   (slot 10) is sold like any other rotation stock — it is not added to the
+   treasury float (§A3.1).
 3. **Treasury (exit)** — claims all accrued yield, lists at 90% of verified
    floor, escrow enforces 50% HUB burn + 50% SOL → pot in the same tx; floor
    staleness guard 5%.
