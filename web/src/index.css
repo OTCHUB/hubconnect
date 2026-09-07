@@ -1,0 +1,38 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Standalone shell only — when mounted inside otchub its index.css applies. */
+@layer base {
+  :root {
+    --background: 0 0% 0%;
+    --foreground: 142 71% 45%;
+    --muted: 0 0% 14.9%;
+    --muted-foreground: 0 0% 63.9%;
+    --border: 142 71% 45%;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-black text-green-400 font-mono antialiased;
+  }
+}
+
+html,
+body {
+  overflow-x: hidden;
+  max-width: 100vw;
+}
+
+/* Faint CRT scanlines behind the shell. */
+.crt::before {
+  content: "";
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: repeating-linear-gradient(180deg, rgb(0 0 0 / 0) 0 2px, rgb(0 0 0 / 0.18) 2px 4px);
+}
