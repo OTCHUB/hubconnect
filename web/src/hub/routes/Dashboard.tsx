@@ -4,12 +4,17 @@ import { Disclaimer } from "../components/Disclaimer";
 import { EpochTracker } from "../components/EpochTracker";
 import { MetricsStrip } from "../components/MetricsStrip";
 import { ProtocolGate } from "../components/ProtocolGate";
+import { WalletPanel } from "../components/WalletPanel";
 import { YieldTable } from "../components/YieldTable";
 import { Panel } from "../components/ui/Panel";
 
-export type DashboardProps = { rawDeskDailyLamports?: number };
+export type DashboardProps = {
+  rawDeskDailyLamports?: number;
+  /** Host-connected wallet (otchub); when set the module skips its own connect UI. */
+  walletAddress?: string;
+};
 
-export function Dashboard({ rawDeskDailyLamports }: DashboardProps) {
+export function Dashboard({ rawDeskDailyLamports, walletAddress }: DashboardProps) {
   return (
     <div className="space-y-2 font-mono">
       <ProtocolGate>
@@ -24,6 +29,7 @@ export function Dashboard({ rawDeskDailyLamports }: DashboardProps) {
                 treasury transparency →
               </Link>
             </div>
+            <WalletPanel state={state} walletAddress={walletAddress} />
           </>
         )}
       </ProtocolGate>

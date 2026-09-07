@@ -30,9 +30,14 @@ const n = (v: { toNumber(): number } | number) => (typeof v === "number" ? v : v
 
 export type ConfigView = {
   authority: string;
+  pot: string;
   opsWallet: string;
   treasury: string;
+  otcProgram: string;
+  otcDeskPot: string;
   deskCollection: string;
+  hubMint: string;
+  otcMint: string;
   tierWeightsBp: number[];
   stepFeeLamports: number;
   epochDurationSecs: number;
@@ -85,9 +90,14 @@ export function toConfigView(
 ): ConfigView {
   return {
     authority: c.authority.toBase58(),
+    pot: c.pot.toBase58(),
     opsWallet: c.opsWallet.toBase58(),
     treasury: c.treasury.toBase58(),
+    otcProgram: c.otcProgram.toBase58(),
+    otcDeskPot: c.otcDeskPot.toBase58(),
     deskCollection: c.deskCollection.toBase58(),
+    hubMint: c.hubMint.toBase58(),
+    otcMint: c.otcMint.toBase58(),
     tierWeightsBp: [...c.tierWeightsBp],
     stepFeeLamports: n(c.stepFeeLamports),
     epochDurationSecs: n(c.epochDurationSecs),

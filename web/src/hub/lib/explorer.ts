@@ -11,3 +11,9 @@ export const explorerAddress = (address: string, cluster: HubCluster) =>
 
 export const explorerTx = (sig: string, cluster: HubCluster) =>
   `https://explorer.solana.com/tx/${sig}${suffix(cluster)}`;
+
+const solscanSuffix = (cluster: HubCluster) =>
+  cluster === "mainnet-beta" ? "" : cluster === "devnet" ? "?cluster=devnet" : "?cluster=custom";
+
+export const solscanAddress = (address: string, cluster: HubCluster) =>
+  `https://solscan.io/account/${address}${solscanSuffix(cluster)}`;
