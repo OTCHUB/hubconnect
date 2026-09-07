@@ -83,6 +83,24 @@ export function pdaNotes(idl: { instructions: { accounts: IdlAccount[] }[] }): s
   return [...seen].map(([n, s]) => `- \`${n}\` — seeds [${s}]`);
 }
 
+type IdlArgType = string | { defined?: { name: string } };
+/**
+ * Instructions with an enum-typed argument. Orquestra's builder omits the borsh variant index for
+ * enums (unit variant → 0 bytes, tuple variant → payload only; observed 2026-09), so these cannot
+ * be encoded through the REST API until fixed upstream — `orquestra-send.ts` flags them too.
+ */
+export function enumArgInstructions(idl: {
+  instructions: { name: string; args: { name: string; type: IdlArgType }[] }[];
+  types?: { name: string; type: { kind: string } }[];
+}): string[] {
+  const enums = new Set((idl.types ?? []).filter((t) => t.type.kind === "enum").map((t) => t.name));
+  return idl.instructions
+    .filter((ix) =>
+      ix.args.some((a) => typeof a.type === "object" && enums.has(a.type.defined?.name ?? "")),
+    )
+    .map((ix) => `\`${ix.name}\``);
+}
+
 function gitCommit(): string {
   try {
     return execFileSync("git", ["rev-parse", "HEAD"], { cwd: ROOT }).toString().trim();
@@ -99,6 +117,7 @@ export function verificationMd(o: {
   onchain: string | null;
   sec: Record<string, string>;
   pdas: string[];
+  enumIxs: string[];
 }): string {
   const status =
     o.local && o.onchain
@@ -127,6 +146,15 @@ export function verificationMd(o: {
     "## Notes",
     "- `config` must be initialised (`initialize_config`) before any other instruction.",
     "- `authority`-gated instructions (`update_config`, `pause`, `set_*`) require Config.authority to sign.",
+    "",
+    "## Building through the Orquestra API",
+    "- The builder does not derive PDAs: pass every account, including the PDAs above (`system_program` is fixed in the IDL).",
+    ...(o.enumIxs.length
+      ? [
+          `- Enum arguments are currently mis-encoded by the builder (borsh variant index omitted) — ${o.enumIxs.join(", ")} must be built with the Anchor client until Orquestra fixes this.`,
+        ]
+      : []),
+    `- Parity check (Orquestra bytes vs Anchor client): \`npm run orquestra:send -- --ix <name>\` in ${REPO}.`,
   ].join("\n");
 }
 
@@ -150,6 +178,7 @@ async function main() {
     onchain: await onchainHash(conn, programId),
     sec: so ? securityTxt(so) : {},
     pdas: pdaNotes(idl),
+    enumIxs: enumArgInstructions(idl),
   });
   const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8"));
   console.log(

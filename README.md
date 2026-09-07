@@ -102,6 +102,15 @@ commit link, embedded security.txt and PDA seeds are published to the Orquestra 
 devnet project may be kept unlisted with `ORQUESTRA_PRIVATE=1`; the mainnet sync is always public
 so the indexed IDL can be checked against the verified hash by anyone.
 
+`npm run orquestra:send -- --ix <name> [--accounts '{…}'] [--args '{…}'] [--send]` builds an
+instruction through Orquestra's REST API (`POST /api/{projectId}/instructions/{name}/build`),
+encodes the same call with the Anchor client and diffs data + account metas before simulating; the
+key never leaves the machine. PDAs and fixed addresses are derived locally from the IDL because
+the Orquestra builder does not derive them. Known upstream gap (2026-09): Orquestra omits the borsh
+variant index for enum arguments, so `update_config`, `build_lp` and `register_treasury_inflow`
+report `PARITY FAIL` and must be sent with the Anchor client; the other 19 instructions encode
+byte-for-byte. The IDL sync publishes these caveats in the project notes.
+
 ## Devnet (§B5.1)
 
 Dedicated deployer keypair `~/.config/solana/hubconnect-devnet.json` — never reused on mainnet.
