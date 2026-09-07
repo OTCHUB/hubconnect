@@ -6,7 +6,9 @@
 //    collection mirroring mainnet D7sLW9uKZG3G7bNbWfMHvKSgVhU9nXdv7huTfepF5Jrh (name "OTC Desks",
 //    same Arweave URI, Royalties 5% → desk pot) and points Config.desk_collection at it.
 // 2. Mints `count` desks ("OTC Desk #n", per-desk Arweave JSON) to the payer wallet. Tier is
-//    program state, not metadata: the Attributes plugin only labels the intended tier.
+//    program state, not metadata: the Attributes plugin only labels the intended tier. Each mint
+//    tx also initializes the owner's $HUB ATA when missing (idempotent), the way a mainnet desk
+//    buyer needs one before their first burn / $HUB leg.
 // 3. For each desk with tier target > 0: activate_tier + upgrade_tier(2..target) batched in one
 //    transaction, 0.5 SOL per step (90% pot / 10% ops). --recycle finalizes the epoch and claims
 //    yield on owned tiers whenever the payer runs short, so a 10-desk run fits a small faucet budget.
@@ -29,14 +31,17 @@ import {
   tierPda,
 } from "../sdk/src";
 import {
+  ata,
   claimAllOwned,
   devnetCtx,
   explorer,
+  hubAtaIx,
   openEpoch,
   sendIxs,
   setConfigPubkey,
   settleEpoch,
   sol,
+  withIxs,
   type Ctx,
 } from "./lib/devnet";
 
@@ -76,13 +81,22 @@ async function ensureCollection(ctx: Ctx, potWallet: PublicKey): Promise<PublicK
   return pk;
 }
 
-async function mintDesk(ctx: Ctx, collection: PublicKey, n: number, tierTarget: number) {
+/** Mint one desk to `owner`; the same tx creates the owner's $HUB ATA if it does not exist yet. */
+async function mintDesk(
+  ctx: Ctx,
+  collection: PublicKey,
+  hubMint: PublicKey,
+  n: number,
+  tierTarget: number,
+  owner = ctx.payer.publicKey,
+) {
   const asset = generateSigner(ctx.umi);
   const label = tierTarget ? `T${tierTarget} ${TIER_NAMES[tierTarget - 1]}` : "none";
-  await create(ctx.umi, {
+  const ataIx = await hubAtaIx(ctx, owner, hubMint);
+  const builder = create(ctx.umi, {
     asset,
     collection: { publicKey: umiPk(collection.toBase58()) } as never,
-    owner: umiPk(ctx.payer.publicKey.toBase58()),
+    owner: umiPk(owner.toBase58()),
     name: `OTC Desk #${n}`,
     uri: OTC_DESKS.assetUri(n),
     plugins: [
@@ -94,8 +108,12 @@ async function mintDesk(ctx: Ctx, collection: PublicKey, n: number, tierTarget: 
         ],
       },
     ],
-  }).sendAndConfirm(ctx.umi);
-  return toWeb3JsPublicKey(asset.publicKey);
+  });
+  await withIxs(builder, [ataIx]).sendAndConfirm(ctx.umi);
+  if (!(await ctx.connection.getAccountInfo(ata(owner, hubMint)))) {
+    throw new Error(`$HUB ATA for ${owner.toBase58()} missing after mint tx`);
+  }
+  return { asset: toWeb3JsPublicKey(asset.publicKey), ataCreated: ataIx !== null };
 }
 
 /** activate_tier + upgrade_tier(2..target) in ONE transaction: `target` steps × 0.5 SOL. */
@@ -176,10 +194,13 @@ async function main() {
   // Mint first (cheap: rent only), then activate so a recycle pause never leaves a desk half-set.
   const minted: PublicKey[] = [];
   for (let i = 0; i < count; i++) {
-    const asset = await mintDesk(ctx, collection, start + i, tiers[i]);
+    const { asset, ataCreated } = await mintDesk(ctx, collection, cfg.hubMint, start + i, tiers[i]);
     minted.push(asset);
-    console.log(`desk #${start + i} ${asset.toBase58()} → target T${tiers[i]}`);
+    console.log(
+      `desk #${start + i} ${asset.toBase58()} → target T${tiers[i]}${ataCreated ? " · owner $HUB ATA created in mint tx" : ""}`,
+    );
   }
+  console.log(`owner $HUB ATA ${ata(ctx.payer.publicKey, cfg.hubMint).toBase58()} · OK`);
   for (let i = 0; i < count; i++) {
     if (tiers[i] === 0) continue;
     await ensureFunds(ctx, netStepCost(tiers[i], opsIsPayer), recycle);

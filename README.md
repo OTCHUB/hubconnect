@@ -77,9 +77,13 @@ npm run devnet:desks -- --count 10 --tiers 1,1,1,1,2,2,2,3,3,4 --recycle
                                   # batch activate/upgrade in one tx per desk; --recycle finalizes the
                                   # epoch + claims owned yield whenever the payer runs short (10 desks
                                   # ≈ 1 SOL net instead of 9); asserts Σw and pot ≥ liability
-npm run devnet:cycle              # sweep mock (seller → treasury, atomic) → consign_desk into the vault
-                                  # PDA → inflow B + E → finalize (10% burn slice) → claim every tier
-                                  # (exact ⌊dist×w/Σw⌋) → burn $HUB from the keeper ATA → record_burn
+npm run devnet:cycle              # sweep mock (seller → treasury, atomic; creates the buyer's $HUB ATA
+                                  # if missing) → owner-sent desk consigned into the vault PDA → desk-pot
+                                  # rounds (--desk-round, default 0.144 SOL/desk = §A5 mainnet take) booked
+                                  # as source B per treasury-owned desk + source E per vault desk →
+                                  # finalize (⌊inflow×burn_bp⌋) → claim every tier in program order
+                                  # (⌊dist×w/Σw⌋, last claimer absorbs the remainder) → burn → record_burn
+npm run devnet:cycle -- --quick   # streamlined: inflow → finalize → claim → burn on existing desks
 npm run authority -- status       # program upgrade authority vs $HUB mint/freeze authority
 npm run authority -- revoke-mint --yes   # irreversible: mint + freeze authority → None
 ```

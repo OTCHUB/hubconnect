@@ -10,10 +10,17 @@ import {
   Transaction,
   TransactionInstruction,
 } from "@solana/web3.js";
-import { devnetCtx, explorer, setConfigPubkey, type Ctx } from "./lib/devnet";
+import {
+  TOKEN_PROGRAM_ID,
+  ata,
+  createAtaIdempotent,
+  devnetCtx,
+  explorer,
+  setConfigPubkey,
+  type Ctx,
+} from "./lib/devnet";
 
-export const TOKEN_PROGRAM_ID = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
-export const ATA_PROGRAM_ID = new PublicKey("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
+export { ATA_PROGRAM_ID, TOKEN_PROGRAM_ID, ata, createAtaIdempotent } from "./lib/devnet";
 const MINT_SIZE = 82;
 
 const u64le = (n: bigint) => {
@@ -22,34 +29,12 @@ const u64le = (n: bigint) => {
   return b;
 };
 
-export const ata = (owner: PublicKey, mint: PublicKey) =>
-  PublicKey.findProgramAddressSync(
-    [owner.toBuffer(), TOKEN_PROGRAM_ID.toBuffer(), mint.toBuffer()],
-    ATA_PROGRAM_ID,
-  )[0];
-
 /** spl-token `InitializeMint2` (ix 20): decimals · mint authority · no freeze authority. */
 function initializeMint2(mint: PublicKey, decimals: number, authority: PublicKey) {
   return new TransactionInstruction({
     programId: TOKEN_PROGRAM_ID,
     keys: [{ pubkey: mint, isSigner: false, isWritable: true }],
     data: Buffer.concat([Buffer.from([20, decimals]), authority.toBuffer(), Buffer.from([0])]),
-  });
-}
-
-/** associated-token `CreateIdempotent` (ix 1). */
-function createAtaIdempotent(payer: PublicKey, owner: PublicKey, mint: PublicKey) {
-  return new TransactionInstruction({
-    programId: ATA_PROGRAM_ID,
-    keys: [
-      { pubkey: payer, isSigner: true, isWritable: true },
-      { pubkey: ata(owner, mint), isSigner: false, isWritable: true },
-      { pubkey: owner, isSigner: false, isWritable: false },
-      { pubkey: mint, isSigner: false, isWritable: false },
-      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-      { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
-    ],
-    data: Buffer.from([1]),
   });
 }
 

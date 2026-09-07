@@ -7,14 +7,15 @@ import {
   Keypair,
   LAMPORTS_PER_SOL,
   PublicKey,
+  SystemProgram,
   Transaction,
   TransactionInstruction,
 } from "@solana/web3.js";
 import fs from "node:fs";
 import os from "node:os";
 import { createUmi } from "@metaplex-foundation/umi-bundle-defaults";
-import { keypairIdentity, type Umi } from "@metaplex-foundation/umi";
-import { fromWeb3JsKeypair } from "@metaplex-foundation/umi-web3js-adapters";
+import { keypairIdentity, type TransactionBuilder, type Umi } from "@metaplex-foundation/umi";
+import { fromWeb3JsInstruction, fromWeb3JsKeypair } from "@metaplex-foundation/umi-web3js-adapters";
 import { mplCore } from "@metaplex-foundation/mpl-core";
 import {
   HUB_IDL,
@@ -160,10 +161,66 @@ export const setConfigPubkey = (ctx: Ctx, field: PubkeyField, value: PublicKey) 
 
 export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+export const TOKEN_PROGRAM_ID = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+export const ATA_PROGRAM_ID = new PublicKey("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
+
+export const ata = (owner: PublicKey, mint: PublicKey) =>
+  PublicKey.findProgramAddressSync(
+    [owner.toBuffer(), TOKEN_PROGRAM_ID.toBuffer(), mint.toBuffer()],
+    ATA_PROGRAM_ID,
+  )[0];
+
+/** associated-token `CreateIdempotent` (ix 1). */
+export function createAtaIdempotent(payer: PublicKey, owner: PublicKey, mint: PublicKey) {
+  return new TransactionInstruction({
+    programId: ATA_PROGRAM_ID,
+    keys: [
+      { pubkey: payer, isSigner: true, isWritable: true },
+      { pubkey: ata(owner, mint), isSigner: false, isWritable: true },
+      { pubkey: owner, isSigner: false, isWritable: false },
+      { pubkey: mint, isSigner: false, isWritable: false },
+      { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+      { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+    ],
+    data: Buffer.from([1]),
+  });
+}
+
 /** Send several instructions in one transaction signed by the payer (+ extra signers). */
 export async function sendIxs(ctx: Ctx, ixs: TransactionInstruction[], signers: Keypair[] = []) {
   const tx = new Transaction().add(...ixs);
   return ctx.provider.sendAndConfirm(tx, [ctx.payer, ...signers]);
+}
+
+/**
+ * Desk owners claim yield in SOL but burn/hold $HUB, so every new desk owner needs a $HUB
+ * ATA. Returns a `CreateIdempotent` instruction (payer funds rent) when `owner` has none,
+ * or null when it already exists — callers append it to the mint / sweep transaction.
+ */
+export async function hubAtaIx(ctx: Ctx, owner: PublicKey, hubMint?: PublicKey) {
+  const mint = hubMint ?? (await ctx.program.account.config.fetch(ctx.config)).hubMint;
+  if (mint.equals(PublicKey.default)) throw new Error("Config.hub_mint unset — run devnet:mint");
+  const key = ata(owner, mint);
+  const info = await ctx.connection.getAccountInfo(key);
+  if (info) return null;
+  return createAtaIdempotent(ctx.payer.publicKey, owner, mint);
+}
+
+/** Append web3 instructions (e.g. the ATA init) to a umi builder so they land in the same tx. */
+export function withIxs(builder: TransactionBuilder, ixs: (TransactionInstruction | null)[]) {
+  return ixs
+    .filter((ix): ix is TransactionInstruction => ix !== null)
+    .reduce(
+      (b, ix) =>
+        b.add({ instruction: fromWeb3JsInstruction(ix), signers: [], bytesCreatedOnChain: 165 }),
+      builder,
+    );
+}
+
+/** Raw u64 amount of an spl-token account, or null when the account does not exist. */
+export async function tokenAmount(ctx: Ctx, tokenAccount: PublicKey) {
+  const info = await ctx.connection.getAccountInfo(tokenAccount);
+  return info ? info.data.readBigUInt64LE(64) : null;
 }
 
 export async function chainNow(ctx: Ctx) {
