@@ -9,19 +9,8 @@
   "instructions": [
     {
       "name": "activate_tier",
-      "docs": [
-        "§B3 #2"
-      ],
-      "discriminator": [
-        2,
-        202,
-        143,
-        147,
-        26,
-        29,
-        231,
-        192
-      ],
+      "docs": ["§B3 #2"],
+      "discriminator": [2, 202, 143, 147, 26, 29, 231, 192],
       "accounts": [
         {
           "name": "payer",
@@ -38,14 +27,7 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  99,
-                  111,
-                  110,
-                  102,
-                  105,
-                  103
-                ]
+                "value": [99, 111, 110, 102, 105, 103]
               }
             ]
           }
@@ -57,13 +39,7 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  101,
-                  112,
-                  111,
-                  99,
-                  104
-                ]
+                "value": [101, 112, 111, 99, 104]
               },
               {
                 "kind": "account",
@@ -80,11 +56,7 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  112,
-                  111,
-                  116
-                ]
+                "value": [112, 111, 116]
               }
             ]
           }
@@ -100,12 +72,7 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  116,
-                  105,
-                  101,
-                  114
-                ]
+                "value": [116, 105, 101, 114]
               },
               {
                 "kind": "account",
@@ -123,26 +90,13 @@
     },
     {
       "name": "build_lp",
-      "docs": [
-        "§B3 #13"
-      ],
-      "discriminator": [
-        55,
-        70,
-        38,
-        199,
-        160,
-        184,
-        85,
-        251
-      ],
+      "docs": ["§B3 #13"],
+      "discriminator": [55, 70, 38, 199, 160, 184, 85, 251],
       "accounts": [
         {
           "name": "treasury",
           "signer": true,
-          "relations": [
-            "config"
-          ]
+          "relations": ["config"]
         },
         {
           "name": "config",
@@ -150,14 +104,7 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  99,
-                  111,
-                  110,
-                  102,
-                  105,
-                  103
-                ]
+                "value": [99, 111, 110, 102, 105, 103]
               }
             ]
           }
@@ -169,16 +116,7 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  116,
-                  114,
-                  101,
-                  97,
-                  115,
-                  117,
-                  114,
-                  121
-                ]
+                "value": [116, 114, 101, 97, 115, 117, 114, 121]
               }
             ]
           }
@@ -189,13 +127,7 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  118,
-                  97,
-                  117,
-                  108,
-                  116
-                ]
+                "value": [118, 97, 117, 108, 116]
               }
             ]
           }
@@ -222,27 +154,14 @@
     },
     {
       "name": "claim_accrual",
-      "docs": [
-        "Pays a wallet-level StakerAccrual (consignor share credits)."
-      ],
-      "discriminator": [
-        179,
-        84,
-        221,
-        93,
-        63,
-        114,
-        51,
-        191
-      ],
+      "docs": ["Pays a wallet-level StakerAccrual (consignor share credits)."],
+      "discriminator": [179, 84, 221, 93, 63, 114, 51, 191],
       "accounts": [
         {
           "name": "wallet",
           "writable": true,
           "signer": true,
-          "relations": [
-            "accrual"
-          ]
+          "relations": ["accrual"]
         },
         {
           "name": "config",
@@ -251,14 +170,7 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  99,
-                  111,
-                  110,
-                  102,
-                  105,
-                  103
-                ]
+                "value": [99, 111, 110, 102, 105, 103]
               }
             ]
           }
@@ -270,15 +182,7 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  97,
-                  99,
-                  99,
-                  114,
-                  117,
-                  97,
-                  108
-                ]
+                "value": [97, 99, 99, 114, 117, 97, 108]
               },
               {
                 "kind": "account",
@@ -298,11 +202,7 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  112,
-                  111,
-                  116
-                ]
+                "value": [112, 111, 116]
               }
             ]
           }
@@ -321,19 +221,8 @@
     },
     {
       "name": "claim_yield",
-      "docs": [
-        "§B3 #5 (lazy revocation → #8 void_tier)"
-      ],
-      "discriminator": [
-        49,
-        74,
-        111,
-        7,
-        186,
-        22,
-        61,
-        165
-      ],
+      "docs": ["§B3 #5 (lazy revocation → #8 void_tier)"],
+      "discriminator": [49, 74, 111, 7, 186, 22, 61, 165],
       "accounts": [
         {
           "name": "claimer",
@@ -350,14 +239,7 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  99,
-                  111,
-                  110,
-                  102,
-                  105,
-                  103
-                ]
+                "value": [99, 111, 110, 102, 105, 103]
               }
             ]
           }
@@ -369,12 +251,7 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  116,
-                  105,
-                  101,
-                  114
-                ]
+                "value": [116, 105, 101, 114]
               },
               {
                 "kind": "account",
@@ -390,13 +267,7 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  101,
-                  112,
-                  111,
-                  99,
-                  104
-                ]
+                "value": [101, 112, 111, 99, 104]
               },
               {
                 "kind": "arg",
@@ -412,11 +283,7 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  112,
-                  111,
-                  116
-                ]
+                "value": [112, 111, 116]
               }
             ]
           }
@@ -435,19 +302,8 @@
     },
     {
       "name": "consign_desk",
-      "docs": [
-        "§B3 #11"
-      ],
-      "discriminator": [
-        166,
-        87,
-        176,
-        166,
-        3,
-        58,
-        174,
-        123
-      ],
+      "docs": ["§B3 #11"],
+      "discriminator": [166, 87, 176, 166, 3, 58, 174, 123],
       "accounts": [
         {
           "name": "owner",
@@ -467,14 +323,7 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  99,
-                  111,
-                  110,
-                  102,
-                  105,
-                  103
-                ]
+                "value": [99, 111, 110, 102, 105, 103]
               }
             ]
           }
@@ -485,13 +334,7 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  118,
-                  97,
-                  117,
-                  108,
-                  116
-                ]
+                "value": [118, 97, 117, 108, 116]
               }
             ]
           }
@@ -503,16 +346,7 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  116,
-                  114,
-                  101,
-                  97,
-                  115,
-                  117,
-                  114,
-                  121
-                ]
+                "value": [116, 114, 101, 97, 115, 117, 114, 121]
               }
             ]
           }
@@ -524,15 +358,7 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  99,
-                  111,
-                  110,
-                  115,
-                  105,
-                  103,
-                  110
-                ]
+                "value": [99, 111, 110, 115, 105, 103, 110]
               },
               {
                 "kind": "account",
@@ -553,19 +379,8 @@
     },
     {
       "name": "finalize_epoch",
-      "docs": [
-        "§B3 #4"
-      ],
-      "discriminator": [
-        159,
-        93,
-        117,
-        217,
-        63,
-        44,
-        249,
-        76
-      ],
+      "docs": ["§B3 #4"],
+      "discriminator": [159, 93, 117, 217, 63, 44, 249, 76],
       "accounts": [
         {
           "name": "keeper",
@@ -582,14 +397,7 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  99,
-                  111,
-                  110,
-                  102,
-                  105,
-                  103
-                ]
+                "value": [99, 111, 110, 102, 105, 103]
               }
             ]
           }
@@ -601,13 +409,7 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  101,
-                  112,
-                  111,
-                  99,
-                  104
-                ]
+                "value": [101, 112, 111, 99, 104]
               },
               {
                 "kind": "arg",
@@ -627,11 +429,7 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  112,
-                  111,
-                  116
-                ]
+                "value": [112, 111, 116]
               }
             ]
           }
@@ -643,12 +441,7 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  98,
-                  117,
-                  114,
-                  110
-                ]
+                "value": [98, 117, 114, 110]
               }
             ]
           }
@@ -667,19 +460,8 @@
     },
     {
       "name": "initialize_config",
-      "docs": [
-        "§B3 #1"
-      ],
-      "discriminator": [
-        208,
-        127,
-        21,
-        1,
-        194,
-        190,
-        196,
-        70
-      ],
+      "docs": ["§B3 #1"],
+      "discriminator": [208, 127, 21, 1, 194, 190, 196, 70],
       "accounts": [
         {
           "name": "payer",
@@ -693,14 +475,7 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  99,
-                  111,
-                  110,
-                  102,
-                  105,
-                  103
-                ]
+                "value": [99, 111, 110, 102, 105, 103]
               }
             ]
           }
@@ -712,11 +487,7 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  112,
-                  111,
-                  116
-                ]
+                "value": [112, 111, 116]
               }
             ]
           }
@@ -728,12 +499,7 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  98,
-                  117,
-                  114,
-                  110
-                ]
+                "value": [98, 117, 114, 110]
               }
             ]
           }
@@ -745,16 +511,7 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  116,
-                  114,
-                  101,
-                  97,
-                  115,
-                  117,
-                  114,
-                  121
-                ]
+                "value": [116, 114, 101, 97, 115, 117, 114, 121]
               }
             ]
           }
@@ -765,47 +522,24 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  118,
-                  97,
-                  117,
-                  108,
-                  116
-                ]
+                "value": [118, 97, 117, 108, 116]
               }
             ]
           }
         },
         {
           "name": "epoch0",
-          "docs": [
-            "Genesis epoch — the open epoch must always exist (§B3 #4 roll-forward chain)."
-          ],
+          "docs": ["Genesis epoch — the open epoch must always exist (§B3 #4 roll-forward chain)."],
           "writable": true,
           "pda": {
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  101,
-                  112,
-                  111,
-                  99,
-                  104
-                ]
+                "value": [101, 112, 111, 99, 104]
               },
               {
                 "kind": "const",
-                "value": [
-                  0,
-                  0,
-                  0,
-                  0,
-                  0,
-                  0,
-                  0,
-                  0
-                ]
+                "value": [0, 0, 0, 0, 0, 0, 0, 0]
               }
             ]
           }
@@ -828,26 +562,13 @@
     },
     {
       "name": "pause",
-      "docs": [
-        "§B3 #10"
-      ],
-      "discriminator": [
-        211,
-        22,
-        221,
-        251,
-        74,
-        121,
-        193,
-        47
-      ],
+      "docs": ["§B3 #10"],
+      "discriminator": [211, 22, 221, 251, 74, 121, 193, 47],
       "accounts": [
         {
           "name": "authority",
           "signer": true,
-          "relations": [
-            "config"
-          ]
+          "relations": ["config"]
         },
         {
           "name": "config",
@@ -856,14 +577,7 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  99,
-                  111,
-                  110,
-                  102,
-                  105,
-                  103
-                ]
+                "value": [99, 111, 110, 102, 105, 103]
               }
             ]
           }
@@ -873,19 +587,8 @@
     },
     {
       "name": "record_burn",
-      "docs": [
-        "§B3 #7"
-      ],
-      "discriminator": [
-        254,
-        128,
-        98,
-        33,
-        0,
-        74,
-        165,
-        252
-      ],
+      "docs": ["§B3 #7"],
+      "discriminator": [254, 128, 98, 33, 0, 74, 165, 252],
       "accounts": [
         {
           "name": "keeper",
@@ -902,14 +605,7 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  99,
-                  111,
-                  110,
-                  102,
-                  105,
-                  103
-                ]
+                "value": [99, 111, 110, 102, 105, 103]
               }
             ]
           }
@@ -921,12 +617,7 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  98,
-                  117,
-                  114,
-                  110
-                ]
+                "value": [98, 117, 114, 110]
               }
             ]
           }
@@ -938,11 +629,7 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  112,
-                  111,
-                  116
-                ]
+                "value": [112, 111, 116]
               }
             ]
           }
@@ -964,37 +651,21 @@
         {
           "name": "burn_tx",
           "type": {
-            "array": [
-              "u8",
-              64
-            ]
+            "array": ["u8", 64]
           }
         }
       ]
     },
     {
       "name": "register_consigned_inflow",
-      "docs": [
-        "§B3 #6, source E — consignor-share split (§A6.1)."
-      ],
-      "discriminator": [
-        157,
-        175,
-        147,
-        30,
-        57,
-        195,
-        251,
-        106
-      ],
+      "docs": ["§B3 #6, source E — consignor-share split (§A6.1)."],
+      "discriminator": [157, 175, 147, 30, 57, 195, 251, 106],
       "accounts": [
         {
           "name": "treasury",
           "writable": true,
           "signer": true,
-          "relations": [
-            "config"
-          ]
+          "relations": ["config"]
         },
         {
           "name": "config",
@@ -1003,14 +674,7 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  99,
-                  111,
-                  110,
-                  102,
-                  105,
-                  103
-                ]
+                "value": [99, 111, 110, 102, 105, 103]
               }
             ]
           }
@@ -1022,13 +686,7 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  101,
-                  112,
-                  111,
-                  99,
-                  104
-                ]
+                "value": [101, 112, 111, 99, 104]
               },
               {
                 "kind": "account",
@@ -1045,11 +703,7 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  112,
-                  111,
-                  116
-                ]
+                "value": [112, 111, 116]
               }
             ]
           }
@@ -1060,15 +714,7 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  99,
-                  111,
-                  110,
-                  115,
-                  105,
-                  103,
-                  110
-                ]
+                "value": [99, 111, 110, 115, 105, 103, 110]
               },
               {
                 "kind": "account",
@@ -1085,15 +731,7 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  97,
-                  99,
-                  99,
-                  114,
-                  117,
-                  97,
-                  108
-                ]
+                "value": [97, 99, 99, 114, 117, 97, 108]
               },
               {
                 "kind": "account",
@@ -1122,27 +760,14 @@
     },
     {
       "name": "register_treasury_inflow",
-      "docs": [
-        "§B3 #6"
-      ],
-      "discriminator": [
-        47,
-        132,
-        148,
-        203,
-        46,
-        53,
-        223,
-        90
-      ],
+      "docs": ["§B3 #6"],
+      "discriminator": [47, 132, 148, 203, 46, 53, 223, 90],
       "accounts": [
         {
           "name": "treasury",
           "writable": true,
           "signer": true,
-          "relations": [
-            "config"
-          ]
+          "relations": ["config"]
         },
         {
           "name": "config",
@@ -1151,14 +776,7 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  99,
-                  111,
-                  110,
-                  102,
-                  105,
-                  103
-                ]
+                "value": [99, 111, 110, 102, 105, 103]
               }
             ]
           }
@@ -1170,13 +788,7 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  101,
-                  112,
-                  111,
-                  99,
-                  104
-                ]
+                "value": [101, 112, 111, 99, 104]
               },
               {
                 "kind": "account",
@@ -1193,11 +805,7 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  112,
-                  111,
-                  116
-                ]
+                "value": [112, 111, 116]
               }
             ]
           }
@@ -1209,16 +817,7 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  116,
-                  114,
-                  101,
-                  97,
-                  115,
-                  117,
-                  114,
-                  121
-                ]
+                "value": [116, 114, 101, 97, 115, 117, 114, 121]
               }
             ]
           }
@@ -1245,27 +844,14 @@
     },
     {
       "name": "unconsign_desk",
-      "docs": [
-        "§B3 #12"
-      ],
-      "discriminator": [
-        133,
-        87,
-        235,
-        90,
-        130,
-        163,
-        82,
-        160
-      ],
+      "docs": ["§B3 #12"],
+      "discriminator": [133, 87, 235, 90, 130, 163, 82, 160],
       "accounts": [
         {
           "name": "consignor",
           "writable": true,
           "signer": true,
-          "relations": [
-            "consigned_desk"
-          ]
+          "relations": ["consigned_desk"]
         },
         {
           "name": "desk_asset",
@@ -1280,34 +866,19 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  99,
-                  111,
-                  110,
-                  102,
-                  105,
-                  103
-                ]
+                "value": [99, 111, 110, 102, 105, 103]
               }
             ]
           }
         },
         {
           "name": "consign_epoch",
-          "docs": [
-            "The consignment epoch must be closed so no round is double-counted (§A6.1)."
-          ],
+          "docs": ["The consignment epoch must be closed so no round is double-counted (§A6.1)."],
           "pda": {
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  101,
-                  112,
-                  111,
-                  99,
-                  104
-                ]
+                "value": [101, 112, 111, 99, 104]
               },
               {
                 "kind": "account",
@@ -1323,13 +894,7 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  118,
-                  97,
-                  117,
-                  108,
-                  116
-                ]
+                "value": [118, 97, 117, 108, 116]
               }
             ]
           }
@@ -1341,16 +906,7 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  116,
-                  114,
-                  101,
-                  97,
-                  115,
-                  117,
-                  114,
-                  121
-                ]
+                "value": [116, 114, 101, 97, 115, 117, 114, 121]
               }
             ]
           }
@@ -1362,15 +918,7 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  99,
-                  111,
-                  110,
-                  115,
-                  105,
-                  103,
-                  110
-                ]
+                "value": [99, 111, 110, 115, 105, 103, 110]
               },
               {
                 "kind": "account",
@@ -1391,26 +939,13 @@
     },
     {
       "name": "unpause",
-      "docs": [
-        "§B3 #10"
-      ],
-      "discriminator": [
-        169,
-        144,
-        4,
-        38,
-        10,
-        141,
-        188,
-        255
-      ],
+      "docs": ["§B3 #10"],
+      "discriminator": [169, 144, 4, 38, 10, 141, 188, 255],
       "accounts": [
         {
           "name": "authority",
           "signer": true,
-          "relations": [
-            "config"
-          ]
+          "relations": ["config"]
         },
         {
           "name": "config",
@@ -1419,14 +954,7 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  99,
-                  111,
-                  110,
-                  102,
-                  105,
-                  103
-                ]
+                "value": [99, 111, 110, 102, 105, 103]
               }
             ]
           }
@@ -1436,26 +964,13 @@
     },
     {
       "name": "update_config",
-      "docs": [
-        "§B3 #9"
-      ],
-      "discriminator": [
-        29,
-        158,
-        252,
-        191,
-        10,
-        83,
-        219,
-        99
-      ],
+      "docs": ["§B3 #9"],
+      "discriminator": [29, 158, 252, 191, 10, 83, 219, 99],
       "accounts": [
         {
           "name": "authority",
           "signer": true,
-          "relations": [
-            "config"
-          ]
+          "relations": ["config"]
         },
         {
           "name": "config",
@@ -1464,14 +979,7 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  99,
-                  111,
-                  110,
-                  102,
-                  105,
-                  103
-                ]
+                "value": [99, 111, 110, 102, 105, 103]
               }
             ]
           }
@@ -1498,19 +1006,8 @@
     },
     {
       "name": "upgrade_tier",
-      "docs": [
-        "§B3 #3 — pays exactly `(target_tier - current) × step_fee`."
-      ],
-      "discriminator": [
-        122,
-        56,
-        170,
-        60,
-        252,
-        234,
-        190,
-        51
-      ],
+      "docs": ["§B3 #3 — pays exactly `(target_tier - current) × step_fee`."],
+      "discriminator": [122, 56, 170, 60, 252, 234, 190, 51],
       "accounts": [
         {
           "name": "payer",
@@ -1527,14 +1024,7 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  99,
-                  111,
-                  110,
-                  102,
-                  105,
-                  103
-                ]
+                "value": [99, 111, 110, 102, 105, 103]
               }
             ]
           }
@@ -1546,13 +1036,7 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  101,
-                  112,
-                  111,
-                  99,
-                  104
-                ]
+                "value": [101, 112, 111, 99, 104]
               },
               {
                 "kind": "account",
@@ -1569,11 +1053,7 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  112,
-                  111,
-                  116
-                ]
+                "value": [112, 111, 116]
               }
             ]
           }
@@ -1589,12 +1069,7 @@
             "seeds": [
               {
                 "kind": "const",
-                "value": [
-                  116,
-                  105,
-                  101,
-                  114
-                ]
+                "value": [116, 105, 101, 114]
               },
               {
                 "kind": "account",
@@ -1619,239 +1094,77 @@
   "accounts": [
     {
       "name": "BurnState",
-      "discriminator": [
-        21,
-        157,
-        214,
-        236,
-        176,
-        133,
-        70,
-        52
-      ]
+      "discriminator": [21, 157, 214, 236, 176, 133, 70, 52]
     },
     {
       "name": "Config",
-      "discriminator": [
-        155,
-        12,
-        170,
-        224,
-        30,
-        250,
-        204,
-        130
-      ]
+      "discriminator": [155, 12, 170, 224, 30, 250, 204, 130]
     },
     {
       "name": "ConsignedDesk",
-      "discriminator": [
-        246,
-        189,
-        11,
-        19,
-        219,
-        54,
-        90,
-        0
-      ]
+      "discriminator": [246, 189, 11, 19, 219, 54, 90, 0]
     },
     {
       "name": "DeskTier",
-      "discriminator": [
-        13,
-        102,
-        197,
-        1,
-        133,
-        89,
-        205,
-        199
-      ]
+      "discriminator": [13, 102, 197, 1, 133, 89, 205, 199]
     },
     {
       "name": "Epoch",
-      "discriminator": [
-        93,
-        83,
-        120,
-        89,
-        151,
-        138,
-        152,
-        108
-      ]
+      "discriminator": [93, 83, 120, 89, 151, 138, 152, 108]
     },
     {
       "name": "StakerAccrual",
-      "discriminator": [
-        213,
-        19,
-        206,
-        218,
-        211,
-        157,
-        148,
-        110
-      ]
+      "discriminator": [213, 19, 206, 218, 211, 157, 148, 110]
     },
     {
       "name": "TreasuryState",
-      "discriminator": [
-        240,
-        56,
-        226,
-        158,
-        138,
-        244,
-        79,
-        154
-      ]
+      "discriminator": [240, 56, 226, 158, 138, 244, 79, 154]
     }
   ],
   "events": [
     {
       "name": "AccrualClaimed",
-      "discriminator": [
-        86,
-        99,
-        51,
-        211,
-        226,
-        48,
-        235,
-        238
-      ]
+      "discriminator": [86, 99, 51, 211, 226, 48, 235, 238]
     },
     {
       "name": "BurnRecorded",
-      "discriminator": [
-        217,
-        168,
-        29,
-        198,
-        28,
-        67,
-        77,
-        142
-      ]
+      "discriminator": [217, 168, 29, 198, 28, 67, 77, 142]
     },
     {
       "name": "DeskConsigned",
-      "discriminator": [
-        169,
-        15,
-        200,
-        51,
-        212,
-        46,
-        86,
-        179
-      ]
+      "discriminator": [169, 15, 200, 51, 212, 46, 86, 179]
     },
     {
       "name": "DeskUnconsigned",
-      "discriminator": [
-        26,
-        252,
-        178,
-        11,
-        128,
-        237,
-        38,
-        46
-      ]
+      "discriminator": [26, 252, 178, 11, 128, 237, 38, 46]
     },
     {
       "name": "EpochFinalized",
-      "discriminator": [
-        109,
-        54,
-        231,
-        81,
-        101,
-        249,
-        145,
-        107
-      ]
+      "discriminator": [109, 54, 231, 81, 101, 249, 145, 107]
     },
     {
       "name": "InflowRegistered",
-      "discriminator": [
-        219,
-        9,
-        79,
-        67,
-        127,
-        91,
-        205,
-        111
-      ]
+      "discriminator": [219, 9, 79, 67, 127, 91, 205, 111]
     },
     {
       "name": "LpBuilt",
-      "discriminator": [
-        99,
-        165,
-        50,
-        24,
-        253,
-        107,
-        97,
-        177
-      ]
+      "discriminator": [99, 165, 50, 24, 253, 107, 97, 177]
     },
     {
       "name": "TierActivated",
-      "discriminator": [
-        197,
-        100,
-        54,
-        44,
-        40,
-        207,
-        221,
-        194
-      ]
+      "discriminator": [197, 100, 54, 44, 40, 207, 221, 194]
     },
     {
       "name": "TierUpgraded",
-      "discriminator": [
-        141,
-        12,
-        195,
-        74,
-        212,
-        102,
-        162,
-        123
-      ]
+      "discriminator": [141, 12, 195, 74, 212, 102, 162, 123]
     },
     {
       "name": "TierVoided",
-      "discriminator": [
-        8,
-        138,
-        53,
-        221,
-        230,
-        61,
-        5,
-        126
-      ]
+      "discriminator": [8, 138, 53, 221, 230, 61, 5, 126]
     },
     {
       "name": "YieldClaimed",
-      "discriminator": [
-        177,
-        201,
-        94,
-        68,
-        19,
-        200,
-        227,
-        27
-      ]
+      "discriminator": [177, 201, 94, 68, 19, 200, 227, 27]
     }
   ],
   "errors": [
@@ -2121,10 +1434,7 @@
           {
             "name": "last_burn_tx",
             "type": {
-              "array": [
-                "u8",
-                64
-              ]
+              "array": ["u8", 64]
             }
           },
           {
@@ -2157,9 +1467,7 @@
           },
           {
             "name": "otc_program",
-            "docs": [
-              "OTC-side references resolved at runtime (§A2), never hardcoded."
-            ],
+            "docs": ["OTC-side references resolved at runtime (§A2), never hardcoded."],
             "type": "pubkey"
           },
           {
@@ -2181,10 +1489,7 @@
           {
             "name": "tier_weights_bp",
             "type": {
-              "array": [
-                "u16",
-                4
-              ]
+              "array": ["u16", 4]
             }
           },
           {
@@ -2239,9 +1544,7 @@
           },
           {
             "name": "current_epoch",
-            "docs": [
-              "Index of the open (accruing) epoch; `Epoch[current_epoch]` always exists."
-            ],
+            "docs": ["Index of the open (accruing) epoch; `Epoch[current_epoch]` always exists."],
             "type": "u64"
           },
           {
@@ -2275,9 +1578,7 @@
     },
     {
       "name": "ConfigField",
-      "docs": [
-        "Fields `update_config` may touch (§B3 #9). Rate changes apply to future epochs."
-      ],
+      "docs": ["Fields `update_config` may touch (§B3 #9). Rate changes apply to future epochs."],
       "type": {
         "kind": "enum",
         "variants": [
@@ -2339,33 +1640,23 @@
         "variants": [
           {
             "name": "Pubkey",
-            "fields": [
-              "pubkey"
-            ]
+            "fields": ["pubkey"]
           },
           {
             "name": "U64",
-            "fields": [
-              "u64"
-            ]
+            "fields": ["u64"]
           },
           {
             "name": "U16",
-            "fields": [
-              "u16"
-            ]
+            "fields": ["u16"]
           },
           {
             "name": "Bool",
-            "fields": [
-              "bool"
-            ]
+            "fields": ["bool"]
           },
           {
             "name": "I64",
-            "fields": [
-              "i64"
-            ]
+            "fields": ["i64"]
           }
         ]
       }
@@ -2429,9 +1720,7 @@
           },
           {
             "name": "owner_at_activation",
-            "docs": [
-              "Owner at activation; re-verified lazily at claim/upgrade (§B3 #5)."
-            ],
+            "docs": ["Owner at activation; re-verified lazily at claim/upgrade (§B3 #5)."],
             "type": "pubkey"
           },
           {
@@ -2444,9 +1733,7 @@
           },
           {
             "name": "next_claim_epoch",
-            "docs": [
-              "Claims are sequential: the next epoch index this tier may claim."
-            ],
+            "docs": ["Claims are sequential: the next epoch index this tier may claim."],
             "type": "u64"
           },
           {
@@ -2503,9 +1790,7 @@
           },
           {
             "name": "distributed_lamports",
-            "docs": [
-              "90% allotment reserved for stakers at finalize."
-            ],
+            "docs": ["90% allotment reserved for stakers at finalize."],
             "type": "u64"
           },
           {
@@ -2518,16 +1803,12 @@
           },
           {
             "name": "rolled_forward_lamports",
-            "docs": [
-              "Allotment carried into the next epoch when Σw == 0 (no eligible stakers)."
-            ],
+            "docs": ["Allotment carried into the next epoch when Σw == 0 (no eligible stakers)."],
             "type": "u64"
           },
           {
             "name": "total_weight_bp",
-            "docs": [
-              "Σw of non-voided DeskTiers at finalize (bp-weighted)."
-            ],
+            "docs": ["Σw of non-voided DeskTiers at finalize (bp-weighted)."],
             "type": "u64"
           },
           {
@@ -2610,9 +1891,7 @@
     },
     {
       "name": "InflowSource",
-      "docs": [
-        "§A5 inflow sources. `E` (consigned desk yield) uses `register_consigned_inflow`."
-      ],
+      "docs": ["§A5 inflow sources. `E` (consigned desk yield) uses `register_consigned_inflow`."],
       "type": {
         "kind": "enum",
         "variants": [
@@ -2805,9 +2084,7 @@
     },
     {
       "name": "TierVoided",
-      "docs": [
-        "§B3 #8 — ownership changed since activation; no refund."
-      ],
+      "docs": ["§B3 #8 — ownership changed since activation; no refund."],
       "type": {
         "kind": "struct",
         "fields": [
@@ -2845,9 +2122,7 @@
           },
           {
             "name": "vault",
-            "docs": [
-              "Program-signed custody PDA (`[\"vault\"]`) that owns consigned desks."
-            ],
+            "docs": ["Program-signed custody PDA (`[\"vault\"]`) that owns consigned desks."],
             "type": "pubkey"
           },
           {
@@ -2892,9 +2167,7 @@
           },
           {
             "name": "lp_hub_sol_active",
-            "docs": [
-              "§A6.2 — one position per pair, HODL both legs."
-            ],
+            "docs": ["§A6.2 — one position per pair, HODL both legs."],
             "type": "bool"
           },
           {

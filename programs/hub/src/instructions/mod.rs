@@ -1,6 +1,6 @@
 pub mod admin;
-pub mod mpl_core;
 pub mod epochs;
+pub mod mpl_core;
 pub mod pot;
 pub mod tiers;
 pub mod treasury;

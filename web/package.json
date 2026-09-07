@@ -14,7 +14,7 @@
     "lint:fix": "prettier --write src *.ts *.json index.html"
   },
   "dependencies": {
-    "@coral-xyz/anchor": "0.31.1",
+    "@anchor-lang/core": "1.2.0",
     "@solana/web3.js": "1.98.4",
     "@tanstack/react-query": "^5.59.0",
     "buffer": "^6.0.3",

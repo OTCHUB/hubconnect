@@ -64,7 +64,7 @@ describe("M1 — initialize_config", () => {
           deskCollection: f.deskCollection,
           hubMint: Keypair.generate().publicKey,
           otcMint: Keypair.generate().publicKey,
-          epochDurationSecs: new (await import("@coral-xyz/anchor")).BN(0),
+          epochDurationSecs: new (await import("@anchor-lang/core")).BN(0),
         })
         .accountsPartial({ payer: h.payer.publicKey, ...f, epoch0 })
         .rpc(),

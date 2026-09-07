@@ -1,6 +1,6 @@
 [toolchain]
-anchor_version = "0.31.1"
-solana_version = "2.1.21"
+anchor_version = "1.2.0"
+solana_version = "4.2.2"
 
 [features]
 resolution = true
@@ -12,9 +12,6 @@ hub = "DPEioLagahMiVy4xfSzeKLWjWho8GZhbvK85BgTkY8qW"
 [programs.devnet]
 hub = "DPEioLagahMiVy4xfSzeKLWjWho8GZhbvK85BgTkY8qW"
 
-[registry]
-url = "https://api.apr.dev"
-
 [provider]
 cluster = "localnet"
 wallet = "~/.config/solana/hubconnect-devnet.json"
@@ -22,6 +19,9 @@ wallet = "~/.config/solana/hubconnect-devnet.json"
 [scripts]
 test = "npx ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"
 
+# Anchor 1.x defaults `anchor test` to surfpool; this suite runs on solana-test-validator so the
+# devnet clones below apply. Run `anchor test --validator legacy` (or set
+# ANCHOR_TEST_VALIDATOR=legacy).
 [test]
 startup_wait = 20000
 

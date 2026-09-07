@@ -7,15 +7,15 @@
   "license": "MIT",
   "scripts": {
     "build": "anchor build",
-    "test": "anchor test",
+    "test": "anchor test --validator legacy",
     "test:devnet": "HUB_CLUSTER=devnet ts-mocha -p ./tsconfig.json -t 300000 tests/**/*.ts",
     "lint": "prettier --check tests sdk keeper",
     "lint:fix": "prettier --write tests sdk keeper",
     "idl:copy": "node scripts/copy-idl.mjs"
   },
   "dependencies": {
-    "@coral-xyz/anchor": "^0.31.1",
-    "@solana/web3.js": "^1.95.3"
+    "@anchor-lang/core": "^1.2.0",
+    "@solana/web3.js": "^1.98.4"
   },
   "devDependencies": {
     "@metaplex-foundation/mpl-core": "^1.10.0",
@@ -24,12 +24,12 @@
     "@metaplex-foundation/umi-web3js-adapters": "^1.5.1",
     "@types/bn.js": "^5.1.5",
     "@types/chai": "^4.3.16",
-    "@types/mocha": "^10.0.7",
+    "@types/mocha": "^10.0.10",
     "chai": "^4.4.1",
     "dotenv": "^17.4.2",
-    "mocha": "^10.7.3",
-    "prettier": "^3.3.3",
-    "ts-mocha": "^10.0.0",
-    "typescript": "^5.5.4"
+    "mocha": "^11.8.0",
+    "prettier": "^3.9.6",
+    "ts-mocha": "^11.1.0",
+    "typescript": "^5.9.3"
   }
 }

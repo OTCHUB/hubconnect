@@ -3,7 +3,7 @@ name = "hub"
 version = "0.1.0"
 description = "$HUB protocol — stake-to-earn layer for OTC desk NFTs (community tooling)"
 edition = "2021"
-rust-version = "1.79"
+rust-version = "1.89"
 
 [lib]
 crate-type = ["cdylib", "lib"]
@@ -16,6 +16,12 @@ no-entrypoint = []
 no-idl = []
 no-log-ix-name = []
 idl-build = ["anchor-lang/idl-build"]
+anchor-debug = []
+custom-heap = []
+custom-panic = []
 
 [dependencies]
-anchor-lang = { version = "0.31.1", features = ["init-if-needed"] }
+anchor-lang = { version = "1.2.0", features = ["init-if-needed"] }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }

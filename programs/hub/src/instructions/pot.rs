@@ -37,7 +37,7 @@ pub fn transfer_from_signer<'info>(
     }
     system_program::transfer(
         CpiContext::new(
-            system_program.to_account_info(),
+            system_program.key(),
             Transfer {
                 from: from.clone(),
                 to: to.clone(),
@@ -61,7 +61,7 @@ pub fn pay_from_pot<'info>(
     let seeds: &[&[u8]] = &[SEED_POT, &[pot_bump]];
     system_program::transfer(
         CpiContext::new_with_signer(
-            system_program.to_account_info(),
+            system_program.key(),
             Transfer {
                 from: pot.clone(),
                 to: to.clone(),

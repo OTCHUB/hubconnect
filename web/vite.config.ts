@@ -12,10 +12,10 @@ export default defineConfig({
   resolve: {
     alias: { "@hub-sdk": sdkDir },
     // One copy each so PublicKey/BN instances are interchangeable across sdk + web.
-    dedupe: ["@solana/web3.js", "@coral-xyz/anchor", "bn.js", "buffer", "react", "react-dom"],
+    dedupe: ["@solana/web3.js", "@anchor-lang/core", "bn.js", "buffer", "react", "react-dom"],
   },
   optimizeDeps: {
-    include: ["@coral-xyz/anchor", "@solana/web3.js", "buffer", "bn.js"],
+    include: ["@anchor-lang/core", "@solana/web3.js", "buffer", "bn.js"],
     esbuildOptions: { target: "esnext" },
   },
   build: { target: "esnext" },

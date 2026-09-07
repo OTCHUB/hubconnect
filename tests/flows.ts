@@ -1,6 +1,6 @@
 // Instruction wrappers + invariant checks shared by the M2/M3 suites.
 import { expect } from "chai";
-import * as anchor from "@coral-xyz/anchor";
+import * as anchor from "@anchor-lang/core";
 import { Keypair, PublicKey, SystemProgram } from "@solana/web3.js";
 import { Harness, Fixture, MPL_CORE, waitForEpochEnd } from "./harness";
 import { epochPda, tierPda, consignPda, accrualPda } from "../sdk/src/pda";

@@ -1,8 +1,8 @@
 // Shared test harness. Runs against `anchor test` localnet by default; set
 // HUB_CLUSTER=devnet to target Helius devnet with the §B5.1 funder guard.
 import "dotenv/config";
-import * as anchor from "@coral-xyz/anchor";
-import { Program } from "@coral-xyz/anchor";
+import * as anchor from "@anchor-lang/core";
+import { Program } from "@anchor-lang/core";
 import {
   Connection,
   Keypair,

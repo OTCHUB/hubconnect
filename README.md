@@ -27,21 +27,21 @@ Liability is tracked on `Epoch` / `BurnState` / Σ `StakerAccrual`.
 
 | Tool | Version | Notes |
 |---|---|---|
-| Anchor | 0.31.1 | Spec says 0.30.x; 0.30.1's IDL build hardcodes `cargo +nightly` and breaks on every current nightly (`proc_macro::SourceFile` removed). 0.31 is the maintained line with the same program API. |
-| Agave (solana-cli) | 2.1.21 | platform-tools v1.43 (rustc 1.79) |
-| Host Rust | 1.79.0 | pinned in `rust-toolchain.toml` to match platform-tools; `Cargo.lock` is resolved with `CARGO_RESOLVER_INCOMPATIBLE_RUST_VERSIONS=fallback` and `blake3` pinned to 1.5.x |
-| Node | ≥ 22 | ts-mocha, keepers |
+| Anchor | 1.2.0 | `anchor-lang` 1.2.0 on the Solana 3.x crate split; TS client is `@anchor-lang/core` (renamed from `@coral-xyz/anchor` in 1.0). Spec says 0.30.x; the program API is unchanged apart from `CpiContext::new(program_id, ..)`. |
+| Agave (solana-cli) | 4.2.2 | platform-tools v1.57 (rustc 1.95); installed via `avm solana install` / `agave-install init 4.2.2` |
+| Host Rust | 1.98.1 | pinned in `rust-toolchain.toml`; Anchor 1.x MSRV is 1.89, so edition-2024 crates resolve without overrides |
+| Node | ≥ 22 | ts-mocha, keepers (`@anchor-lang/core` requires ≥ 20.18) |
 
 ```sh
 export PATH="$HOME/.cargo/bin:$HOME/.avm/bin:$HOME/.local/share/solana/install/active_release/bin:$PATH"
 npm install
 anchor build            # hub.so + target/idl/hub.json + target/types/hub.ts
-anchor test --skip-build
+anchor test --skip-build --validator legacy
 ```
 
-If you regenerate `Cargo.lock`, do it with
-`CARGO_RESOLVER_INCOMPATIBLE_RUST_VERSIONS=fallback cargo +stable generate-lockfile`
-then `cargo +stable update -p blake3 --precise 1.5.5`.
+Anchor 1.x runs `anchor test` on surfpool by default; this suite uses `solana-test-validator`
+(`--validator legacy` or `ANCHOR_TEST_VALIDATOR=legacy`) so the `[test.validator.clone]` entries
+in `Anchor.toml` pull Metaplex Core from devnet. `Cargo.lock` regenerates with plain `cargo update`.
 
 ## Devnet (§B5.1)
 

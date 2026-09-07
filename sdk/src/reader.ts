@@ -1,7 +1,7 @@
 // Read-only program state access for the web dashboard, keepers, and the otchub Part C panel.
 // No wallet required: decodes accounts via the IDL and returns plain JS numbers (lamports fit
 // safely in Number up to 9e15 ≈ 9M SOL).
-import { AnchorProvider, BorshAccountsCoder, Idl, Program } from "@coral-xyz/anchor";
+import { AnchorProvider, BorshAccountsCoder, Idl, Program } from "@anchor-lang/core";
 import { Connection, PublicKey } from "@solana/web3.js";
 import idl from "../idl/hub.json";
 import type { Hub } from "../idl/hub";

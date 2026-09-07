@@ -2,9 +2,6 @@
 //! Implements docs/hubconnect-spec.md v1.2 (§B2 accounts, §B3 instructions).
 //! Community tooling; not affiliated with OTC.
 
-// anchor-lang 0.31.1's `#[program]` expansion calls the deprecated `AccountInfo::realloc`.
-#![allow(deprecated)]
-
 use anchor_lang::prelude::*;
 
 pub mod constants;
