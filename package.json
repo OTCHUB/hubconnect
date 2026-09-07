@@ -1,0 +1,30 @@
+{
+  "name": "hubconnect",
+  "version": "0.1.0",
+  "private": true,
+  "type": "commonjs",
+  "description": "$HUB protocol — stake-to-earn layer for OTC desk NFTs (community tooling, not affiliated with OTC)",
+  "license": "MIT",
+  "scripts": {
+    "build": "anchor build",
+    "test": "anchor test",
+    "test:devnet": "HUB_CLUSTER=devnet ts-mocha -p ./tsconfig.json -t 300000 tests/**/*.ts",
+    "lint": "prettier --check tests sdk keeper",
+    "lint:fix": "prettier --write tests sdk keeper",
+    "idl:copy": "node scripts/copy-idl.mjs"
+  },
+  "dependencies": {
+    "@coral-xyz/anchor": "^0.31.1",
+    "@solana/web3.js": "^1.95.3"
+  },
+  "devDependencies": {
+    "@types/bn.js": "^5.1.5",
+    "@types/chai": "^4.3.16",
+    "@types/mocha": "^10.0.7",
+    "chai": "^4.4.1",
+    "mocha": "^10.7.3",
+    "prettier": "^3.3.3",
+    "ts-mocha": "^10.0.0",
+    "typescript": "^5.5.4"
+  }
+}

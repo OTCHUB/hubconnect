@@ -1,0 +1,146 @@
+//! §B3 #1 initialize_config, #9 update_config, #10 pause/unpause.
+
+use anchor_lang::prelude::*;
+
+use crate::constants::*;
+use crate::errors::HubError;
+use crate::state::*;
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone)]
+pub struct InitializeConfigArgs {
+    pub ops_wallet: Pubkey,
+    pub treasury: Pubkey,
+    pub otc_program: Pubkey,
+    pub otc_desk_pot: Pubkey,
+    pub desk_collection: Pubkey,
+    pub hub_mint: Pubkey,
+    pub otc_mint: Pubkey,
+}
+
+#[derive(Accounts)]
+pub struct InitializeConfig<'info> {
+    #[account(mut)]
+    pub payer: Signer<'info>,
+    #[account(init, payer = payer, space = 8 + Config::INIT_SPACE, seeds = [SEED_CONFIG], bump)]
+    pub config: Account<'info, Config>,
+    /// CHECK: system-owned lamport vault PDA; no data.
+    #[account(seeds = [SEED_POT], bump)]
+    pub pot: UncheckedAccount<'info>,
+    #[account(init, payer = payer, space = 8 + BurnState::INIT_SPACE, seeds = [SEED_BURN], bump)]
+    pub burn: Account<'info, BurnState>,
+    #[account(init, payer = payer, space = 8 + TreasuryState::INIT_SPACE, seeds = [SEED_TREASURY], bump)]
+    pub treasury_state: Account<'info, TreasuryState>,
+    pub system_program: Program<'info, System>,
+}
+
+pub fn initialize_config(ctx: Context<InitializeConfig>, args: InitializeConfigArgs) -> Result<()> {
+    let now = Clock::get()?.unix_timestamp;
+    let c = &mut ctx.accounts.config;
+    c.authority = ctx.accounts.payer.key();
+    c.pot = ctx.accounts.pot.key();
+    c.ops_wallet = args.ops_wallet;
+    c.treasury = args.treasury;
+    c.otc_program = args.otc_program;
+    c.otc_desk_pot = args.otc_desk_pot;
+    c.desk_collection = args.desk_collection;
+    c.hub_mint = args.hub_mint;
+    c.otc_mint = args.otc_mint;
+    c.tier_weights_bp = TIER_WEIGHTS_BP;
+    c.step_fee_lamports = STEP_FEE_LAMPORTS;
+    c.epoch_hours = EPOCH_HOURS;
+    c.burn_pct_bp = BURN_PCT_BP;
+    c.ops_pct_bp = OPS_PCT_BP;
+    c.consignment_enabled = CONSIGNMENT_ENABLED;
+    c.consignor_share_bp = CONSIGNOR_SHARE_BP;
+    c.lp_enabled = LP_ENABLED;
+    c.lp_target_sol_lamports = LP_TARGET_SOL_LAMPORTS;
+    c.paused = false;
+    c.current_epoch = 0;
+    c.genesis_ts = now;
+    c.bump = ctx.bumps.config;
+    c.pot_bump = ctx.bumps.pot;
+
+    let b = &mut ctx.accounts.burn;
+    b.authority = ctx.accounts.payer.key();
+    b.total_hub_burned = 0;
+    b.burn_pending_lamports = 0;
+    b.last_burn_tx = [0u8; 64];
+    b.bump = ctx.bumps.burn;
+
+    let t = &mut ctx.accounts.treasury_state;
+    t.multisig = args.treasury;
+    t.vault = args.treasury;
+    t.desks_owned = 0;
+    t.desks_consigned = 0;
+    t.sweep_budget_cap_bp = SWEEP_BUDGET_CAP_BP;
+    t.sweep_payback_cap_lamports = SWEEP_PAYBACK_CAP_LAMPORTS;
+    t.exit_discount_bp = EXIT_DISCOUNT_BP;
+    t.exit_hub_leg_bp = EXIT_HUB_LEG_BP;
+    t.floor_staleness_bp = FLOOR_STALENESS_BP;
+    t.hub_float_cap_bp = TREASURY_HUB_FLOAT_CAP_BP;
+    t.total_exits = 0;
+    t.total_sweeps = 0;
+    t.bump = ctx.bumps.treasury_state;
+    Ok(())
+}
+
+#[derive(Accounts)]
+pub struct AuthorityOnly<'info> {
+    pub authority: Signer<'info>,
+    #[account(mut, seeds = [SEED_CONFIG], bump = config.bump, has_one = authority @ HubError::Unauthorized)]
+    pub config: Account<'info, Config>,
+}
+
+fn bps(v: &ConfigValue) -> Result<u16> {
+    match v {
+        ConfigValue::U16(x) if *x <= BPS_DENOMINATOR as u16 => Ok(*x),
+        _ => err!(HubError::BpsOutOfRange),
+    }
+}
+
+fn pk(v: &ConfigValue) -> Result<Pubkey> {
+    match v {
+        ConfigValue::Pubkey(p) => Ok(*p),
+        _ => err!(HubError::FieldNotUpdatable),
+    }
+}
+
+fn flag(v: &ConfigValue) -> Result<bool> {
+    match v {
+        ConfigValue::Bool(b) => Ok(*b),
+        _ => err!(HubError::FieldNotUpdatable),
+    }
+}
+
+/// Rate changes only affect epochs finalized after this call (§B3 #9).
+pub fn update_config(
+    ctx: Context<AuthorityOnly>,
+    field: ConfigField,
+    value: ConfigValue,
+) -> Result<()> {
+    let c = &mut ctx.accounts.config;
+    match field {
+        ConfigField::OpsWallet => c.ops_wallet = pk(&value)?,
+        ConfigField::OtcProgram => c.otc_program = pk(&value)?,
+        ConfigField::OtcDeskPot => c.otc_desk_pot = pk(&value)?,
+        ConfigField::DeskCollection => c.desk_collection = pk(&value)?,
+        ConfigField::HubMint => c.hub_mint = pk(&value)?,
+        ConfigField::OtcMint => c.otc_mint = pk(&value)?,
+        ConfigField::Authority => c.authority = pk(&value)?,
+        ConfigField::BurnPctBp => c.burn_pct_bp = bps(&value)?,
+        ConfigField::OpsPctBp => c.ops_pct_bp = bps(&value)?,
+        ConfigField::ConsignorShareBp => c.consignor_share_bp = bps(&value)?,
+        ConfigField::ConsignmentEnabled => c.consignment_enabled = flag(&value)?,
+        ConfigField::LpEnabled => c.lp_enabled = flag(&value)?,
+        ConfigField::LpTargetSolLamports => match value {
+            ConfigValue::U64(x) => c.lp_target_sol_lamports = x,
+            _ => return err!(HubError::FieldNotUpdatable),
+        },
+    }
+    Ok(())
+}
+
+pub fn set_paused(ctx: Context<AuthorityOnly>, paused: bool) -> Result<()> {
+    ctx.accounts.config.paused = paused;
+    Ok(())
+}

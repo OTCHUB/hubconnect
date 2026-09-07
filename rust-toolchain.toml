@@ -1,0 +1,6 @@
+# Host toolchain for the Anchor IDL build (`anchor build` runs `cargo test --features idl-build`
+# on the host). Pinned to match Agave 2.1.x platform-tools v1.43 (rustc 1.79) so the dependency
+# set resolved in Cargo.lock compiles identically on host and SBF targets.
+[toolchain]
+channel = "1.79.0"
+components = ["rustfmt", "clippy"]
