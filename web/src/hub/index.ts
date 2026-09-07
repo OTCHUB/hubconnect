@@ -7,5 +7,6 @@ export { useProtocolState } from "./hooks/useProtocolState";
 export type { ProtocolStatus } from "./hooks/useProtocolState";
 export { useDeskTier } from "./hooks/useDeskTier";
 export type { HubCluster } from "./lib/explorer";
+export { rpcHost } from "./lib/format";
 export type { Scenario } from "./lib/yield";
 export { ESTIMATE_LABEL } from "./components/YieldTable";

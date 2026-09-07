@@ -16,6 +16,15 @@ export const fmtWeight = (bp: number) => `${(bp / BPS).toFixed(2)}x`;
 export const shortKey = (k: string, n = 4) =>
   k.length > n * 2 + 1 ? `${k.slice(0, n)}…${k.slice(-n)}` : k;
 
+/** Host only — RPC URLs may carry provider API keys in the query string. */
+export const rpcHost = (url: string) => {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url.split("?")[0];
+  }
+};
+
 export const fmtUtc = (ts: number) =>
   new Date(ts * 1000).toISOString().replace("T", " ").slice(0, 16) + "Z";
 

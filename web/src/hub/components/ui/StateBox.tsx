@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { useHub } from "../../HubProvider";
 import { explorerAddress } from "../../lib/explorer";
+import { rpcHost } from "../../lib/format";
 import { AddressLink } from "./AddressLink";
 
 type Tone = "green" | "amber" | "red";
@@ -42,7 +43,7 @@ export function UninitializedBox() {
           program: <AddressLink address={programId.toBase58()} full />
         </div>
         <div>cluster: {cluster}</div>
-        <div className="break-all">rpc: {connection.rpcEndpoint}</div>
+        <div className="break-all">rpc: {rpcHost(connection.rpcEndpoint)}</div>
         <div className="mt-1">No Config account found at the config PDA.</div>
       </div>
       <div className="mt-2 text-amber-500/70">

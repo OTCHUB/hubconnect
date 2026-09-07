@@ -1,0 +1,15 @@
+// Cloudflare Workers static-assets deployment of the standalone $HUB dashboard.
+// RPC / cluster / program id are baked in at build time from Vite env files
+// (`.env.production.local`, gitignored) — Worker `vars` cannot reach a static bundle.
+// Deploy: `npm run build && wrangler deploy` (or `npm run deploy`).
+{
+  "name": "hubconnect-web",
+  "compatibility_date": "2026-08-01",
+  "assets": {
+    "directory": "./dist",
+    "not_found_handling": "single-page-application",
+    "html_handling": "auto-trailing-slash"
+  },
+  "routes": [{ "pattern": "app.otchub.dev", "custom_domain": true }],
+  "observability": { "enabled": true }
+}

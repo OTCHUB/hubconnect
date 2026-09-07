@@ -9,6 +9,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
+    "deploy": "vite build && wrangler deploy",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "lint": "prettier --check src *.ts *.json index.html",
     "lint:fix": "prettier --write src *.ts *.json index.html"

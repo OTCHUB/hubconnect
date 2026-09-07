@@ -1,5 +1,5 @@
 import { NavLink } from "react-router-dom";
-import { useHub } from "./hub";
+import { rpcHost, useHub } from "./hub";
 
 const linkCls = ({ isActive }: { isActive: boolean }) => {
   const tone = isActive ? "bg-green-500/15 text-green-200" : "text-green-600 hover:text-green-300";
@@ -26,7 +26,7 @@ export function Header() {
       </div>
       <div className="flex flex-wrap gap-x-4 px-3 py-1 text-[10px] text-green-700">
         <span>cluster: {cluster}</span>
-        <span className="truncate">rpc: {connection.rpcEndpoint}</span>
+        <span className="truncate">rpc: {rpcHost(connection.rpcEndpoint)}</span>
         <span className="truncate">program: {programId.toBase58()}</span>
       </div>
     </header>
