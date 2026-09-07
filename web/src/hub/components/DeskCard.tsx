@@ -1,6 +1,7 @@
 import { TIER_NAMES, TIER_WEIGHTS_BP, type ProtocolState } from "@hub-sdk";
 import type { DeskLookupResult } from "../hooks/useDeskTier";
 import { fmtNum, fmtSol, fmtWeight } from "../lib/format";
+import { magicEdenItemUrl } from "../lib/marketplace";
 import { CONSIGN_WARN_LAMPORTS } from "../lib/yield";
 import { AddressLink } from "./ui/AddressLink";
 import { Panel, Row } from "./ui/Panel";
@@ -11,9 +12,21 @@ type Props = { asset: string; data: DeskLookupResult; state: ProtocolState };
 export function DeskCard({ asset, data, state }: Props) {
   const { tier, consignment, pending } = data;
 
+  const meLink = (
+    <a
+      href={magicEdenItemUrl(asset)}
+      target="_blank"
+      rel="noreferrer"
+      className="text-cyan-400 hover:text-cyan-200"
+      title="view this desk on Magic Eden"
+    >
+      [MAGIC EDEN ↗]
+    </a>
+  );
+
   if (!tier) {
     return (
-      <Panel title="DESK">
+      <Panel title="DESK" right={meLink}>
         <Row k="asset" v={<AddressLink address={asset} full />} />
         <div className="mt-2 text-xs text-green-700">
           <div>No DeskTier account — this desk has not been activated in $HUB.</div>
@@ -46,7 +59,14 @@ export function DeskCard({ asset, data, state }: Props) {
           </div>
         </Notice>
       )}
-      <Panel title="DESK TIER" right={tier.voided ? "VOIDED" : "ACTIVE"}>
+      <Panel
+        title="DESK TIER"
+        right={
+          <>
+            {meLink} · {tier.voided ? "VOIDED" : "ACTIVE"}
+          </>
+        }
+      >
         <Row k="asset" v={<AddressLink address={asset} full />} />
         <Row
           k="tier"

@@ -63,7 +63,10 @@ export function MetricsStrip({ state }: { state: ProtocolState }) {
       <Stat
         label="burn % of circ."
         value={
-          <span className="text-orange-300" title="burned ÷ circulating (max − burned − treasury/locked)">
+          <span
+            className="text-orange-300"
+            title="burned ÷ circulating (max − burned − treasury/locked)"
+          >
             {fmtBpPct(supply.burnPctOfCirculatingBp)}
           </span>
         }

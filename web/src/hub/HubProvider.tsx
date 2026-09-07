@@ -3,6 +3,9 @@ import { Connection, PublicKey } from "@solana/web3.js";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createReader, programId as idlProgramId, type HubProgram } from "@hub-sdk";
 import type { HubCluster } from "./lib/explorer";
+import { DEFAULT_COLLECTION_URL } from "./lib/marketplace";
+import { jupiterLiteTransport, type SwapTransport } from "./lib/swap";
+import { getSignerForAddress, type WalletSigner } from "./lib/wallets";
 
 export type HubProviderProps = {
   /** Used when `connection` is not supplied. */
@@ -17,6 +20,15 @@ export type HubProviderProps = {
   pollMs?: number;
   /** Reuse the host app's QueryClient; a private one is created otherwise. */
   queryClient?: QueryClient;
+  /**
+   * Host-owned signer lookup (otchub's walletSigner). Defaults to the module's own wallet
+   * registry, populated by its WALLET_CONNECT panel.
+   */
+  resolveSigner?: (address: string) => WalletSigner | null;
+  /** Jupiter quote/build transport; defaults to the public lite API (browser-direct). */
+  swapTransport?: SwapTransport;
+  /** Magic Eden collection page for desks; item links are derived from the asset address. */
+  marketplaceCollectionUrl?: string;
   children: ReactNode;
 };
 
@@ -26,6 +38,9 @@ export type HubContextValue = {
   programId: PublicKey;
   cluster: HubCluster;
   pollMs: number;
+  resolveSigner: (address: string) => WalletSigner | null;
+  swapTransport: SwapTransport;
+  marketplaceCollectionUrl: string;
 };
 
 const HubContext = createContext<HubContextValue | null>(null);
@@ -39,6 +54,9 @@ export function HubProvider({
   cluster = "devnet",
   pollMs = 15_000,
   queryClient,
+  resolveSigner,
+  swapTransport,
+  marketplaceCollectionUrl,
   children,
 }: HubProviderProps) {
   const ownClient = useRef<QueryClient | null>(null);
@@ -63,8 +81,11 @@ export function HubProvider({
       programId: pid,
       cluster,
       pollMs,
+      resolveSigner: resolveSigner ?? getSignerForAddress,
+      swapTransport: swapTransport ?? jupiterLiteTransport,
+      marketplaceCollectionUrl: marketplaceCollectionUrl ?? DEFAULT_COLLECTION_URL,
     }),
-    [conn, pid, cluster, pollMs],
+    [conn, pid, cluster, pollMs, resolveSigner, swapTransport, marketplaceCollectionUrl],
   );
 
   return (

@@ -25,7 +25,16 @@ export const fmtCompact = (v: number | bigint | null | undefined, d = 2) => {
   const x = typeof v === "bigint" ? Number(v) : v;
   if (Number.isNaN(x)) return "—";
   const abs = Math.abs(x);
-  const unit = abs >= 1e12 ? ["T", 1e12] : abs >= 1e9 ? ["B", 1e9] : abs >= 1e6 ? ["M", 1e6] : abs >= 1e3 ? ["K", 1e3] : null;
+  const unit =
+    abs >= 1e12
+      ? ["T", 1e12]
+      : abs >= 1e9
+        ? ["B", 1e9]
+        : abs >= 1e6
+          ? ["M", 1e6]
+          : abs >= 1e3
+            ? ["K", 1e3]
+            : null;
   if (!unit) return x.toLocaleString(undefined, { maximumFractionDigits: 0 });
   const [suffix, div] = unit as [string, number];
   const scaled = x / div;
@@ -38,11 +47,16 @@ export const unitsToTokens = (units: bigint | number, decimals = HUB_DECIMALS) =
 
 /** Whole-token count with thousands separators, e.g. "1,000,000,000". */
 export const fmtTokens = (units: bigint | number | null | undefined, decimals = HUB_DECIMALS) =>
-  units == null ? "—" : unitsToTokens(units, decimals).toLocaleString(undefined, { maximumFractionDigits: 0 });
+  units == null
+    ? "—"
+    : unitsToTokens(units, decimals).toLocaleString(undefined, { maximumFractionDigits: 0 });
 
 /** Compact whole-token count with ticker, e.g. "998.75M $HUB". */
-export const fmtHub = (units: bigint | number | null | undefined, decimals = HUB_DECIMALS, d = 2) =>
-  units == null ? "—" : `${fmtCompact(unitsToTokens(units, decimals), d)} $HUB`;
+export const fmtHub = (
+  units: bigint | number | null | undefined,
+  decimals = HUB_DECIMALS,
+  d = 2,
+) => (units == null ? "—" : `${fmtCompact(unitsToTokens(units, decimals), d)} $HUB`);
 
 /** Tier weight (bp) as a multiplier, e.g. 12_500 → "1.25x". */
 export const fmtWeight = (bp: number) => `${(bp / BPS).toFixed(2)}x`;

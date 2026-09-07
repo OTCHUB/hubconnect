@@ -64,9 +64,18 @@ export function VerificationPanel({ state }: { state: ProtocolState }) {
       <Row k="metadata PDA" v={metadata ? <Addr address={metadata.address} /> : "— not written"} />
 
       <div className="mt-3 border-t border-green-500/10 pt-2">
-        <Row k="max supply" v={`${fmtTokens(supply.maxUnits, d)} (${fmtHub(supply.maxUnits, d, 0)})`} />
-        <Row k="mint supply (live)" v={mint ? fmtTokens(mint.supplyUnits, d) : "— mint not found"} />
-        <Row k="burned" v={`${fmtTokens(supply.burnedUnits, d)} · ${fmtBpPct(supply.burnPctOfMaxBp)} of max`} />
+        <Row
+          k="max supply"
+          v={`${fmtTokens(supply.maxUnits, d)} (${fmtHub(supply.maxUnits, d, 0)})`}
+        />
+        <Row
+          k="mint supply (live)"
+          v={mint ? fmtTokens(mint.supplyUnits, d) : "— mint not found"}
+        />
+        <Row
+          k="burned"
+          v={`${fmtTokens(supply.burnedUnits, d)} · ${fmtBpPct(supply.burnPctOfMaxBp)} of max`}
+        />
         <Row k="treasury / locked" v={fmtTokens(supply.lockedUnits, d)} />
         <Row k="circulating" v={fmtTokens(supply.circulatingUnits, d)} />
         <Row k="burn % of circulating" v={fmtBpPct(supply.burnPctOfCirculatingBp)} />
@@ -82,7 +91,8 @@ export function VerificationPanel({ state }: { state: ProtocolState }) {
       </div>
       {mint?.mintAuthority && (
         <div className="mt-1 text-[10px] text-yellow-500">
-          mint authority still {shortKey(mint.mintAuthority)} — revoke before listing (scripts/hub-authority.ts)
+          mint authority still {shortKey(mint.mintAuthority)} — revoke before listing
+          (scripts/hub-authority.ts)
         </div>
       )}
 
@@ -101,7 +111,12 @@ export function VerificationPanel({ state }: { state: ProtocolState }) {
             <Row
               k="uri"
               v={
-                <a href={metadata.uri} target="_blank" rel="noreferrer" className="underline break-all">
+                <a
+                  href={metadata.uri}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="underline break-all"
+                >
                   {metadata.uri}
                 </a>
               }
@@ -119,10 +134,14 @@ export function VerificationPanel({ state }: { state: ProtocolState }) {
               />
             ))}
             {meta.isFetched && !meta.data && (
-              <div className="text-[10px] text-yellow-500">uri JSON unreachable — indexers won&apos;t see icon/socials</div>
+              <div className="text-[10px] text-yellow-500">
+                uri JSON unreachable — indexers won&apos;t see icon/socials
+              </div>
             )}
             {meta.data && socials.length === 0 && (
-              <div className="text-[10px] text-yellow-500">no website/twitter/telegram in uri JSON</div>
+              <div className="text-[10px] text-yellow-500">
+                no website/twitter/telegram in uri JSON
+              </div>
             )}
           </div>
         </div>

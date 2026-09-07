@@ -1,7 +1,10 @@
 import { useEffect, useState } from "react";
 import type { ProtocolState } from "@hub-sdk";
+import { useWalletPortfolio } from "../hooks/useWalletPortfolio";
 import { shortKey } from "../lib/format";
 import { silentReconnect } from "../lib/wallets";
+import { ClaimPanel } from "./ClaimPanel";
+import { SwapPanel } from "./SwapPanel";
 import { Panel } from "./ui/Panel";
 import { WalletConnect } from "./WalletConnect";
 import { WalletPortfolio } from "./WalletPortfolio";
@@ -26,6 +29,8 @@ const readStored = () => {
 export function WalletPanel({ state, walletAddress }: Props) {
   const [address, setAddress] = useState<string | null>(() => walletAddress ?? readStored());
   const [open, setOpen] = useState(false);
+  // Same query key as WalletPortfolio → one fetch, shared by portfolio + claim rows.
+  const portfolio = useWalletPortfolio(address, state);
 
   useEffect(() => {
     if (walletAddress) setAddress(walletAddress);
@@ -57,9 +62,12 @@ export function WalletPanel({ state, walletAddress }: Props) {
 
   if (!address) {
     return (
-      <Panel title="WALLET_CONNECT :: HUB_PORTFOLIO">
-        <WalletConnect onConnected={connect} />
-      </Panel>
+      <div className="space-y-2">
+        <Panel title="WALLET_CONNECT :: HUB_PORTFOLIO">
+          <WalletConnect onConnected={connect} />
+        </Panel>
+        <SwapPanel state={state} address={null} />
+      </div>
     );
   }
 
@@ -93,6 +101,15 @@ export function WalletPanel({ state, walletAddress }: Props) {
           onClear={walletAddress ? undefined : clear}
         />
       </Panel>
+      <div className="grid gap-2 lg:grid-cols-2">
+        <SwapPanel state={state} address={address} />
+        <ClaimPanel
+          address={address}
+          state={state}
+          desks={portfolio.data?.desks ?? []}
+          onClaimed={() => void portfolio.refetch()}
+        />
+      </div>
     </div>
   );
 }

@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { TIER_NAMES, TIER_WEIGHTS_BP, type ProtocolState } from "@hub-sdk";
 import { useWalletPortfolio, type OwnedDesk } from "../hooks/useWalletPortfolio";
 import { fmtNum, fmtSol, fmtWeight, shortKey } from "../lib/format";
+import { magicEdenItemUrl } from "../lib/marketplace";
 import { AddressLink } from "./ui/AddressLink";
 
 type Props = { address: string; state: ProtocolState; onClear?: () => void };
@@ -40,6 +41,15 @@ function DeskRow({ desk }: { desk: OwnedDesk }) {
     <div className="flex items-center justify-between gap-2 border border-green-500/15 px-2 py-1 text-xs">
       <AddressLink address={desk.asset} />
       <span className={tone}>{tierLabel}</span>
+      <a
+        href={magicEdenItemUrl(desk.asset)}
+        target="_blank"
+        rel="noreferrer"
+        className="text-[10px] text-green-600 hover:text-green-300"
+        title="view this desk on Magic Eden"
+      >
+        [ME ↗]
+      </a>
       <Link to={`desk/${desk.asset}`} className="text-[10px] text-green-600 hover:text-green-300">
         [DETAIL →]
       </Link>

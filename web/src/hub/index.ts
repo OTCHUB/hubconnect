@@ -12,6 +12,19 @@ export { EnvBadge } from "./components/ui/EnvBadge";
 export { useRpcCluster } from "./hooks/useRpcCluster";
 export type { RpcClusterStatus } from "./hooks/useRpcCluster";
 export { WalletPanel } from "./components/WalletPanel";
+export { SwapPanel } from "./components/SwapPanel";
+export { ClaimPanel } from "./components/ClaimPanel";
+export { TreasuryPortfolio } from "./components/TreasuryPortfolio";
+export { useTreasuryPortfolio } from "./hooks/useTreasuryPortfolio";
+export type {
+  TreasuryPortfolio as TreasuryPortfolioData,
+  TreasuryDesk,
+} from "./hooks/useTreasuryPortfolio";
+export type { WalletSigner } from "./lib/wallets";
+export { getSignerForAddress } from "./lib/wallets";
+export type { SwapTransport, JupiterQuote, QuoteParams, TxLog } from "./lib/swap";
+export { jupiterLiteTransport } from "./lib/swap";
+export { magicEdenItemUrl, dexscreenerTokenUrl, DEFAULT_COLLECTION_URL } from "./lib/marketplace";
 export { DEPLOYMENTS, type Deployment } from "./lib/deployments";
 export type { Scenario } from "./lib/yield";
 export { ESTIMATE_LABEL } from "./components/YieldTable";

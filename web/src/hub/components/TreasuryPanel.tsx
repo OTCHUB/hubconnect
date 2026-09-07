@@ -3,6 +3,7 @@ import { useHub } from "../HubProvider";
 import { fmtBp, fmtBpPct, fmtHub, fmtNum, fmtSol, fmtUtc } from "../lib/format";
 import { AddressLink } from "./ui/AddressLink";
 import { CollapsibleCard, Flag, Panel, Row, Stat } from "./ui/Panel";
+import { TreasuryPortfolio } from "./TreasuryPortfolio";
 import { VerificationPanel } from "./VerificationPanel";
 
 /** §C6 — treasury transparency: what the protocol holds, has swept, and has burned. */
@@ -45,7 +46,9 @@ export function TreasuryPanel({ state }: { state: ProtocolState }) {
         <div className="grid grid-cols-2 gap-2 md:grid-cols-3 lg:grid-cols-5">
           <Stat
             label="burn % of circulating"
-            value={<span className="text-orange-300">{fmtBpPct(supply.burnPctOfCirculatingBp)}</span>}
+            value={
+              <span className="text-orange-300">{fmtBpPct(supply.burnPctOfCirculatingBp)}</span>
+            }
             sub="burned ÷ circulating"
           />
           <Stat
@@ -62,16 +65,27 @@ export function TreasuryPanel({ state }: { state: ProtocolState }) {
             label="treasury / locked"
             value={fmtHub(supply.lockedUnits, d)}
             sub={token.holdings
-              .map((h) => `${h.owner === config.treasury ? "multisig" : "vault"} ${fmtHub(h.units, d)}`)
+              .map(
+                (h) =>
+                  `${h.owner === config.treasury ? "multisig" : "vault"} ${fmtHub(h.units, d)}`,
+              )
               .join(" · ")}
           />
           <Stat
             label="mint supply (live)"
             value={fmtHub(supply.mintSupplyUnits, d)}
-            sub={token.mint ? (token.mint.mintAuthority ? "⚠ mint authority set" : "mint authority revoked") : "mint not found"}
+            sub={
+              token.mint
+                ? token.mint.mintAuthority
+                  ? "⚠ mint authority set"
+                  : "mint authority revoked"
+                : "mint not found"
+            }
           />
         </div>
       </Panel>
+
+      <TreasuryPortfolio state={state} />
 
       <VerificationPanel state={state} />
 
