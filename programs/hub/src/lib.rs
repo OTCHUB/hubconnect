@@ -15,6 +15,19 @@ use state::*;
 
 declare_id!("5tCDEazUAkRjrkasup1uWcYo3t1C2ht76LmQva5rewQv");
 
+// https://github.com/neodyme-labs/solana-security-txt — embedded in the .so so explorers and
+// researchers can find the disclosure channel from the on-chain binary alone.
+#[cfg(not(feature = "no-entrypoint"))]
+solana_security_txt::security_txt! {
+    name: "HUB Protocol",
+    project_url: "https://github.com/OTCHUB/hubconnect",
+    contacts: "link:https://github.com/OTCHUB/hubconnect/security/advisories/new",
+    policy: "https://github.com/OTCHUB/hubconnect/blob/main/SECURITY.md",
+    preferred_languages: "en",
+    source_code: "https://github.com/OTCHUB/hubconnect",
+    auditors: "None"
+}
+
 #[program]
 pub mod hub {
     use super::*;

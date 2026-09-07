@@ -6,7 +6,8 @@
 #   scripts/verify-build.sh hash             sha256 of the local .so vs the on-chain program
 #   scripts/verify-build.sh deploy           upgrade the on-chain program with the verified .so
 #   scripts/verify-build.sh verify [COMMIT]  rebuild from the public repo at COMMIT and compare
-#                                            with the on-chain hash (adds --remote for mainnet)
+#                                            with the on-chain hash; writes the verify PDA and, on
+#                                            mainnet, queues the OtterSec remote job
 #
 # Cluster: HUB_CLUSTER=devnet (default) | mainnet-beta. Wallet: HUB_WALLET (must be the upgrade
 # authority). RPC: HUB_RPC_URL, else Helius if HELIUS_API_KEY is set, else the public endpoint.
@@ -86,16 +87,19 @@ cmd_deploy() {
 cmd_verify() {
   local commit="${1:-$(git rev-parse HEAD)}"
   # -y -k: after a hash match, write the verify PDA (repo url, commit, build args) signed by the
-  # upgrade authority so third parties can reproduce without trusting this script. Mainnet adds
-  # --remote so the OtterSec API rebuilds it too and explorers (Solana Explorer, SolanaFM,
-  # Solscan) show the program as verified; devnet has no remote API.
-  local args=(verify-from-repo -u "$RPC" --program-id "$PROGRAM_ID" "$REPO" \
-    --commit-hash "$commit" --library-name "$LIB" -y -k "$WALLET")
-  [ "$CLUSTER" = "mainnet-beta" ] && args+=(--remote)
+  # upgrade authority so third parties can reproduce without trusting this script. On mainnet a
+  # second step queues OtterSec's remote rebuild from that PDA (`remote submit-job` replaced the
+  # deprecated --remote flag); that job is what makes Solana Explorer / SolanaFM / Solscan show
+  # "Verified". The remote API is mainnet-only, so devnet stops at the PDA.
   if [ -n "$(git status --porcelain)" ] || ! git merge-base --is-ancestor "$commit" "@{u}" 2>/dev/null; then
     echo "warning: $commit must be pushed to $REPO and the tree clean for a faithful reproduction" >&2
   fi
-  solana-verify "${args[@]}"
+  solana-verify verify-from-repo -u "$RPC" --program-id "$PROGRAM_ID" "$REPO" \
+    --commit-hash "$commit" --library-name "$LIB" -y -k "$WALLET"
+  if [ "$CLUSTER" = "mainnet-beta" ]; then
+    solana-verify remote submit-job -u "$RPC" --program-id "$PROGRAM_ID" \
+      --uploader "$(solana-keygen pubkey "$WALLET")"
+  fi
 }
 
 case "${1:-}" in
