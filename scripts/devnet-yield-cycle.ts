@@ -227,7 +227,10 @@ async function claimOneOtc(ctx: Ctx, asset: PublicKey, claimerOtc: PublicKey) {
 
 /** `$OTC` base units `claim_yield` would pay for `owedLamports` at the pot's lifetime average
  * buy rate — mirrors the on-chain price in `claim_yield` (tiers.rs) exactly. */
-function otcDue(owedLamports: bigint, otcPot: { totalOtcBoughtUnits: bigint; totalLamportsSpent: bigint }) {
+function otcDue(
+  owedLamports: bigint,
+  otcPot: { totalOtcBoughtUnits: bigint; totalLamportsSpent: bigint },
+) {
   if (otcPot.totalLamportsSpent <= 0n) return 0n;
   return (owedLamports * otcPot.totalOtcBoughtUnits) / otcPot.totalLamportsSpent;
 }
@@ -297,8 +300,12 @@ async function main() {
     await settleRound(ctx);
   }
   const r0 = await claimAllOwned(ctx);
-  if (r0.claims) console.log(`  caught up ${r0.claims} pending claim(s) → +${r0.received} $OTC units`);
-  else if (r0.blocked) console.log(`  ${r0.desks} owned tier(s) have pending yield, but the $OTC vault isn't funded yet — leaving as-is`);
+  if (r0.claims)
+    console.log(`  caught up ${r0.claims} pending claim(s) → +${r0.received} $OTC units`);
+  else if (r0.blocked)
+    console.log(
+      `  ${r0.desks} owned tier(s) have pending yield, but the $OTC vault isn't funded yet — leaving as-is`,
+    );
   else console.log(`  ${r0.desks} owned tier(s), nothing pending`);
 
   console.log(`\n[1] DESK CUSTODY${quick ? " (--quick: reuse existing)" : ""}`);
@@ -427,7 +434,8 @@ async function main() {
   const otcPotAfterFinalize = await ctx.program.account.otcPotState.fetch(otcPotKey);
   check(
     "OtcPotState.otc_pending_lamports += credited (§A5 90% leg)",
-    big(otcPotAfterFinalize.otcPendingLamports) - otcPendingBefore === big(epoch.distributedLamports),
+    big(otcPotAfterFinalize.otcPendingLamports) - otcPendingBefore ===
+      big(epoch.distributedLamports),
     sol(otcPotAfterFinalize.otcPendingLamports),
   );
   const next = await openEpoch(ctx);
@@ -443,7 +451,11 @@ async function main() {
   const preamble = await otcAtaIx(ctx, ctx.payer.publicKey, cfg0.otcMint);
   if (preamble) await sendIxs(ctx, [preamble]);
   const keeperOtcRaw = await tokenAmount(ctx, ata(ctx.payer.publicKey, cfg0.otcMint));
-  check("keeper $OTC ATA exists", keeperOtcRaw !== null, preamble ? "created now" : "already existed");
+  check(
+    "keeper $OTC ATA exists",
+    keeperOtcRaw !== null,
+    preamble ? "created now" : "already existed",
+  );
   const keeperOtc = keeperOtcRaw ?? 0n;
   if (keeperOtc < otcUnits) {
     throw new Error(
@@ -474,8 +486,7 @@ async function main() {
   );
   check(
     "total_otc_bought_units / total_lamports_spent lifted",
-    big(otcPot1.totalOtcBoughtUnits) ===
-      big(otcPotAfterFinalize.totalOtcBoughtUnits) + otcUnits &&
+    big(otcPot1.totalOtcBoughtUnits) === big(otcPotAfterFinalize.totalOtcBoughtUnits) + otcUnits &&
       big(otcPot1.totalLamportsSpent) === big(otcPotAfterFinalize.totalLamportsSpent) + otcPending,
     `${otcPot1.totalOtcBoughtUnits} units / ${sol(otcPot1.totalLamportsSpent)} spent`,
   );

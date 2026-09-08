@@ -5,13 +5,11 @@
 import "dotenv/config";
 import fs from "node:fs";
 import os from "node:os";
+import { Keypair, PublicKey, SystemProgram, TransactionInstruction } from "@solana/web3.js";
 import {
-  Keypair,
-  PublicKey,
-  SystemProgram,
-  TransactionInstruction,
-} from "@solana/web3.js";
-import { ASSOCIATED_TOKEN_PROGRAM_ID, TOKEN_PROGRAM_ID as TOKEN_PROGRAM_ID_STR } from "../../sdk/src/constants";
+  ASSOCIATED_TOKEN_PROGRAM_ID,
+  TOKEN_PROGRAM_ID as TOKEN_PROGRAM_ID_STR,
+} from "../../sdk/src/constants";
 
 export const TOKEN_PROGRAM_ID = new PublicKey(TOKEN_PROGRAM_ID_STR);
 export const ATA_PROGRAM_ID = new PublicKey(ASSOCIATED_TOKEN_PROGRAM_ID);

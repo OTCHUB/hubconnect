@@ -44,9 +44,7 @@ const NATIVE_STOCKS = new Set<RotationStock>(Object.values(NATIVE_BUCKET_STOCK))
 
 /** The other 9 rotation stocks — swapped via a SOL intermediate hop and split evenly across
  *  the 4 buckets. */
-export const SWAP_STOCKS: RotationStock[] = ROTATION_STOCKS.filter(
-  (s) => !NATIVE_STOCKS.has(s),
-);
+export const SWAP_STOCKS: RotationStock[] = ROTATION_STOCKS.filter((s) => !NATIVE_STOCKS.has(s));
 
 export type StockBalance = {
   /** Base units claimed this round for this stock (0 is fine — just skipped). */
@@ -94,7 +92,12 @@ export function planBasketConsolidation(
   }
 
   const perBucket = Math.floor(totalSolLamports / BUCKETS.length);
-  const bucketSolLamports = { otc: perBucket, crclx: perBucket, openai: perBucket, anthropic: perBucket };
+  const bucketSolLamports = {
+    otc: perBucket,
+    crclx: perBucket,
+    openai: perBucket,
+    anthropic: perBucket,
+  };
 
   return { passThrough, stockToSolSwaps, totalSolLamports, bucketSolLamports };
 }
@@ -102,7 +105,5 @@ export function planBasketConsolidation(
 /** True when a plan has anything at all to fund (pass-through units or swap-derived SOL) —
  *  the keeper should skip calling `fund_hub_pot` on an all-zero round. */
 export function hasAnythingToFund(plan: ConsolidationPlan): boolean {
-  return (
-    BUCKETS.some((b) => plan.passThrough[b] > 0n) || plan.totalSolLamports > 0
-  );
+  return BUCKETS.some((b) => plan.passThrough[b] > 0n) || plan.totalSolLamports > 0;
 }

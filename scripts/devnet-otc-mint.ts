@@ -52,7 +52,9 @@ async function main() {
   const cfg0 = await ctx.program.account.config.fetch(ctx.config);
   let otcMint = cfg0.otcMint;
   if (!force && (await isTokenMint(ctx, otcMint))) {
-    console.log(`Config.otc_mint already a token mint: ${otcMint.toBase58()} (use --force to replace)`);
+    console.log(
+      `Config.otc_mint already a token mint: ${otcMint.toBase58()} (use --force to replace)`,
+    );
   } else {
     const { mint, sig } = await createHubMint(ctx, decimals, supply);
     otcMint = mint;
@@ -76,14 +78,20 @@ async function main() {
         otcPot: otcPotKey,
       })
       .rpc();
-    console.log(`init_otc_pot :: keeper ${ctx.payer.publicKey.toBase58()} · vault ${vault.toBase58()}`);
+    console.log(
+      `init_otc_pot :: keeper ${ctx.payer.publicKey.toBase58()} · vault ${vault.toBase58()}`,
+    );
     console.log(`  ${explorer(sig, "tx")}`);
   }
 
   const after = await ctx.program.account.config.fetch(ctx.config);
   const pot = await ctx.program.account.otcPotState.fetch(otcPotKey);
-  console.log(`config.otc_mint = ${after.otcMint.toBase58()}  ${explorer(after.otcMint.toBase58())}`);
-  console.log(`otc_pot.otc_vault = ${pot.otcVault.toBase58()}  ${explorer(pot.otcVault.toBase58())}`);
+  console.log(
+    `config.otc_mint = ${after.otcMint.toBase58()}  ${explorer(after.otcMint.toBase58())}`,
+  );
+  console.log(
+    `otc_pot.otc_vault = ${pot.otcVault.toBase58()}  ${explorer(pot.otcVault.toBase58())}`,
+  );
   console.log(`otc_pot.authority (keeper) = ${pot.authority.toBase58()}`);
 }
 

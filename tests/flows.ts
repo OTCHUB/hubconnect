@@ -2,7 +2,15 @@
 import { expect } from "chai";
 import * as anchor from "@anchor-lang/core";
 import { Keypair, PublicKey, Transaction } from "@solana/web3.js";
-import { Harness, Fixture, TOKEN_PROGRAM_ID, ata, createAtaIx, mintTo, tokenBalance } from "./harness";
+import {
+  Harness,
+  Fixture,
+  TOKEN_PROGRAM_ID,
+  ata,
+  createAtaIx,
+  mintTo,
+  tokenBalance,
+} from "./harness";
 import { epochPda, tierPda, otcPayPda } from "../sdk/src/pda";
 import * as K from "../sdk/src/constants";
 

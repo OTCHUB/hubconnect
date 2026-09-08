@@ -76,10 +76,38 @@ async function main() {
   let basket: Record<string, unknown> | null = null;
   if (hubPot) {
     const buckets = [
-      { id: "otc", label: "$OTC", mint: hubPot.otcMint, vault: hubPot.otcVault, pending: hubPot.otcPendingUnits, deposited: hubPot.otcDepositedUnits },
-      { id: "crclx", label: "CRCLx", mint: hubPot.crclxMint, vault: hubPot.crclxVault, pending: hubPot.crclxPendingUnits, deposited: hubPot.crclxDepositedUnits },
-      { id: "openai", label: "OPENAI", mint: hubPot.openaiMint, vault: hubPot.openaiVault, pending: hubPot.openaiPendingUnits, deposited: hubPot.openaiDepositedUnits },
-      { id: "anthropic", label: "ANTHROPIC", mint: hubPot.anthropicMint, vault: hubPot.anthropicVault, pending: hubPot.anthropicPendingUnits, deposited: hubPot.anthropicDepositedUnits },
+      {
+        id: "otc",
+        label: "$OTC",
+        mint: hubPot.otcMint,
+        vault: hubPot.otcVault,
+        pending: hubPot.otcPendingUnits,
+        deposited: hubPot.otcDepositedUnits,
+      },
+      {
+        id: "crclx",
+        label: "CRCLx",
+        mint: hubPot.crclxMint,
+        vault: hubPot.crclxVault,
+        pending: hubPot.crclxPendingUnits,
+        deposited: hubPot.crclxDepositedUnits,
+      },
+      {
+        id: "openai",
+        label: "OPENAI",
+        mint: hubPot.openaiMint,
+        vault: hubPot.openaiVault,
+        pending: hubPot.openaiPendingUnits,
+        deposited: hubPot.openaiDepositedUnits,
+      },
+      {
+        id: "anthropic",
+        label: "ANTHROPIC",
+        mint: hubPot.anthropicMint,
+        vault: hubPot.anthropicVault,
+        pending: hubPot.anthropicPendingUnits,
+        deposited: hubPot.anthropicDepositedUnits,
+      },
     ];
     const decimals = await Promise.all(buckets.map((b) => mintDecimals(connection, b.mint)));
     basket = {
