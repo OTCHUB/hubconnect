@@ -82,6 +82,7 @@ pub fn initialize_config(ctx: Context<InitializeConfig>, args: InitializeConfigA
     c.tier_hub_cost_units = TIER_HUB_COST_UNITS;
     c.min_pot_threshold_lamports = threshold;
     c.burn_pct_bp = BURN_PCT_BP;
+    c.lp_pct_bp = LP_PCT_BP;
     c.ops_pct_bp = OPS_PCT_BP;
     c.consignment_enabled = CONSIGNMENT_ENABLED;
     c.consignor_share_bp = CONSIGNOR_SHARE_BP;
@@ -119,6 +120,7 @@ pub fn initialize_config(ctx: Context<InitializeConfig>, args: InitializeConfigA
     t.hub_float_cap_bp = TREASURY_HUB_FLOAT_CAP_BP;
     t.total_exits = 0;
     t.total_sweeps = 0;
+    t.lp_pending_lamports = 0;
     t.bump = ctx.bumps.treasury_state;
     Ok(())
 }
@@ -167,6 +169,7 @@ pub fn update_config(
         ConfigField::OtcMint => c.otc_mint = pk(&value)?,
         ConfigField::Authority => c.authority = pk(&value)?,
         ConfigField::BurnPctBp => c.burn_pct_bp = bps(&value)?,
+        ConfigField::LpPctBp => c.lp_pct_bp = bps(&value)?,
         ConfigField::OpsPctBp => c.ops_pct_bp = bps(&value)?,
         ConfigField::ConsignorShareBp => c.consignor_share_bp = bps(&value)?,
         ConfigField::ConsignmentEnabled => c.consignment_enabled = flag(&value)?,

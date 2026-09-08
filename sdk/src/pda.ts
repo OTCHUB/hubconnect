@@ -14,6 +14,7 @@ export const SEEDS = {
   accrual: Buffer.from("accrual"),
   pot: Buffer.from("pot"),
   burn: Buffer.from("burn"),
+  otcPot: Buffer.from("otc_pot"),
   treasury: Buffer.from("treasury"),
   vault: Buffer.from("vault"),
   otcPay: Buffer.from("otc_pay"),
@@ -31,6 +32,10 @@ export function potPda(programId: PublicKey) {
 }
 export function burnPda(programId: PublicKey) {
   return PublicKey.findProgramAddressSync([SEEDS.burn], programId);
+}
+/** §A5 90% leg — $OTC yield-vault bookkeeping (otc_pending_lamports + lifetime avg buy rate). */
+export function otcPotPda(programId: PublicKey) {
+  return PublicKey.findProgramAddressSync([SEEDS.otcPot], programId);
 }
 export function treasuryPda(programId: PublicKey) {
   return PublicKey.findProgramAddressSync([SEEDS.treasury], programId);

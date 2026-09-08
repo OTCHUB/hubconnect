@@ -245,12 +245,19 @@ Direct-to-holder stream (no tier needed, per wallet, pro-rata on HUB held):
 sweep_cost = list_price × (1 + 0.02 + 0.05)     # taker + royalty
 mint_cost  = 100_000 × p_OTC_SOL + 0.5
 SWEEP if sweep_cost < mint_cost                  # current: 6.86 < 14.98 ✓
-MINT  only if sweep_cost ≥ mint_cost             # recommended: never (see A9)
+MINT  if sweep_cost ≥ mint_cost AND treasury holds ≥100k OTC + 0.5 SOL free
 ```
 
 - Only sweep desks with **verified non-empty vault stock** (on-chain ATA read).
 - Sweep budget cap: ≤10% of treasury SOL per desk; payback cap ≤60 desk-days at
   D = 0.07 (max sweep cost ≈ 4.2 SOL/desk at that take) — pause sweeps above it.
+- **SOL is the reserve asset — never drained to fund an acquisition.** Before every
+  sweep the keeper computes `sol_available = max(0, treasury_sol − SOL_RESERVE_FLOOR)`.
+  If `sol_available ≥ sweep_cost`, pay entirely from free SOL. Otherwise swap only the
+  shortfall (`sweep_cost − sol_available`) worth of $OTC into SOL — never more, and
+  never below the floor — then sweep; if the treasury doesn't hold enough $OTC to cover
+  even the shortfall, the sweep is deferred (not forced) until the next cycle. Reference
+  implementation: `keeper/sweeper/src/arbitrage.ts::decideAcquisition`.
 
 **Discount exit (community-first):**
 
@@ -389,8 +396,12 @@ cliff) — hence the sweep payback cap and treating sources A/C as uncorrelated 
 1. Tier pricing currency: **SOL** (default) vs HUB (extra burn sink, price risk).
 2. Exit queue: **tier-weighted** (default) vs first-come vs lottery.
 3. Ops share: **10% of activation fees** (covers RPC/relay/hosting).
-4. Treasury minting when spread inverts: **never** (default) — minting burns 100k
-   OTC and dilutes per-desk rounds, cutting against the not-greedy principle.
+4. Treasury minting when spread inverts: **dynamic** (§A6) — the keeper always sweeps
+   when `sweep_cost < mint_cost` (the common case; minting burns 100k OTC and dilutes
+   per-desk rounds, cutting against the not-greedy principle). It only mints when the
+   spread inverts (`sweep_cost ≥ mint_cost`, e.g. no viable stocked listings) **and**
+   the treasury already holds the full 100k OTC + 0.5 SOL free — it never sells the
+   SOL reserve short to force a mint.
 5. Consignor reward: `CONSIGNOR_SHARE` default **0%** (pure community
    contribution) vs a direct credit (e.g. 25–50%) to attract consignments —
    revisit after launch once real consignment demand is observable.

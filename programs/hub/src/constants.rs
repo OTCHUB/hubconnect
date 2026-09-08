@@ -32,8 +32,11 @@ pub const TIER_HUB_COST_UNITS: [u64; TIER_COUNT] = [
     200_000 * HUB_UNIT,
 ];
 
-/// BUYBACK_BURN_PCT = 10% of every pot inflow.
-pub const BURN_PCT_BP: u16 = 1_000;
+/// Round split (§A5): 5% buys $HUB and burns it, 5% builds the $HUB/$OTC LP, the
+/// remaining 90% buys $OTC and is distributed pro-rata to activated desks.
+pub const BURN_PCT_BP: u16 = 500;
+/// LP_BUILD_PCT = 5% of every pot inflow, earmarked for the $HUB/$OTC LP (phase-2 `build_lp`).
+pub const LP_PCT_BP: u16 = 500;
 
 /// MIN_POT_THRESHOLD = 0.1 SOL. A round (epoch) closes as soon as its inflow reaches this —
 /// the same trigger the OTC desk pot uses ("the moment the pot clears 0.1 SOL it is spent").
@@ -106,6 +109,8 @@ pub const SEED_CONSIGN: &[u8] = b"consign";
 pub const SEED_ACCRUAL: &[u8] = b"accrual";
 pub const SEED_POT: &[u8] = b"pot";
 pub const SEED_BURN: &[u8] = b"burn";
+/// $OTC yield-vault bookkeeping (§A5): otc_pending_lamports budget + lifetime avg buy rate.
+pub const SEED_OTC_POT: &[u8] = b"otc_pot";
 pub const SEED_TREASURY: &[u8] = b"treasury";
 /// Program-signed custody PDA that owns consigned desk assets (§A6.1).
 pub const SEED_VAULT: &[u8] = b"vault";
@@ -135,4 +140,4 @@ pub const CORE_IX_TRANSFER_V1: u8 = 14;
 
 #[constant]
 pub const SEEDS_DOC: &str =
-    "config|epoch+u64|tier+asset|consign+asset|accrual+wallet+u64|pot|burn|treasury|vault|otc_pay|tokenomics|airdrop+asset";
+    "config|epoch+u64|tier+asset|consign+asset|accrual+wallet+u64|pot|burn|otc_pot|treasury|vault|otc_pay|tokenomics|airdrop+asset";

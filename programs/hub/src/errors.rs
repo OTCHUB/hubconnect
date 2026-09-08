@@ -96,4 +96,8 @@ pub enum HubError {
     AirdropLocked,
     #[msg("Not implemented in this milestone")]
     NotImplemented,
+    #[msg("OTC buy spend exceeds otc_pending_lamports")]
+    OtcBuyExceedsPending,
+    #[msg("No $OTC has been purchased yet; nothing claimable")]
+    NoOtcPurchased,
 }

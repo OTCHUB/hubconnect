@@ -25,6 +25,9 @@ pub struct Config {
     /// A round closes once the open epoch's inflow reaches this (no clock involved).
     pub min_pot_threshold_lamports: u64,
     pub burn_pct_bp: u16,
+    /// §A5 5%: earmarked at finalize into `TreasuryState.lp_pending_lamports` for the
+    /// $HUB/$OTC LP (phase-2 `build_lp`). Remainder after burn + lp is the 90% $OTC leg.
+    pub lp_pct_bp: u16,
     pub ops_pct_bp: u16,
     pub consignment_enabled: bool,
     pub consignor_share_bp: u16,
@@ -60,9 +63,13 @@ pub struct Epoch {
     /// 0 while open.
     pub finalized_ts: i64,
     pub inflow_lamports: u64,
-    /// Lamports credited to stakers through `acc_per_weight` at finalize.
+    /// Lamports credited to stakers through `acc_per_weight` at finalize (§A5 90% $OTC leg,
+    /// lamport-equivalent value — `claim_yield` converts it to $OTC at the pot's lifetime
+    /// average buy rate).
     pub distributed_lamports: u64,
     pub burn_pending_lamports: u64,
+    /// §A5 5% — this round's LP-build earmark, added to `TreasuryState.lp_pending_lamports`.
+    pub lp_pending_lamports: u64,
     /// `distributable − distributed` (≤ 1 lamport of floor loss) → next epoch's opening inflow.
     pub rolled_forward_lamports: u64,
     /// Σw of non-voided DeskTiers at finalize (bp-weighted).
@@ -124,6 +131,31 @@ pub struct BurnState {
     pub bump: u8,
 }
 
+/// §A5 90% leg — `["otc_pot"]`. Created by the authority after `initialize_config` (same
+/// no-migration pattern as `OtcPayConfig`). `otc_vault` (mint = `Config.otc_mint`, owner =
+/// `["pot"]` PDA) is the program-custodied inventory `claim_yield` pays desks from.
+/// `record_otc_buy` is a keeper-attested reimbursement (mirrors `BurnState`): the keeper fronts
+/// SOL, buys $OTC on the market, deposits it into `otc_vault` in the same tx (`TransferChecked`,
+/// enforced on-chain — not merely attested), then is reimbursed from the pot up to
+/// `otc_pending_lamports`. `claim_yield` prices each desk's lamport-equivalent entitlement
+/// (`acc_per_weight` counter, unchanged) in $OTC at the lifetime average rate
+/// `total_otc_bought_units / total_lamports_spent`, so buys can batch/lag epochs without
+/// breaking per-round weight fairness.
+#[account]
+#[derive(InitSpace)]
+pub struct OtcPotState {
+    pub authority: Pubkey,
+    pub otc_vault: Pubkey,
+    /// SOL earmarked by `finalize_epoch` for $OTC buys, not yet drawn by `record_otc_buy`.
+    pub otc_pending_lamports: u64,
+    /// Lifetime cumulative SOL spent buying $OTC (denominator of the average rate).
+    pub total_lamports_spent: u64,
+    /// Lifetime cumulative $OTC bought (numerator of the average rate).
+    pub total_otc_bought_units: u64,
+    pub last_buy_tx: [u8; 64],
+    pub bump: u8,
+}
+
 #[account]
 #[derive(InitSpace)]
 pub struct TreasuryState {
@@ -140,6 +172,9 @@ pub struct TreasuryState {
     pub hub_float_cap_bp: u16,
     pub total_exits: u32,
     pub total_sweeps: u32,
+    /// §A5 5% leg, earmarked at every `finalize_epoch`; drawn down once the phase-2 LP adapter
+    /// lands (mirrors `BurnState.burn_pending_lamports`'s keeper-draw pattern).
+    pub lp_pending_lamports: u64,
     /// §A6.2 — one position per pair, HODL both legs.
     pub lp_hub_sol_active: bool,
     pub lp_hub_otc_active: bool,
@@ -217,6 +252,7 @@ pub enum ConfigField {
     HubMint,
     OtcMint,
     BurnPctBp,
+    LpPctBp,
     OpsPctBp,
     ConsignmentEnabled,
     ConsignorShareBp,

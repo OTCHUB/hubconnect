@@ -1,8 +1,9 @@
 // $HUB SPL mint / token-account / Metaplex metadata readers. Raw layout parsing (no
 // @solana/spl-token, no mpl-token-metadata) so the SDK stays web3.js-only; the layouts are
 // stable and the same ones scripts/hub-authority.ts already relies on.
-import { Connection, PublicKey, type AccountInfo } from "@solana/web3.js";
+import { Connection, PublicKey, TransactionInstruction, type AccountInfo } from "@solana/web3.js";
 import { ataPda, tokenMetadataPda } from "./pda";
+import { ASSOCIATED_TOKEN_PROGRAM_ID, TOKEN_PROGRAM_ID } from "./constants";
 
 export type MintView = {
   address: string;
@@ -117,6 +118,33 @@ export async function fetchHubTokenState(
     lockedUnits: holdings.reduce((s, h) => s + h.units, 0n),
     holdings,
   };
+}
+
+/**
+ * Raw `AssociatedTokenAccountInstruction::CreateIdempotent` (discriminant `1`, no args) — the
+ * $OTC leg's `claim_yield` pays into the claimer's standard ATA but never creates it (on-chain
+ * `require_token_account` only checks mint/owner), so the frontend must ensure it exists. Safe
+ * to always prepend: a no-op when the ATA is already there, one-time init otherwise. Kept here
+ * (not `@solana/spl-token`) so the SDK stays a single dependency-light package.
+ */
+export function createAtaIdempotentIx(
+  payer: PublicKey,
+  owner: PublicKey,
+  mint: PublicKey,
+): TransactionInstruction {
+  const [ata] = ataPda(owner, mint);
+  return new TransactionInstruction({
+    programId: new PublicKey(ASSOCIATED_TOKEN_PROGRAM_ID),
+    keys: [
+      { pubkey: payer, isSigner: true, isWritable: true },
+      { pubkey: ata, isSigner: false, isWritable: true },
+      { pubkey: owner, isSigner: false, isWritable: false },
+      { pubkey: mint, isSigner: false, isWritable: false },
+      { pubkey: new PublicKey("11111111111111111111111111111111"), isSigner: false, isWritable: false },
+      { pubkey: new PublicKey(TOKEN_PROGRAM_ID), isSigner: false, isWritable: false },
+    ],
+    data: Buffer.from([1]),
+  });
 }
 
 /** Fetch the off-chain JSON behind `uri` (IPFS/Arweave gateways return plain JSON). */

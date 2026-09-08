@@ -130,10 +130,13 @@ pub fn assert_pot_solvent(config: &Config, pot: &AccountInfo) -> Result<()> {
     Ok(())
 }
 
-/// `inflow == distributed + burn_pending + rolled_forward` for a finalized epoch.
+/// `inflow == distributed + burn_pending + lp_pending + rolled_forward` for a finalized epoch.
 pub fn assert_epoch_balanced(e: &Epoch) -> Result<()> {
     let rhs = add(
-        add(e.distributed_lamports, e.burn_pending_lamports)?,
+        add(
+            add(e.distributed_lamports, e.burn_pending_lamports)?,
+            e.lp_pending_lamports,
+        )?,
         e.rolled_forward_lamports,
     )?;
     require!(e.inflow_lamports == rhs, HubError::InvariantViolated);
@@ -160,6 +163,7 @@ mod tests {
             tier_hub_cost_units: TIER_HUB_COST_UNITS,
             min_pot_threshold_lamports: MIN_POT_THRESHOLD_LAMPORTS,
             burn_pct_bp: BURN_PCT_BP,
+            lp_pct_bp: LP_PCT_BP,
             ops_pct_bp: OPS_PCT_BP,
             consignment_enabled: true,
             consignor_share_bp: 0,
@@ -224,15 +228,18 @@ mod tests {
         assert!(c.weight_bp(5).is_err());
     }
 
-    /// Four desks T1..T4, 10 SOL round: 1 SOL burn, 9 SOL credited through the accumulator in
-    /// 1.0/1.25/1.6/2.0 proportion. Σ payouts + dust == credited × ACC_SCALE exactly — nothing is
-    /// stranded, nothing is over-paid.
+    /// Four desks T1..T4, 10 SOL round: 0.5 SOL burn, 0.5 SOL LP-pending, 9 SOL (the $OTC leg)
+    /// credited through the accumulator in 1.0/1.25/1.6/2.0 proportion. Σ payouts + dust ==
+    /// credited × ACC_SCALE exactly — nothing is stranded, nothing is over-paid.
     #[test]
-    fn round_distribution_is_zero_sum() {
+    fn round_distribution_is_5_5_90() {
         let inflow = 10_000_000_000u64;
         let burn = bps_of(inflow, BURN_PCT_BP).unwrap();
-        let distributable = inflow - burn;
-        assert_eq!(burn, 1_000_000_000);
+        let lp = bps_of(inflow, LP_PCT_BP).unwrap();
+        assert_eq!(burn, 500_000_000);
+        assert_eq!(lp, 500_000_000);
+        let distributable = inflow - burn - lp;
+        assert_eq!(distributable, 9_000_000_000);
         let total_w: u64 = TIER_WEIGHTS_BP.iter().map(|w| *w as u64).sum();
         let (per_w, credited, slack) = round_credit(distributable, total_w).unwrap();
         assert!(credited <= distributable && distributable - credited <= 1);
@@ -280,8 +287,9 @@ mod tests {
             start_ts: 0,
             finalized_ts: 0,
             inflow_lamports: 1_000,
-            distributed_lamports: 900,
+            distributed_lamports: 850,
             burn_pending_lamports: 100,
+            lp_pending_lamports: 50,
             rolled_forward_lamports: 0,
             total_weight_bp: 1,
             per_weight_scaled: 0,

@@ -12,7 +12,14 @@ export const TIER_WEIGHTS = TIER_WEIGHTS_BP.map((w) => w / BPS); // [1.00,1.25,1
  */
 export const STEP_FEE_LAMPORTS = LAMPORTS_PER_SOL / 2;
 export const OPS_PCT_BP = 1_000;
-export const BURN_PCT_BP = 1_000;
+/**
+ * §A5 round split (unrelated to the flat-fee 90/10 above): every pot round splits 5% to $HUB
+ * burn, 5% to the $HUB/$OTC LP-pending earmark, and the remaining 90% into the $OTC yield leg
+ * (credited through `Config.accPerWeight`, paid out by `claim_yield` in $OTC — see
+ * `OtcPotView`/`otcDueForLamports`).
+ */
+export const BURN_PCT_BP = 500;
+export const LP_PCT_BP = 500;
 /**
  * $HUB base units required to reach each tier from scratch (cumulative table, not incremental) —
  * mirrors `TIER_HUB_COST_UNITS` in constants.rs: T1 100k, T2 125k, T3 150k, T4 200k. A fresh

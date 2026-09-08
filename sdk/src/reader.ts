@@ -10,6 +10,7 @@ import {
   burnPda,
   configPda,
   epochPda,
+  otcPotPda,
   potPda,
   tierPda,
   treasuryPda,
@@ -69,6 +70,8 @@ export type ConfigView = {
   tierHubCostUnits: number[];
   minPotThresholdLamports: number;
   burnPctBp: number;
+  /** §A5 5% — earmarked at finalize into `TreasuryState.lpPendingLamports` (phase-2 LP build). */
+  lpPctBp: number;
   opsPctBp: number;
   consignmentEnabled: boolean;
   consignorShareBp: number;
@@ -90,8 +93,11 @@ export type EpochView = {
   /** 0 while open. */
   finalizedTs: number;
   inflowLamports: number;
+  /** §A5 90% $OTC leg's lamport-equivalent value, credited through `accPerWeight` this round. */
   distributedLamports: number;
   burnPendingLamports: number;
+  /** §A5 5% — this round's LP-build earmark, added to `TreasuryView.lpPendingLamports`. */
+  lpPendingLamports: number;
   rolledForwardLamports: number;
   totalWeightBp: number;
   perWeightScaled: bigint;
@@ -130,6 +136,23 @@ export type OtcPayView = {
   /** Vault-owned $OTC token account: the POL reserve every $OTC fee lands in. */
   polAccount: string;
   totalOtcCollectedUnits: bigint;
+};
+
+/**
+ * §A5 90% leg — `OtcPotState`. `null` from `fetchOtcPot` means `init_otc_pot` was never called
+ * (the $OTC vault path does not exist yet on this cluster).
+ */
+export type OtcPotView = {
+  /** Keeper trusted to call `record_otc_buy` (may differ from `Config.authority`). */
+  authority: string;
+  /** Vault-owned $OTC token account `claim_yield` pays desks from. */
+  otcVault: string;
+  /** SOL earmarked by `finalize_epoch` for $OTC buys, not yet drawn by `record_otc_buy`. */
+  otcPendingLamports: number;
+  /** Lifetime cumulative SOL spent buying $OTC (denominator of the average rate). */
+  totalLamportsSpent: number;
+  /** Lifetime cumulative $OTC bought (numerator of the average rate). */
+  totalOtcBoughtUnits: bigint;
 };
 
 /** §A7.1 `TokenomicsConfig` — `null` from `fetchTokenomics` means the plan was never recorded. */
@@ -183,7 +206,11 @@ export type ProtocolState = {
     totalExits: number;
     totalSweeps: number;
     lpHubDepositedUnits: bigint;
+    /** §A5 5% leg awaiting the phase-2 LP adapter (mirrors `burn.burnPendingLamports`). */
+    lpPendingLamports: number;
   };
+  /** `null` until the authority calls `init_otc_pot` (§A5 90% leg not provisioned yet). */
+  otcPot: OtcPotView | null;
   token: HubTokenState;
   supply: SupplyView;
 };
@@ -230,6 +257,7 @@ export function toConfigView(
     tierHubCostUnits: c.tierHubCostUnits.map((v) => n(v)),
     minPotThresholdLamports: n(c.minPotThresholdLamports),
     burnPctBp: c.burnPctBp,
+    lpPctBp: c.lpPctBp,
     opsPctBp: c.opsPctBp,
     consignmentEnabled: c.consignmentEnabled,
     consignorShareBp: c.consignorShareBp,
@@ -254,6 +282,7 @@ export function toEpochView(
     inflowLamports: n(e.inflowLamports),
     distributedLamports: n(e.distributedLamports),
     burnPendingLamports: n(e.burnPendingLamports),
+    lpPendingLamports: n(e.lpPendingLamports),
     rolledForwardLamports: n(e.rolledForwardLamports),
     totalWeightBp: n(e.totalWeightBp),
     perWeightScaled: big(e.perWeightScaled),
@@ -294,15 +323,17 @@ export async function fetchProtocolState(program: HubProgram): Promise<ProtocolS
   const [prevKey] = epochPda(id, Math.max(0, config.currentEpoch - 1));
   const [potKey] = potPda(id);
   const [burnKey] = burnPda(id);
+  const [otcPotKey] = otcPotPda(id);
   const [tresKey] = treasuryPda(id);
   const [vaultKey] = vaultPda(id);
   const connection = program.provider.connection;
 
-  const [cur, prev, potInfo, burn, tres, token] = await Promise.all([
+  const [cur, prev, potInfo, burn, otcPot, tres, token] = await Promise.all([
     program.account.epoch.fetch(curKey),
     config.currentEpoch > 0 ? program.account.epoch.fetchNullable(prevKey) : Promise.resolve(null),
     connection.getAccountInfo(potKey),
     program.account.burnState.fetch(burnKey),
+    program.account.otcPotState.fetchNullable(otcPotKey),
     program.account.treasuryState.fetch(tresKey),
     fetchHubTokenState(connection, new PublicKey(config.hubMint), [
       new PublicKey(config.treasury),
@@ -322,12 +353,14 @@ export async function fetchProtocolState(program: HubProgram): Promise<ProtocolS
       totalHubBurned: n(burn.totalHubBurned),
       burnPendingLamports: n(burn.burnPendingLamports),
     },
+    otcPot: otcPot ? toOtcPotView(otcPot) : null,
     treasury: {
       desksOwned: tres.desksOwned,
       desksConsigned: tres.desksConsigned,
       totalExits: tres.totalExits,
       totalSweeps: tres.totalSweeps,
       lpHubDepositedUnits,
+      lpPendingLamports: n(tres.lpPendingLamports),
     },
     token,
     supply: toSupplyView(token, ledgerBurned, lpHubDepositedUnits),
@@ -388,6 +421,35 @@ export async function fetchOtcPay(program: HubProgram): Promise<OtcPayView | nul
   const [key] = otcPayPda(program.programId);
   const p = await program.account.otcPayConfig.fetchNullable(key);
   return p ? toOtcPayView(p) : null;
+}
+
+export function toOtcPotView(
+  p: Awaited<ReturnType<HubProgram["account"]["otcPotState"]["fetch"]>>,
+): OtcPotView {
+  return {
+    authority: p.authority.toBase58(),
+    otcVault: p.otcVault.toBase58(),
+    otcPendingLamports: n(p.otcPendingLamports),
+    totalLamportsSpent: n(p.totalLamportsSpent),
+    totalOtcBoughtUnits: big(p.totalOtcBoughtUnits),
+  };
+}
+
+/** `null` ⇒ `init_otc_pot` was never called on this cluster (§A5 90% leg not provisioned). */
+export async function fetchOtcPot(program: HubProgram): Promise<OtcPotView | null> {
+  const [key] = otcPotPda(program.programId);
+  const p = await program.account.otcPotState.fetchNullable(key);
+  return p ? toOtcPotView(p) : null;
+}
+
+/**
+ * $OTC base units `claim_yield` would pay for `owedLamports` at the pot's lifetime average buy
+ * rate (`totalOtcBoughtUnits / totalLamportsSpent`) — mirrors the on-chain price exactly.
+ * `null` when the pot doesn't exist yet or hasn't recorded a buy (`NoOtcPurchased` on-chain).
+ */
+export function otcDueForLamports(owedLamports: number, pot: OtcPotView | null): bigint | null {
+  if (!pot || pot.totalLamportsSpent <= 0 || owedLamports <= 0) return null;
+  return (BigInt(Math.trunc(owedLamports)) * pot.totalOtcBoughtUnits) / BigInt(pot.totalLamportsSpent);
 }
 
 export function toTokenomicsView(
@@ -477,16 +539,23 @@ export function lamportsToThreshold(e: EpochView, c: ConfigView) {
   return Math.max(0, c.minPotThresholdLamports - effectiveInflowLamports(e, c));
 }
 
-/** Projected staker allotment for `tier` if the open round closed with its current inflow and Σw. */
+/**
+ * Projected staker allotment (lamport-equivalent $OTC value) for `tier` if the open round
+ * closed now with its current inflow and Σw — mirrors `finalize_epoch`'s §A5 5%/5%/90% split
+ * (burn + LP-pending come off first, the remainder is the distributable $OTC leg).
+ */
 export function projectRoundYield(
   e: EpochView,
   tier: number,
   totalWeightBp: number,
   burnPctBp: number,
+  lpPctBp: number,
 ) {
   const w = TIER_WEIGHTS_BP[tier - 1] ?? 0;
   if (!w || totalWeightBp === 0) return 0;
-  const distributable = e.inflowLamports - Math.floor((e.inflowLamports * burnPctBp) / BPS);
+  const burn = Math.floor((e.inflowLamports * burnPctBp) / BPS);
+  const lp = Math.floor((e.inflowLamports * lpPctBp) / BPS);
+  const distributable = e.inflowLamports - burn - lp;
   return Math.floor((distributable * w) / totalWeightBp);
 }
 

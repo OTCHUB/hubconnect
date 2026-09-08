@@ -176,4 +176,19 @@ pub mod hub {
     ) -> Result<()> {
         instructions::tokenomics::claim_airdrop(ctx, amount_units, proof)
     }
+
+    /// §A5 #21 — authority creates the $OTC yield-vault bookkeeping (one-time, post-init).
+    pub fn init_otc_pot(ctx: Context<InitOtcPot>, keeper: Pubkey) -> Result<()> {
+        instructions::otc_pot::init_otc_pot(ctx, keeper)
+    }
+
+    /// §A5 #22 — keeper-attested $OTC buy, reimbursed from the pot up to `otc_pending_lamports`.
+    pub fn record_otc_buy(
+        ctx: Context<RecordOtcBuy>,
+        otc_bought: u64,
+        lamports_spent: u64,
+        buy_tx: [u8; 64],
+    ) -> Result<()> {
+        instructions::otc_pot::record_otc_buy(ctx, otc_bought, lamports_spent, buy_tx)
+    }
 }

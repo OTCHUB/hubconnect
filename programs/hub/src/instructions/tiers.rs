@@ -13,7 +13,7 @@ use crate::constants::*;
 use crate::errors::HubError;
 use crate::events::*;
 use crate::instructions::mpl_core::require_desk;
-use crate::instructions::otc_pay::{burn_checked, require_token_account};
+use crate::instructions::otc_pay::{burn_checked, require_token_account, transfer_checked};
 use crate::instructions::pot::*;
 use crate::state::*;
 
@@ -233,11 +233,28 @@ pub struct ClaimYield<'info> {
     /// CHECK: system-owned lamport vault PDA.
     #[account(mut, seeds = [SEED_POT], bump = config.pot_bump)]
     pub pot: UncheckedAccount<'info>,
+    #[account(seeds = [SEED_OTC_POT], bump = otc_pot.bump)]
+    pub otc_pot: Account<'info, OtcPotState>,
+    /// CHECK: matched against config.otc_mint; decimals read for TransferChecked.
+    #[account(address = config.otc_mint @ HubError::InvalidTokenAccount)]
+    pub otc_mint: UncheckedAccount<'info>,
+    /// CHECK: OTC vault recorded on OtcPotState; the $OTC inventory this instruction pays from.
+    #[account(mut, address = otc_pot.otc_vault @ HubError::InvalidTokenAccount)]
+    pub otc_vault: UncheckedAccount<'info>,
+    /// CHECK: claimer's $OTC token account (mint/owner verified in handler).
+    #[account(mut)]
+    pub claimer_otc: UncheckedAccount<'info>,
+    /// CHECK: classic SPL Token program, asserted in `transfer_checked`.
+    pub token_program: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
 }
 
 /// One transaction settles every round closed since the tier's stamp:
-/// `owed = ⌊(acc − stamp) × w / ACC_SCALE⌋`, the sub-lamport remainder goes to dust.
+/// `owed = ⌊(acc − stamp) × w / ACC_SCALE⌋` lamport-equivalent, the sub-lamport remainder goes
+/// to dust. §A5: paid in $OTC from `otc_vault`, priced at the pot's lifetime average buy rate
+/// (`otc_pot.total_otc_bought_units / total_lamports_spent`) — reverts with
+/// `NoOtcPurchased` if the keeper hasn't funded the vault yet, or on-chain (insufficient vault
+/// balance) if it hasn't caught up to this claim's share; both are safe to retry later.
 ///
 /// Lazy revocation: if the desk changed hands since activation the tier is voided
 /// (persisted, no refund, no payout) and the call returns Ok so the void sticks.
@@ -262,17 +279,34 @@ pub fn claim_yield(ctx: Context<ClaimYield>) -> Result<()> {
     let (owed, frac) = pending_yield(config.acc_per_weight, t.stamp_acc_per_weight, w)?;
     require!(owed > 0, HubError::NothingToClaim);
 
+    let otc_pot = &ctx.accounts.otc_pot;
+    require!(otc_pot.total_lamports_spent > 0, HubError::NoOtcPurchased);
+    require_token_account(
+        &ctx.accounts.claimer_otc,
+        &config.otc_mint,
+        ctx.accounts.claimer.key,
+    )?;
+    let otc_due = (owed as u128)
+        .checked_mul(otc_pot.total_otc_bought_units as u128)
+        .ok_or_else(|| error!(HubError::MathOverflow))?
+        / otc_pot.total_lamports_spent as u128;
+    let otc_due = u64::try_from(otc_due).map_err(|_| error!(HubError::MathOverflow))?;
+    require!(otc_due > 0, HubError::NothingToClaim);
+
     t.stamp_acc_per_weight = config.acc_per_weight;
     t.total_claimed_lamports = add(t.total_claimed_lamports, owed)?;
     add_dust(config, frac)?;
     config.pot_liability_lamports = sub(config.pot_liability_lamports, owed)?;
 
-    pay_from_pot(
-        &ctx.accounts.system_program,
+    let pot_bump = config.pot_bump;
+    transfer_checked(
+        &ctx.accounts.token_program,
+        &ctx.accounts.otc_vault,
+        &ctx.accounts.otc_mint,
+        &ctx.accounts.claimer_otc,
         &ctx.accounts.pot,
-        &ctx.accounts.claimer,
-        config.pot_bump,
-        owed,
+        otc_due,
+        &[&[SEED_POT, &[pot_bump]]],
     )?;
     assert_pot_solvent(config, &ctx.accounts.pot)?;
     emit!(YieldClaimed {
@@ -281,6 +315,7 @@ pub fn claim_yield(ctx: Context<ClaimYield>) -> Result<()> {
         epoch: config.current_epoch,
         tier: t.tier,
         lamports: owed,
+        otc_paid: otc_due,
         acc_per_weight: config.acc_per_weight,
     });
     Ok(())

@@ -692,6 +692,39 @@
           }
         },
         {
+          "name": "otc_pot",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  111,
+                  116,
+                  99,
+                  95,
+                  112,
+                  111,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "otc_mint"
+        },
+        {
+          "name": "otc_vault",
+          "writable": true
+        },
+        {
+          "name": "claimer_otc",
+          "writable": true
+        },
+        {
+          "name": "token_program"
+        },
+        {
           "name": "system_program",
           "address": "11111111111111111111111111111111"
         }
@@ -920,6 +953,47 @@
           }
         },
         {
+          "name": "otc_pot",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  111,
+                  116,
+                  99,
+                  95,
+                  112,
+                  111,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
           "name": "system_program",
           "address": "11111111111111111111111111111111"
         }
@@ -1039,6 +1113,83 @@
         }
       ],
       "args": []
+    },
+    {
+      "name": "init_otc_pot",
+      "docs": [
+        "§A5 #21 — authority creates the $OTC yield-vault bookkeeping (one-time, post-init)."
+      ],
+      "discriminator": [
+        28,
+        212,
+        254,
+        124,
+        34,
+        208,
+        20,
+        248
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "otc_vault"
+        },
+        {
+          "name": "otc_pot",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  111,
+                  116,
+                  99,
+                  95,
+                  112,
+                  111,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "keeper",
+          "type": "pubkey"
+        }
+      ]
     },
     {
       "name": "init_tokenomics",
@@ -1450,6 +1601,125 @@
         },
         {
           "name": "burn_tx",
+          "type": {
+            "array": [
+              "u8",
+              64
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "record_otc_buy",
+      "docs": [
+        "§A5 #22 — keeper-attested $OTC buy, reimbursed from the pot up to `otc_pending_lamports`."
+      ],
+      "discriminator": [
+        154,
+        87,
+        58,
+        88,
+        244,
+        225,
+        16,
+        69
+      ],
+      "accounts": [
+        {
+          "name": "keeper",
+          "docs": [
+            "Must be `otc_pot.authority`: fronts SOL for the market buy, reimbursed here on proof of",
+            "deposit (the deposit itself is enforced on-chain below, not merely attested)."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "otc_pot",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  111,
+                  116,
+                  99,
+                  95,
+                  112,
+                  111,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "otc_mint"
+        },
+        {
+          "name": "keeper_otc",
+          "writable": true
+        },
+        {
+          "name": "otc_vault",
+          "writable": true
+        },
+        {
+          "name": "pot",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_program"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "otc_bought",
+          "type": "u64"
+        },
+        {
+          "name": "lamports_spent",
+          "type": "u64"
+        },
+        {
+          "name": "buy_tx",
           "type": {
             "array": [
               "u8",
@@ -2475,6 +2745,19 @@
       ]
     },
     {
+      "name": "OtcPotState",
+      "discriminator": [
+        224,
+        181,
+        88,
+        79,
+        111,
+        236,
+        217,
+        206
+      ]
+    },
+    {
       "name": "StakerAccrual",
       "discriminator": [
         213,
@@ -2630,6 +2913,19 @@
         107,
         97,
         177
+      ]
+    },
+    {
+      "name": "OtcBuyRecorded",
+      "discriminator": [
+        136,
+        19,
+        51,
+        241,
+        24,
+        162,
+        4,
+        109
       ]
     },
     {
@@ -2946,6 +3242,16 @@
       "code": 6046,
       "name": "NotImplemented",
       "msg": "Not implemented in this milestone"
+    },
+    {
+      "code": 6047,
+      "name": "OtcBuyExceedsPending",
+      "msg": "OTC buy spend exceeds otc_pending_lamports"
+    },
+    {
+      "code": 6048,
+      "name": "NoOtcPurchased",
+      "msg": "No $OTC has been purchased yet; nothing claimable"
     }
   ],
   "types": [
@@ -3206,6 +3512,14 @@
             "type": "u16"
           },
           {
+            "name": "lp_pct_bp",
+            "docs": [
+              "§A5 5%: earmarked at finalize into `TreasuryState.lp_pending_lamports` for the",
+              "$HUB/$OTC LP (phase-2 `build_lp`). Remainder after burn + lp is the 90% $OTC leg."
+            ],
+            "type": "u16"
+          },
+          {
             "name": "ops_pct_bp",
             "type": "u16"
           },
@@ -3317,6 +3631,9 @@
           },
           {
             "name": "BurnPctBp"
+          },
+          {
+            "name": "LpPctBp"
           },
           {
             "name": "OpsPctBp"
@@ -3533,12 +3850,21 @@
           {
             "name": "distributed_lamports",
             "docs": [
-              "Lamports credited to stakers through `acc_per_weight` at finalize."
+              "Lamports credited to stakers through `acc_per_weight` at finalize (§A5 90% $OTC leg,",
+              "lamport-equivalent value — `claim_yield` converts it to $OTC at the pot's lifetime",
+              "average buy rate)."
             ],
             "type": "u64"
           },
           {
             "name": "burn_pending_lamports",
+            "type": "u64"
+          },
+          {
+            "name": "lp_pending_lamports",
+            "docs": [
+              "§A5 5% — this round's LP-build earmark, added to `TreasuryState.lp_pending_lamports`."
+            ],
             "type": "u64"
           },
           {
@@ -3596,6 +3922,10 @@
           },
           {
             "name": "burn_pending_lamports",
+            "type": "u64"
+          },
+          {
+            "name": "lp_pending_lamports",
             "type": "u64"
           },
           {
@@ -3745,6 +4075,38 @@
       }
     },
     {
+      "name": "OtcBuyRecorded",
+      "docs": [
+        "Keeper-attested $OTC buy, reimbursed from the pot up to `otc_pending_lamports` (mirrors",
+        "`BurnRecorded`). `otc_bought` is deposited into `otc_vault` in the same tx."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "otc_bought",
+            "type": "u64"
+          },
+          {
+            "name": "lamports_spent",
+            "type": "u64"
+          },
+          {
+            "name": "otc_pending_after",
+            "type": "u64"
+          },
+          {
+            "name": "total_otc_bought_units",
+            "type": "u64"
+          },
+          {
+            "name": "total_lamports_spent",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
       "name": "OtcPayConfig",
       "docs": [
         "§A4.1 `[\"otc_pay\"]` — $OTC as an alternative step-fee currency. Created by the authority",
@@ -3786,6 +4148,68 @@
           {
             "name": "total_otc_collected",
             "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "OtcPotState",
+      "docs": [
+        "§A5 90% leg — `[\"otc_pot\"]`. Created by the authority after `initialize_config` (same",
+        "no-migration pattern as `OtcPayConfig`). `otc_vault` (mint = `Config.otc_mint`, owner =",
+        "`[\"pot\"]` PDA) is the program-custodied inventory `claim_yield` pays desks from.",
+        "`record_otc_buy` is a keeper-attested reimbursement (mirrors `BurnState`): the keeper fronts",
+        "SOL, buys $OTC on the market, deposits it into `otc_vault` in the same tx (`TransferChecked`,",
+        "enforced on-chain — not merely attested), then is reimbursed from the pot up to",
+        "`otc_pending_lamports`. `claim_yield` prices each desk's lamport-equivalent entitlement",
+        "(`acc_per_weight` counter, unchanged) in $OTC at the lifetime average rate",
+        "`total_otc_bought_units / total_lamports_spent`, so buys can batch/lag epochs without",
+        "breaking per-round weight fairness."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "otc_vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "otc_pending_lamports",
+            "docs": [
+              "SOL earmarked by `finalize_epoch` for $OTC buys, not yet drawn by `record_otc_buy`."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "total_lamports_spent",
+            "docs": [
+              "Lifetime cumulative SOL spent buying $OTC (denominator of the average rate)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "total_otc_bought_units",
+            "docs": [
+              "Lifetime cumulative $OTC bought (numerator of the average rate)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "last_buy_tx",
+            "type": {
+              "array": [
+                "u8",
+                64
+              ]
+            }
           },
           {
             "name": "bump",
@@ -4164,6 +4588,14 @@
             "type": "u32"
           },
           {
+            "name": "lp_pending_lamports",
+            "docs": [
+              "§A5 5% leg, earmarked at every `finalize_epoch`; drawn down once the phase-2 LP adapter",
+              "lands (mirrors `BurnState.burn_pending_lamports`'s keeper-draw pattern)."
+            ],
+            "type": "u64"
+          },
+          {
             "name": "lp_hub_sol_active",
             "docs": [
               "§A6.2 — one position per pair, HODL both legs."
@@ -4196,7 +4628,9 @@
     {
       "name": "YieldClaimed",
       "docs": [
-        "One claim settles every round closed since the tier's stamp."
+        "One claim settles every round closed since the tier's stamp. `lamports` is the",
+        "lamport-equivalent entitlement settled; `otc_paid` is what actually left the vault, priced",
+        "at the pot's lifetime average buy rate at the moment of this claim."
       ],
       "type": {
         "kind": "struct",
@@ -4222,6 +4656,10 @@
             "type": "u64"
           },
           {
+            "name": "otc_paid",
+            "type": "u64"
+          },
+          {
             "name": "acc_per_weight",
             "type": "u128"
           }
@@ -4233,7 +4671,7 @@
     {
       "name": "SEEDS_DOC",
       "type": "string",
-      "value": "\"config|epoch+u64|tier+asset|consign+asset|accrual+wallet+u64|pot|burn|treasury|vault|otc_pay|tokenomics|airdrop+asset\""
+      "value": "\"config|epoch+u64|tier+asset|consign+asset|accrual+wallet+u64|pot|burn|otc_pot|treasury|vault|otc_pay|tokenomics|airdrop+asset\""
     }
   ]
 }

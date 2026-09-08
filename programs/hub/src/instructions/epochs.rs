@@ -1,12 +1,16 @@
 //! §B3 #4 finalize_epoch, #6 register_treasury_inflow (+ consigned variant), #7 record_burn,
 //! and claim_accrual (pays consignor-share credits recorded on StakerAccrual).
 //!
-//! Burn-pending is marked once, at finalize, with the rate in effect then
+//! Burn-pending and lp-pending are marked once, at finalize, with the rates in effect then
 //! (§B3 #9: rate changes apply to future epochs).
 //!
 //! Rounds are threshold-gated, not clock-gated: `finalize_epoch` is callable the moment the open
-//! epoch's inflow reaches `Config.min_pot_threshold_lamports` (OTC desk-pot semantics). The 90%
-//! is credited to `Config.acc_per_weight`, so stakers settle every closed round in one claim.
+//! epoch's inflow reaches `Config.min_pot_threshold_lamports` (OTC desk-pot semantics). §A5
+//! split: 5% burn / 5% LP-pending / 90% $OTC leg. The $OTC leg's lamport-equivalent value is
+//! credited to `Config.acc_per_weight` (unchanged mechanic) and its SOL is earmarked in
+//! `OtcPotState.otc_pending_lamports` for `record_otc_buy`; `claim_yield` pays desks in $OTC
+//! at the pot's lifetime average buy rate, so stakers still settle every closed round in one
+//! claim.
 
 use anchor_lang::prelude::*;
 
@@ -40,6 +44,10 @@ pub struct FinalizeEpoch<'info> {
     pub pot: UncheckedAccount<'info>,
     #[account(mut, seeds = [SEED_BURN], bump = burn.bump)]
     pub burn: Account<'info, BurnState>,
+    #[account(mut, seeds = [SEED_OTC_POT], bump = otc_pot.bump)]
+    pub otc_pot: Account<'info, OtcPotState>,
+    #[account(mut, seeds = [SEED_TREASURY], bump = treasury_state.bump)]
+    pub treasury_state: Account<'info, TreasuryState>,
     pub system_program: Program<'info, System>,
 }
 
@@ -62,8 +70,10 @@ pub fn finalize_epoch(ctx: Context<FinalizeEpoch>, epoch_index: u64) -> Result<(
         HubError::PotBelowThreshold
     );
 
+    // §A5: 5% burn / 5% LP-pending / 90% $OTC leg (credited through the accumulator).
     let burn = bps_of(e.inflow_lamports, config.burn_pct_bp)?;
-    let distributable = sub(e.inflow_lamports, burn)?;
+    let lp = bps_of(e.inflow_lamports, config.lp_pct_bp)?;
+    let distributable = sub(sub(e.inflow_lamports, burn)?, lp)?;
     let (per_w, credited, slack) = round_credit(distributable, config.total_weight_bp)?;
     config.acc_per_weight = config
         .acc_per_weight
@@ -73,6 +83,7 @@ pub fn finalize_epoch(ctx: Context<FinalizeEpoch>, epoch_index: u64) -> Result<(
 
     e.total_weight_bp = config.total_weight_bp;
     e.burn_pending_lamports = burn;
+    e.lp_pending_lamports = lp;
     e.distributed_lamports = credited;
     e.rolled_forward_lamports = sub(distributable, credited)?;
     e.per_weight_scaled = per_w;
@@ -83,6 +94,12 @@ pub fn finalize_epoch(ctx: Context<FinalizeEpoch>, epoch_index: u64) -> Result<(
 
     let b = &mut ctx.accounts.burn;
     b.burn_pending_lamports = add(b.burn_pending_lamports, burn)?;
+
+    let op = &mut ctx.accounts.otc_pot;
+    op.otc_pending_lamports = add(op.otc_pending_lamports, credited)?;
+
+    let ts = &mut ctx.accounts.treasury_state;
+    ts.lp_pending_lamports = add(ts.lp_pending_lamports, lp)?;
 
     // The floor remainder stays pot liability and opens the next round.
     let n = &mut ctx.accounts.next_epoch;
@@ -99,6 +116,7 @@ pub fn finalize_epoch(ctx: Context<FinalizeEpoch>, epoch_index: u64) -> Result<(
         inflow_lamports: e.inflow_lamports,
         distributed_lamports: e.distributed_lamports,
         burn_pending_lamports: burn,
+        lp_pending_lamports: lp,
         rolled_forward_lamports: e.rolled_forward_lamports,
         total_weight_bp: e.total_weight_bp,
         per_weight_scaled: per_w,

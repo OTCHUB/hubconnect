@@ -62,7 +62,9 @@ pub struct TierVoided {
     pub forfeited_lamports: u64,
 }
 
-/// One claim settles every round closed since the tier's stamp.
+/// One claim settles every round closed since the tier's stamp. `lamports` is the
+/// lamport-equivalent entitlement settled; `otc_paid` is what actually left the vault, priced
+/// at the pot's lifetime average buy rate at the moment of this claim.
 #[event]
 pub struct YieldClaimed {
     pub asset: Pubkey,
@@ -70,6 +72,7 @@ pub struct YieldClaimed {
     pub epoch: u64,
     pub tier: u8,
     pub lamports: u64,
+    pub otc_paid: u64,
     pub acc_per_weight: u128,
 }
 
@@ -79,10 +82,22 @@ pub struct EpochFinalized {
     pub inflow_lamports: u64,
     pub distributed_lamports: u64,
     pub burn_pending_lamports: u64,
+    pub lp_pending_lamports: u64,
     pub rolled_forward_lamports: u64,
     pub total_weight_bp: u64,
     pub per_weight_scaled: u128,
     pub acc_per_weight: u128,
+}
+
+/// Keeper-attested $OTC buy, reimbursed from the pot up to `otc_pending_lamports` (mirrors
+/// `BurnRecorded`). `otc_bought` is deposited into `otc_vault` in the same tx.
+#[event]
+pub struct OtcBuyRecorded {
+    pub otc_bought: u64,
+    pub lamports_spent: u64,
+    pub otc_pending_after: u64,
+    pub total_otc_bought_units: u64,
+    pub total_lamports_spent: u64,
 }
 
 #[event]
