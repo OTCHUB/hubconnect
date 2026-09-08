@@ -12,15 +12,51 @@ and is resume-safe via an append-only journal (`keeper/<name>/journal/`, git-ign
 | Creator-fee flywheel        | `creator-fee/` | on demand           | `record_creator_fee` → `clear_creator_fees` (80/5/5/5/5, §A6.3) → per-leg `draw_creator_fee_leg` + Jupiter swap + `record_creator_fee_burn_result`/`_stack`/`_ops` or `build_lp_otc_locked` |
 
 Implementation lands in **M4**. Until then these directories hold only the service entrypoint
-stubs so CI wiring and env contracts are fixed early — except `creator-fee/` and `shared/`,
-whose **pure decision logic is implemented and unit-tested now** (no RPC/signing yet, same
-"pure logic first" split as `sweeper/src/arbitrage.ts`):
+stubs so CI wiring and env contracts are fixed early — except `creator-fee/`, `sweeper/`, and
+`shared/`, whose **pure decision logic is implemented and unit-tested now** (no RPC/signing yet,
+same "pure logic first" split):
 
 - `creator-fee/src/clear_cycle.ts` — clear-threshold gate + per-leg draw plans, including
   the LP leg's 50/50 OTC→HUB-swap / raw-OTC-deposit split.
+- `sweeper/src/arbitrage.ts` — sweep-vs-mint-vs-hold decision, gated by
+  `DESK_ACQUISITION_TARGET` below.
 - `shared/src/gas.ts` — the SOL gas-float watermarks below, reusable by any keeper.
+- `shared/src/gate.ts` — the auto-operate gate below, reusable by any keeper.
 
 Run `npm run test:keeper` to execute all keeper unit tests.
+
+## Auto-operate gate (`shared/src/gate.ts`)
+
+Every keeper cycle must pass **both** gates below before it does any on-chain work, checked
+fresh each run (never cached):
+
+1. **Gas float** (`checkGasFloat`, below) — the keeper's own hot wallet has enough SOL.
+2. **Operational gate** (`checkOperationalGate`) — `Config.paused == false` **and** the
+   $HUB mint authority has been revoked ("mint sealed", resolved off-chain via
+   `getMint(hubMint).mintAuthority === null` and passed in as `hubMintSealed`). This is the
+   concrete switch behind "let keepers run automatically once the protocol has started and
+   the $HUB mint is sealed" — before mint-seal, autonomous keeper spend against a still-mintable
+   supply is refused; after `set_paused(true)`, the very next cycle refuses too.
+
+**Passing the gate is necessary but not sufficient.** `register_treasury_inflow`,
+`record_creator_fee`, `build_lp`, and `build_lp_otc_locked` all require the transaction
+signer to literally be `Config.treasury` (`has_one = treasury`). The gate only decides
+whether a keeper _should_ attempt a cycle — whether it _can_ still depends on the operator
+handing the keeper process a key authorized to sign as `Config.treasury`. That key-custody
+decision (dedicated hot wallet vs. multisig bot-signer session key vs. manual co-sign) is
+made outside this program and is not expressed by any on-chain flag.
+
+## Desk acquisition target (`sweeper/src/arbitrage.ts`)
+
+`DESK_ACQUISITION_TARGET = 20` — the sweeper stops sweeping/minting once
+`TreasuryState.desks_owned` reaches this count, regardless of spread economics
+(`decideAcquisition` returns `hold` first, before even pricing the sweep-vs-mint choice).
+Keeper-side only, no on-chain enforcement (`TreasuryState.desks_owned` has no update
+mechanism on-chain yet either — it is set to 0 at `initialize_config` and never
+incremented by any instruction today, so this cap only binds once desk-count tracking is
+wired to a real inflow source). Deliberately conservative for the first operating window;
+raise it by passing a higher `deskTarget` once comfortable with observed sweep behavior —
+"until update config" in the sense of a keeper-side parameter change, not a program field.
 
 **Keeper SOL gas float** — separate from any SOL a keeper transiently passes through
 mid-cycle (e.g. `record_creator_fee_ops`'s post-swap SOL, which lands in

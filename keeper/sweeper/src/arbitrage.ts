@@ -17,6 +17,13 @@ export const ME_BUYER_COST_MULTIPLIER = 1 + 0.02 + 0.05;
 export const MINT_OTC_UNITS = 100_000n * 1_000_000n;
 /** §A2 — flat SOL surcharge per fresh desk mint (0.45 pot / 0.05 protocol). */
 export const MINT_SOL_LAMPORTS = 500_000_000;
+/** Launch-phase acquisition ceiling: the sweeper stops sweeping/minting once
+ *  `TreasuryState.desks_owned` reaches this many desks, regardless of how favorable the
+ *  spread looks. Keeper-side only — no on-chain enforcement, so raising it later is a
+ *  config/env change on this service, not a program upgrade. Deliberately conservative
+ *  for the first operating window; the authority raises it once comfortable with
+ *  observed sweep behavior. */
+export const DESK_ACQUISITION_TARGET = 20;
 
 export type AcquisitionInputs = {
   /** Cheapest verified-stocked floor listing right now, lamports; null = nothing listed. */
@@ -29,6 +36,11 @@ export type AcquisitionInputs = {
   treasuryOtcUnits: bigint;
   /** Minimum SOL the treasury must always retain — the reserve floor, never swapped away. */
   solReserveFloorLamports: number;
+  /** `TreasuryState.desks_owned`, read live on-chain. */
+  desksOwned: number;
+  /** Defaults to `DESK_ACQUISITION_TARGET`; pass a higher value once the authority
+   *  raises the ceiling. */
+  deskTarget?: number;
   mintOtcUnits?: bigint;
   mintSolLamports?: number;
   buyerCostMultiplier?: number;
@@ -60,10 +72,19 @@ export function decideAcquisition(inputs: AcquisitionInputs): AcquisitionPlan {
     treasurySolLamports,
     treasuryOtcUnits,
     solReserveFloorLamports,
+    desksOwned,
+    deskTarget = DESK_ACQUISITION_TARGET,
     mintOtcUnits = MINT_OTC_UNITS,
     mintSolLamports = MINT_SOL_LAMPORTS,
     buyerCostMultiplier = ME_BUYER_COST_MULTIPLIER,
   } = inputs;
+
+  if (desksOwned >= deskTarget) {
+    return {
+      action: "hold",
+      reason: `desk acquisition target reached (${desksOwned}/${deskTarget} owned) — raise deskTarget via config to resume sweeping/minting`,
+    };
+  }
 
   const sweepCost =
     floorListingLamports != null ? Math.ceil(floorListingLamports * buyerCostMultiplier) : null;
