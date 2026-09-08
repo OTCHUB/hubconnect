@@ -52,8 +52,9 @@ export function MainnetPreviewPanel() {
             Desks collection (
             <AddressLink address={OTC_DESKS_COLLECTION_MAINNET} cluster="mainnet-beta" />
             ). This is independent of the wallet connected above and of this app's connected cluster
-            — it is NOT that wallet's real holdings. Read-only; no tier/yield shown (the $HUB
-            program has no mainnet deployment yet).
+            — it is NOT that wallet's real holdings. Read-only; no tier/yield shown ($HUB's
+            mainnet-beta program is deployed but not yet initialized — no Config/tier data to read
+            until `initialize_config` runs).
           </div>
 
           <label className="flex flex-col gap-1 text-[10px] text-green-600">
