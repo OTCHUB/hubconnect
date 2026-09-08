@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { Dashboard, type DashboardProps } from "./routes/Dashboard";
 import { DeploymentsPage } from "./routes/DeploymentsPage";
 import { DeskPage } from "./routes/DeskPage";
+import { MechanicsPage } from "./routes/MechanicsPage";
 import { TokenomicsPage } from "./routes/TokenomicsPage";
 import { TreasuryPage } from "./routes/TreasuryPage";
 
@@ -12,6 +13,7 @@ export type HubRoutesProps = DashboardProps;
  *   ""              dashboard (metrics · round progress · yield table · wallet portfolio)
  *   "treasury"      treasury transparency panel
  *   "tokenomics"    supply allocation (on-chain TokenomicsConfig) · airdrop · Dexscreener payload
+ *   "mechanics"     activation lifecycle · fee flow · treasury flywheel · buyback/LP (Mermaid + docs)
  *   "deployments"   program / PDA / dependency registry with Solscan links
  *   "desk/:asset"   per-desk tier / consignment / unclaimed estimate
  */
@@ -21,6 +23,7 @@ export function HubRoutes(props: HubRoutesProps) {
       <Route index element={<Dashboard {...props} />} />
       <Route path="treasury" element={<TreasuryPage />} />
       <Route path="tokenomics" element={<TokenomicsPage />} />
+      <Route path="mechanics" element={<MechanicsPage />} />
       <Route path="deployments" element={<DeploymentsPage />} />
       <Route path="desk/:asset" element={<DeskPage />} />
       <Route path="*" element={<Navigate to=".." relative="route" replace />} />

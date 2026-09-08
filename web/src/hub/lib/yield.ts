@@ -92,3 +92,14 @@ export const baseInputs = (e: EpochView, config: ConfigView): ScenarioInputs => 
 
 /** §A6.1: warn owners before listing/consigning when unclaimed yield is material. */
 export const CONSIGN_WARN_LAMPORTS = 20_000_000;
+
+/**
+ * Yield boost vs the base (T1 TRADER, 1.00x) tier weight, as a whole percent — e.g. T3 DEALER
+ * (1.60x) ⇒ 60. 0 for T1 or an unrecognized tier (raw desks have no boost).
+ */
+export function yieldBoostPctOverBase(tier: number): number {
+  const base = TIER_WEIGHTS_BP[0] ?? BPS;
+  const w = TIER_WEIGHTS_BP[tier - 1];
+  if (!base || w == null) return 0;
+  return Math.round(((w - base) / base) * 100);
+}

@@ -1,7 +1,4 @@
 import {
-  ACC_SCALE,
-  TIER_NAMES,
-  TIER_WEIGHTS_BP,
   canFinalize,
   dustCarryLamports,
   effectiveInflowLamports,
@@ -11,8 +8,9 @@ import {
   type EpochView,
   type ProtocolState,
 } from "@hub-sdk";
-import { fmtDuration, fmtNum, fmtSol, fmtUtc } from "../lib/format";
+import { fmtNum, fmtSol, fmtUtc } from "../lib/format";
 import { distributableLamports } from "../lib/yield";
+import { RoundsList } from "./RoundsList";
 import { Panel, Row } from "./ui/Panel";
 
 function ProgressBar({ value }: { value: number }) {
@@ -50,39 +48,13 @@ function CurrentRound({ e, config }: { e: EpochView; config: ConfigView }) {
   );
 }
 
-function PreviousRound({ e }: { e: EpochView | null }) {
-  if (!e) {
-    return (
-      <Panel title="LAST CLOSED ROUND">
-        <div className="text-xs text-green-700">none yet — genesis round is still open.</div>
-      </Panel>
-    );
-  }
-  const took = e.finalizedTs > e.startTs ? fmtDuration(e.finalizedTs - e.startTs) : "—";
-  const perTier = TIER_WEIGHTS_BP.map(
-    (w, i) => `${TIER_NAMES[i]} ${fmtSol(Number((e.perWeightScaled * BigInt(w)) / ACC_SCALE), 4)}`,
-  ).join(" · ");
-  return (
-    <Panel title={`ROUND #${fmtNum(e.index)} · CLOSED`} right={`took ${took}`}>
-      <Row k="closed" v={fmtUtc(e.finalizedTs)} />
-      <Row k="inflow" v={fmtSol(e.inflowLamports)} />
-      <Row k="credited to stakers" v={fmtSol(e.distributedLamports)} />
-      <Row k="burn pending" v={fmtSol(e.burnPendingLamports)} />
-      <Row k="floor remainder" v={`${fmtNum(e.rolledForwardLamports)} lamports → next round`} />
-      <Row k="Σw at close" v={`${fmtNum(e.totalWeightBp)} bp`} />
-      <div className="mt-2 text-[10px] text-green-700">
-        paid per desk: {perTier} — claimable together with every other closed round in one tx.
-      </div>
-    </Panel>
-  );
-}
-
-/** §C3/§C4 supporting view — where the open round stands against the threshold and what the last one paid. */
+/** §C3/§C4 supporting view — where the open round stands against the threshold, plus the full
+ * closed-round history as an expandable list (newest first). */
 export function EpochTracker({ state }: { state: ProtocolState }) {
   return (
     <div className="grid gap-2 lg:grid-cols-2">
       <CurrentRound e={state.currentEpoch} config={state.config} />
-      <PreviousRound e={state.previousEpoch} />
+      <RoundsList config={state.config} />
     </div>
   );
 }

@@ -31,6 +31,7 @@ function Metric({
 
 function DeskRow({ desk }: { desk: OwnedDesk }) {
   const t = desk.tier;
+  const active = t && !t.voided;
   const tierLabel = t
     ? t.voided
       ? "VOIDED"
@@ -38,9 +39,30 @@ function DeskRow({ desk }: { desk: OwnedDesk }) {
     : "RAW · not activated";
   const tone = !t ? "text-green-700" : t.voided ? "text-red-400" : "text-cyan-300";
   return (
-    <div className="flex items-center justify-between gap-2 border border-green-500/15 px-2 py-1 text-xs">
+    <div className="flex items-center gap-2 border border-green-500/15 px-2 py-1 text-xs">
+      {desk.art?.image ? (
+        <img
+          src={desk.art.image}
+          alt={desk.art.name ?? "desk NFT"}
+          className="h-6 w-6 shrink-0 border border-green-500/30 bg-black object-cover"
+          loading="lazy"
+        />
+      ) : (
+        <span className="inline-block h-6 w-6 shrink-0 border border-green-500/15 bg-black" />
+      )}
       <AddressLink address={desk.asset} />
-      <span className={tone}>{tierLabel}</span>
+      <span className={`${tone} flex-1`}>{tierLabel}</span>
+      {active && (
+        <span className="hidden text-[10px] text-amber-400 sm:inline" title="yield boost vs T1">
+          {desk.yieldBoostPct > 0 ? `+${desk.yieldBoostPct}%` : "base"}
+        </span>
+      )}
+      <span
+        className="w-20 text-right text-green-400"
+        title="claimable rewards — pays out in one claim_yield"
+      >
+        {fmtSol(desk.pendingLamports, 4)}
+      </span>
       <a
         href={magicEdenItemUrl(desk.asset)}
         target="_blank"

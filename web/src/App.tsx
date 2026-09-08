@@ -1,7 +1,34 @@
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
-import { HubProvider, HubRoutes } from "./hub";
+import { HubProvider, HubRoutes, useHub } from "./hub";
 import { Header } from "./Header";
+import { Footer } from "./Footer";
+import { TerminalBottomBar, TerminalTopBar } from "./TerminalBars";
 import { shellConfig } from "./config";
+
+/** otchub's fixed top/bottom terminal bars + page footer — reads `cluster` from HubProvider, so
+ * it must render inside the provider (unlike `App`, which mounts it). */
+function AppShell() {
+  const { cluster } = useHub();
+  const statusText = `${cluster.toUpperCase().replace(/-/g, "_")}_LINK_ACTIVE`;
+  return (
+    <div className="crt min-h-screen bg-black pt-[34px] pb-[34px] font-mono text-green-400">
+      <TerminalTopBar label="HUB_TERMINAL" statusText={statusText} />
+      <div className="mx-auto max-w-6xl px-3 py-4">
+        <Header />
+        <main className="mt-3">
+          <Routes>
+            <Route path="/hub/*" element={<HubRoutes />} />
+            <Route path="*" element={<Navigate to="/hub" replace />} />
+          </Routes>
+        </main>
+        <Footer />
+      </div>
+      <TerminalBottomBar>
+        $HUB :: COMMUNITY_TOOLING :: NOT AFFILIATED WITH OTC DESKS
+      </TerminalBottomBar>
+    </div>
+  );
+}
 
 /** Standalone shell — mounts at `/hub/*`, the same path otchub will use inside its own router. */
 export function App() {
@@ -12,17 +39,7 @@ export function App() {
       cluster={shellConfig.cluster}
     >
       <BrowserRouter>
-        <div className="crt min-h-screen bg-black font-mono text-green-400">
-          <div className="mx-auto max-w-6xl px-3 py-4">
-            <Header />
-            <main className="mt-3">
-              <Routes>
-                <Route path="/hub/*" element={<HubRoutes />} />
-                <Route path="*" element={<Navigate to="/hub" replace />} />
-              </Routes>
-            </main>
-          </div>
-        </div>
+        <AppShell />
       </BrowserRouter>
     </HubProvider>
   );

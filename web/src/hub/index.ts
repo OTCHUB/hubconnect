@@ -21,6 +21,7 @@ export type { PayMethod, TierQuote, TierChangePhase, TierChangeResult } from "./
 export { TreasuryPortfolio } from "./components/TreasuryPortfolio";
 export { useTreasuryPortfolio } from "./hooks/useTreasuryPortfolio";
 export { TokenomicsPanel } from "./components/TokenomicsPanel";
+export { MechanicsPanel } from "./components/MechanicsPanel";
 export { PieChart } from "./components/ui/PieChart";
 export type { PieSlice } from "./components/ui/PieChart";
 export { useTokenomics } from "./hooks/useTokenomics";
@@ -33,7 +34,13 @@ export type { WalletSigner } from "./lib/wallets";
 export { getSignerForAddress } from "./lib/wallets";
 export type { SwapTransport, JupiterQuote, QuoteParams, TxLog } from "./lib/swap";
 export { jupiterLiteTransport } from "./lib/swap";
-export { magicEdenItemUrl, dexscreenerTokenUrl, DEFAULT_COLLECTION_URL } from "./lib/marketplace";
+export {
+  magicEdenItemUrl,
+  dexscreenerTokenUrl,
+  DEFAULT_COLLECTION_URL,
+  MAGIC_EDEN_COLLECTION_SLUG,
+} from "./lib/marketplace";
+export { yieldBoostPctOverBase } from "./lib/yield";
 export { DEPLOYMENTS, type Deployment } from "./lib/deployments";
 export type { Scenario } from "./lib/yield";
 export { ESTIMATE_LABEL } from "./components/YieldTable";

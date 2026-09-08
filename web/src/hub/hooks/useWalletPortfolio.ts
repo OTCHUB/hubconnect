@@ -1,9 +1,26 @@
 import { useQuery } from "@tanstack/react-query";
 import { PublicKey } from "@solana/web3.js";
-import { fetchDeskTier, fetchOwnedDesks, type DeskTierView, type ProtocolState } from "@hub-sdk";
+import {
+  fetchDeskTier,
+  fetchOwnedDesks,
+  pendingYieldLamports,
+  type DeskTierView,
+  type ProtocolState,
+} from "@hub-sdk";
 import { useHub } from "../HubProvider";
+import { fetchDeskArtBatch, type DeskAssetArt } from "../lib/das";
+import { yieldBoostPctOverBase } from "../lib/yield";
 
-export type OwnedDesk = { asset: string; tier: DeskTierView | null };
+export type OwnedDesk = {
+  asset: string;
+  tier: DeskTierView | null;
+  /** NFT artwork/name via DAS; null when the RPC has no DAS support or the lookup failed. */
+  art: DeskAssetArt | null;
+  /** ⌊(acc − stamp) × w / 10¹²⌋ right now — 0 for raw/voided desks. */
+  pendingLamports: number;
+  /** Whole-percent yield boost vs the base (T1) tier weight — 0 for raw/voided desks. */
+  yieldBoostPct: number;
+};
 
 export type WalletPortfolio = {
   solLamports: number;
@@ -40,8 +57,22 @@ export function useWalletPortfolio(address: string | null, state: ProtocolState 
               0,
             )
           : null;
-      const tiers = await Promise.all(assets.map((a) => fetchDeskTier(program, a)));
-      const desks = assets.map((a, i) => ({ asset: a.toBase58(), tier: tiers[i] }));
+      const assetKeys = assets.map((a) => a.toBase58());
+      const [tiers, artByAsset] = await Promise.all([
+        Promise.all(assets.map((a) => fetchDeskTier(program, a))),
+        fetchDeskArtBatch(connection.rpcEndpoint, assetKeys),
+      ]);
+      const desks: OwnedDesk[] = assetKeys.map((asset, i) => {
+        const tier = tiers[i];
+        const active = tier && !tier.voided;
+        return {
+          asset,
+          tier,
+          art: artByAsset[asset] ?? null,
+          pendingLamports: active ? pendingYieldLamports(tier, state!.config) : 0,
+          yieldBoostPct: active ? yieldBoostPctOverBase(tier.tier) : 0,
+        };
+      });
       return { solLamports, hubBalance, desks };
     },
   });

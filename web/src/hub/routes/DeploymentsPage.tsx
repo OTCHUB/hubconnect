@@ -170,15 +170,26 @@ export function DeploymentsPage() {
 
       <Panel title="DEPENDENCIES">
         <div className="space-y-2">
-          {DEPLOYMENTS.filter((d) => d.group === "deps").map((d) => (
-            <Entry
-              key={d.id}
-              {...d}
-              address={d.address[cluster]}
-              status={d.status[cluster]}
-              cluster={cluster}
-            />
-          ))}
+          {DEPLOYMENTS.filter((d) => d.group === "deps").map((d) => {
+            // Cross-check the static registry's mainnet collection mint against the live
+            // on-chain Config.desk_collection once the dashboard is actually reading mainnet.
+            const collectionCheck =
+              d.id === "otc-desks-collection" && cluster === "mainnet-beta" && showLive && config
+                ? config.deskCollection === d.address[cluster]
+                  ? "✓ VERIFIED — matches on-chain Config.desk_collection"
+                  : "⚠ MISMATCH vs on-chain Config.desk_collection"
+                : undefined;
+            return (
+              <Entry
+                key={d.id}
+                {...d}
+                address={d.address[cluster]}
+                status={d.status[cluster]}
+                cluster={cluster}
+                note={collectionCheck ?? d.note}
+              />
+            );
+          })}
         </div>
       </Panel>
       <Disclaimer />
