@@ -27,7 +27,7 @@ describe("M3 — LP", () => {
     await expectFail(call("hubSol"), "LpDisabled");
     await setConfig(h, f, "lpEnabled", { bool: [true] });
     await expectFail(call("hubOtc"), "LpPhase2Gated");
-    await expectFail(call("hubSol"), "NotImplemented");
+    await expectFail(call("hubSol"), "LpAccountsMissing");
     await setConfig(h, f, "lpEnabled", { bool: [false] });
   });
 });

@@ -80,9 +80,12 @@ describe("M2 — yield engine", () => {
       expect(t.ownerAtActivation.toBase58()).to.eq(owners[i].publicKey.toBase58());
       await assertSolvent(h, f);
     }
-    const { toOps, toPot } = K.splitFee(K.cumulativeFeeLamports(1 + 2 + 3 + 4));
-    expect((await balance(h, f.opsWallet)) - ops0).to.eq(toOps);
-    expect((await balance(h, f.pot)) - pot0).to.eq(toPot);
+    // Flat fee (§A4): every activate/upgrade call pays STEP_FEE_LAMPORTS once, regardless of
+    // tier or step size — 4 activations + 3 upgrades (i>0) = 7 fee-paying calls this loop.
+    const calls = 4 + 3;
+    const { toOps, toPot } = K.splitFee(K.STEP_FEE_LAMPORTS);
+    expect((await balance(h, f.opsWallet)) - ops0).to.eq(toOps * calls);
+    expect((await balance(h, f.pot)) - pot0).to.eq(toPot * calls);
     const c = await h.program.account.config.fetch(f.config);
     expect(c.totalWeightBp.toNumber() - weightBefore).to.eq(sumW);
   });
@@ -121,9 +124,10 @@ describe("M2 — yield engine", () => {
     expect(e.finalized).to.eq(true);
     expect(e.finalizedTs.toNumber()).to.be.gt(0);
     expect(e.burnPendingLamports.toNumber()).to.eq(burn);
-    // Zero-sum: inflow == burn + credited + floor remainder (≤ 1 lamport).
+    // Zero-sum: inflow == burn + lp-pending + credited + floor remainder (≤ 1 lamport).
     expect(
       e.burnPendingLamports.toNumber() +
+        e.lpPendingLamports.toNumber() +
         e.distributedLamports.toNumber() +
         e.rolledForwardLamports.toNumber(),
     ).to.eq(inflowTotal);
@@ -314,8 +318,9 @@ describe("M2 — $OTC payment path (§A4.1)", () => {
     h = await setup();
     f = await ensureInitialized(h);
     [otcPay] = otcPayPda(h.program.programId);
-    otcMint = await createSplMint(h, 6);
-    await setConfig(h, f, "otcMint", { pubkey: [otcMint] });
+    // Reuse the fixture's canonical $OTC mint (already wired to otc_pot/otc_vault at genesis)
+    // rather than swapping config.otc_mint — claim_yield reads the same field.
+    otcMint = f.otcMint;
     pol = ata(f.vault, otcMint);
     await h.provider.sendAndConfirm(
       new Transaction().add(createAtaIx(h.payer.publicKey, f.vault, otcMint)),
@@ -408,8 +413,10 @@ describe("M2 — $OTC payment path (§A4.1)", () => {
   });
 
   it("upgrade_tier_otc pays exactly the step difference in $OTC; non-step / maxed rejected", async () => {
+    // Flat fee (§A4): upgrade_tier_otc charges the same otc_fee(STEP_FEE_LAMPORTS) once,
+    // regardless of the 1→3 step size — same 1,000 OTC as any other call.
     const fee = K.otcFeeUnits(K.stepFeeLamports(1, 3), OTC_PER_SOL);
-    expect(fee).to.eq(2_000n * 10n ** 6n);
+    expect(fee).to.eq(1_000n * 10n ** 6n);
     const s0 = await snapshot();
     await expectFail(upgradeOtc(h, f, owners[0], desks[0], 1, otcAccounts[0]), "InvalidTierStep");
     await expectFail(upgradeOtc(h, f, owners[0], desks[0], 5, otcAccounts[0]), "InvalidTierStep");

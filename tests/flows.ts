@@ -1,8 +1,8 @@
 // Instruction wrappers + invariant checks shared by the M2/M3 suites.
 import { expect } from "chai";
 import * as anchor from "@anchor-lang/core";
-import { Keypair, PublicKey } from "@solana/web3.js";
-import { Harness, Fixture, TOKEN_PROGRAM_ID } from "./harness";
+import { Keypair, PublicKey, Transaction } from "@solana/web3.js";
+import { Harness, Fixture, TOKEN_PROGRAM_ID, ata, createAtaIx, mintTo, tokenBalance } from "./harness";
 import { epochPda, tierPda, otcPayPda } from "../sdk/src/pda";
 import * as K from "../sdk/src/constants";
 
@@ -24,9 +24,24 @@ export async function assertSolvent(h: Harness, f: Fixture) {
   expect(bal - rent, "pot ≥ liability").to.be.gte(c.potLiabilityLamports.toNumber());
 }
 
+/**
+ * Idempotently top up `owner`'s $HUB ATA with a flat surplus, comfortably above any single
+ * tier's cumulative cost (max T4 = 200k units), so activate/upgrade never run short.
+ */
+export async function ensureHubBalance(h: Harness, f: Fixture, owner: PublicKey) {
+  const acct = ata(owner, f.hubMint);
+  await h.provider.sendAndConfirm(
+    new Transaction().add(createAtaIx(h.payer.publicKey, owner, f.hubMint)),
+    [h.payer],
+  );
+  await mintTo(h, f.hubMint, acct, 1_000_000n * 10n ** 6n);
+  return acct;
+}
+
 export async function activate(h: Harness, f: Fixture, owner: Keypair, asset: PublicKey) {
   const { key: epoch } = await currentEpoch(h, f);
   const [deskTier] = tierPda(h.program.programId, asset);
+  const payerHub = await ensureHubBalance(h, f, owner.publicKey);
   await h.program.methods
     .activateTier(1)
     .accountsPartial({
@@ -36,6 +51,9 @@ export async function activate(h: Harness, f: Fixture, owner: Keypair, asset: Pu
       epoch,
       pot: f.pot,
       opsWallet: f.opsWallet,
+      hubMint: f.hubMint,
+      payerHub,
+      tokenProgram: TOKEN_PROGRAM_ID,
       deskTier,
     })
     .signers([owner])
@@ -52,6 +70,7 @@ export async function upgrade(
 ) {
   const { key: epoch } = await currentEpoch(h, f);
   const [deskTier] = tierPda(h.program.programId, asset);
+  const payerHub = await ensureHubBalance(h, f, owner.publicKey);
   return h.program.methods
     .upgradeTier(target)
     .accountsPartial({
@@ -61,6 +80,9 @@ export async function upgrade(
       epoch,
       pot: f.pot,
       opsWallet: f.opsWallet,
+      hubMint: f.hubMint,
+      payerHub,
+      tokenProgram: TOKEN_PROGRAM_ID,
       deskTier,
     })
     .signers([owner])
@@ -92,7 +114,7 @@ export function setOtcRate(h: Harness, f: Fixture, otcPerSol: number | bigint, e
     .rpc();
 }
 
-/** Accounts shared by both $OTC payment instructions (mint + POL reserve read from chain). */
+/** Accounts shared by both $OTC payment instructions (mints + POL reserve read from chain). */
 async function otcPayAccounts(h: Harness, f: Fixture) {
   const [otcPay] = otcPayPda(h.program.programId);
   const c = await h.program.account.config.fetch(f.config);
@@ -102,11 +124,13 @@ async function otcPayAccounts(h: Harness, f: Fixture) {
     otcPay,
     otcMint: c.otcMint,
     polAccount: p.polAccount,
+    hubMint: c.hubMint,
     tokenProgram: TOKEN_PROGRAM_ID,
   };
 }
 
-/** §A4.1 #16 — `activate_tier` paid in $OTC from `payerOtc` (owner's token account). */
+/** §A4.1 #16 — `activate_tier` paid in $OTC from `payerOtc` (owner's token account); the $HUB
+ * tier cost is still burned from `payerHub`, exactly like the SOL path. */
 export async function activateOtc(
   h: Harness,
   f: Fixture,
@@ -115,6 +139,7 @@ export async function activateOtc(
   payerOtc: PublicKey,
 ) {
   const [deskTier] = tierPda(h.program.programId, asset);
+  const payerHub = await ensureHubBalance(h, f, owner.publicKey);
   await h.program.methods
     .activateTierOtc(1)
     .accountsPartial({
@@ -122,6 +147,7 @@ export async function activateOtc(
       deskAsset: asset,
       ...(await otcPayAccounts(h, f)),
       payerOtc,
+      payerHub,
       deskTier,
     })
     .signers([owner])
@@ -129,7 +155,8 @@ export async function activateOtc(
   return deskTier;
 }
 
-/** §A4.1 #17 — `upgrade_tier` paid in $OTC from `payerOtc` (owner's token account). */
+/** §A4.1 #17 — `upgrade_tier` paid in $OTC from `payerOtc` (owner's token account); the $HUB
+ * cost delta is still burned from `payerHub`, exactly like the SOL path. */
 export async function upgradeOtc(
   h: Harness,
   f: Fixture,
@@ -139,6 +166,7 @@ export async function upgradeOtc(
   payerOtc: PublicKey,
 ) {
   const [deskTier] = tierPda(h.program.programId, asset);
+  const payerHub = await ensureHubBalance(h, f, owner.publicKey);
   return h.program.methods
     .upgradeTierOtc(target)
     .accountsPartial({
@@ -146,15 +174,17 @@ export async function upgradeOtc(
       deskAsset: asset,
       ...(await otcPayAccounts(h, f)),
       payerOtc,
+      payerHub,
       deskTier,
     })
     .signers([owner])
     .rpc();
 }
 
-/** Single-tx claim of everything the tier is owed across every closed round. */
+/** Single-tx claim of everything the tier is owed across every closed round (paid in $OTC). */
 export async function claim(h: Harness, f: Fixture, claimer: Keypair, asset: PublicKey) {
   const [deskTier] = tierPda(h.program.programId, asset);
+  const claimerOtc = await ensureOtcAccount(h, f, claimer.publicKey);
   return h.program.methods
     .claimYield()
     .accountsPartial({
@@ -163,8 +193,46 @@ export async function claim(h: Harness, f: Fixture, claimer: Keypair, asset: Pub
       config: f.config,
       deskTier,
       pot: f.pot,
+      otcPot: f.otcPot,
+      otcMint: f.otcMint,
+      otcVault: f.otcVault,
+      claimerOtc,
+      tokenProgram: TOKEN_PROGRAM_ID,
     })
     .signers([claimer])
+    .rpc();
+}
+
+/** Idempotently ensure `owner` has an ATA for the fixture's canonical $OTC mint. */
+export async function ensureOtcAccount(h: Harness, f: Fixture, owner: PublicKey) {
+  const acct = ata(owner, f.otcMint);
+  await h.provider.sendAndConfirm(
+    new Transaction().add(createAtaIx(h.payer.publicKey, owner, f.otcMint)),
+    [h.payer],
+  );
+  return acct;
+}
+
+/** §A5 keeper leg: fund `otc_vault` 1:1 (base units) against whatever finalize just credited,
+ * so `claim_yield`'s lifetime average buy rate stays 1 and lamport-denominated pending amounts
+ * translate directly into the $OTC amounts tests assert on. */
+export async function settleOtcPending(h: Harness, f: Fixture) {
+  const p = await h.program.account.otcPotState.fetch(f.otcPot);
+  const pending = p.otcPendingLamports.toNumber();
+  if (pending <= 0) return;
+  const sig = Array.from(Keypair.generate().secretKey);
+  await h.program.methods
+    .recordOtcBuy(bn(pending), bn(pending), sig)
+    .accountsPartial({
+      keeper: h.payer.publicKey,
+      config: f.config,
+      otcPot: f.otcPot,
+      otcMint: f.otcMint,
+      keeperOtc: f.keeperOtc,
+      otcVault: f.otcVault,
+      pot: f.pot,
+      tokenProgram: TOKEN_PROGRAM_ID,
+    })
     .rpc();
 }
 
@@ -188,11 +256,12 @@ export async function inflow(
     .rpc();
 }
 
-/** Raw finalize of `idx` (no waiting) — also used for negative cases. */
-export function finalizeIdx(h: Harness, f: Fixture, idx: number) {
+/** Raw finalize of `idx` (no waiting) — also used for negative cases. On success, immediately
+ * settles the round's $OTC leg (see `settleOtcPending`) so claims never hit `NoOtcPurchased`. */
+export async function finalizeIdx(h: Harness, f: Fixture, idx: number) {
   const [epoch] = epochPda(h.program.programId, idx);
   const [nextEpoch] = epochPda(h.program.programId, idx + 1);
-  return h.program.methods
+  const sig = await h.program.methods
     .finalizeEpoch(bn(idx))
     .accountsPartial({
       keeper: h.payer.publicKey,
@@ -203,6 +272,8 @@ export function finalizeIdx(h: Harness, f: Fixture, idx: number) {
       burn: f.burn,
     })
     .rpc();
+  await settleOtcPending(h, f);
+  return sig;
 }
 
 /** Open-round inflow the program will see at finalize (booked inflow + whole-lamport dust carry). */
@@ -243,15 +314,19 @@ export async function shareOfRound(h: Harness, idx: number, tier: number) {
 
 /**
  * Claim everything pending for `asset` in ONE transaction, asserting the payout equals the
- * accumulator math and that the stamp caught up. Returns lamports received (0 → no claim sent).
+ * accumulator math and that the stamp caught up. §A5: paid in $OTC, priced at `otc_pot`'s
+ * lifetime average buy rate — `settleOtcPending` keeps that rate at 1 in tests, so the $OTC
+ * amount received equals the lamport-denominated `pendingOf` value. Returns $OTC base units
+ * received (0 → no claim sent).
  */
 export async function claimPending(h: Harness, f: Fixture, owner: Keypair, asset: PublicKey) {
   const expected = await pendingOf(h, f, asset);
   if (expected === 0) return 0;
-  const b0 = await balance(h, owner.publicKey);
+  const claimerOtc = await ensureOtcAccount(h, f, owner.publicKey);
+  const b0 = await tokenBalance(h, claimerOtc);
   await claim(h, f, owner, asset);
-  const got = (await balance(h, owner.publicKey)) - b0;
-  expect(got, "single-tx claim").to.eq(expected);
+  const got = Number((await tokenBalance(h, claimerOtc)) - b0);
+  expect(got, "single-tx claim (paid in $OTC at the test's 1:1 buy rate)").to.eq(expected);
   const t = await h.program.account.deskTier.fetch(tierPda(h.program.programId, asset)[0]);
   const c = await h.program.account.config.fetch(f.config);
   expect(t.stampAccPerWeight.eq(c.accPerWeight), "stamp == acc").to.eq(true);

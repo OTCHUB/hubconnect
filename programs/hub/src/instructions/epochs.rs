@@ -59,7 +59,21 @@ pub fn finalize_epoch(ctx: Context<FinalizeEpoch>, epoch_index: u64) -> Result<(
         HubError::EpochNotCurrent
     );
 
-    // Whole lamports of dust (already pot liability, owed to nobody) re-enter as inflow.
+    // Whole lamports of dust re-enter as inflow. `dust_scaled` has two sources — round_credit's
+    // floor/ceiling slack, and §B3 #8 void_tier's forfeited pending — and neither needs (or may
+    // safely take) a fresh `pot_liability_lamports` credit here:
+    //   - slack's lamports were already booked as liability by `book_inflow` when the fee that
+    //     funded this round's inflow arrived; carrying it forward just defers which epoch's
+    //     `credited`/accumulator bucket it lands in.
+    //   - forfeited pending is a share of some past epoch's `credited` (also booked at
+    //     `book_inflow` time). By the time it's voided that liability is either (a) still live,
+    //     because `record_otc_buy` hasn't yet reimbursed that epoch's `otc_pending_lamports` in
+    //     full — already counted, or (b) already retired in bulk by `record_otc_buy` (which
+    //     subtracts a whole epoch's `credited` regardless of which desks actually claim) — in
+    //     which case the $OTC it would have paid is unclaimed surplus sitting in `otc_vault`,
+    //     not lamports sitting in the pot, so crediting it again here would manufacture
+    //     liability with no pot SOL behind it and eventually underflow a real reimbursement.
+    // Either way, `book_inflow`'s liability invariant already covers every lamport counted below.
     let carry = u64::try_from(config.dust_scaled / ACC_SCALE)
         .map_err(|_| error!(HubError::MathOverflow))?;
     config.dust_scaled %= ACC_SCALE;

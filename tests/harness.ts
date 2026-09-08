@@ -266,6 +266,16 @@ export type Fixture = {
   opsWallet: PublicKey;
   /** On test clusters the payer doubles as treasury + burn authority so it can sign. */
   treasury: Keypair;
+  /** Real SPL mint backing `config.hub_mint` — activate_tier/upgrade_tier burn from it. */
+  hubMint: PublicKey;
+  /** Real SPL mint backing `config.otc_mint` — the §A5 yield leg is paid out in this. */
+  otcMint: PublicKey;
+  /** `["otc_pot"]` — §A5 lifetime-average-buy-rate bookkeeping for `claim_yield`. */
+  otcPot: PublicKey;
+  /** Pot-owned $OTC token account `record_otc_buy` deposits into / `claim_yield` pays from. */
+  otcVault: PublicKey;
+  /** Payer's own $OTC account, funded once, used as the `record_otc_buy` source in tests. */
+  keeperOtc: PublicKey;
 };
 
 let fixture: Fixture | null = null;
@@ -276,7 +286,7 @@ let fixture: Fixture | null = null;
  */
 export async function ensureInitialized(h: Harness): Promise<Fixture> {
   if (fixture) return fixture;
-  const { configPda, potPda, burnPda, treasuryPda, vaultPda, epochPda } =
+  const { configPda, potPda, burnPda, treasuryPda, vaultPda, epochPda, otcPotPda } =
     await import("../sdk/src/pda");
   const id = h.program.programId;
   const [config] = configPda(id);
@@ -285,9 +295,12 @@ export async function ensureInitialized(h: Harness): Promise<Fixture> {
   const [treasuryState] = treasuryPda(id);
   const [vault] = vaultPda(id);
   const [epoch0] = epochPda(id, 0);
+  const [otcPot] = otcPotPda(id);
 
   const existing = await h.program.account.config.fetchNullable(config);
   if (existing) {
+    const otcVault = ata(pot, existing.otcMint);
+    const keeperOtc = ata(h.payer.publicKey, existing.otcMint);
     fixture = {
       config,
       pot,
@@ -297,12 +310,24 @@ export async function ensureInitialized(h: Harness): Promise<Fixture> {
       deskCollection: existing.deskCollection,
       opsWallet: existing.opsWallet,
       treasury: h.payer,
+      hubMint: existing.hubMint,
+      otcMint: existing.otcMint,
+      otcPot,
+      otcVault,
+      keeperOtc,
     };
     return fixture;
   }
 
   const deskCollection = await createDeskCollection(h);
   const opsWallet = Keypair.generate().publicKey;
+  // Real mints, not placeholder keys: activate_tier/upgrade_tier burn from hubMint, and
+  // claim_yield / record_otc_buy move real balances through otcMint's pot-owned vault.
+  const hubMint = await createSplMint(h, 6);
+  const otcMint = await createSplMint(h, 6);
+  const otcVault = ata(pot, otcMint);
+  const keeperOtc = ata(h.payer.publicKey, otcMint);
+
   await h.program.methods
     .initializeConfig({
       opsWallet,
@@ -310,12 +335,30 @@ export async function ensureInitialized(h: Harness): Promise<Fixture> {
       otcProgram: Keypair.generate().publicKey,
       otcDeskPot: Keypair.generate().publicKey,
       deskCollection,
-      hubMint: Keypair.generate().publicKey,
-      otcMint: Keypair.generate().publicKey,
+      hubMint,
+      otcMint,
       minPotThresholdLamports: new anchor.BN(h.thresholdLamports),
     })
     .accountsPartial({ payer: h.payer.publicKey, config, pot, burn, treasuryState, vault, epoch0 })
     .rpc();
+
+  // §A5 otc_pot bookkeeping: pot-owned vault + payer-as-keeper source account, then the
+  // one-time init that wires them together and appoints the payer as the buy-recording keeper.
+  await h.provider.sendAndConfirm(
+    new Transaction().add(
+      createAtaIx(h.payer.publicKey, pot, otcMint),
+      createAtaIx(h.payer.publicKey, h.payer.publicKey, otcMint),
+    ),
+    [h.payer],
+  );
+  await h.program.methods
+    .initOtcPot(h.payer.publicKey)
+    .accountsPartial({ authority: h.payer.publicKey, config, otcVault, otcPot })
+    .rpc();
+  // Deep $OTC supply so the keeper can always fund a 1:1 base-unit buy for every round's
+  // credited amount in tests (see flows.ts `settleOtcPending`).
+  await mintTo(h, otcMint, keeperOtc, 10_000_000_000_000n);
+
   fixture = {
     config,
     pot,
@@ -325,6 +368,11 @@ export async function ensureInitialized(h: Harness): Promise<Fixture> {
     deskCollection,
     opsWallet,
     treasury: h.payer,
+    hubMint,
+    otcMint,
+    otcPot,
+    otcVault,
+    keeperOtc,
   };
   return fixture;
 }
