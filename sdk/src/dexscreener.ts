@@ -57,7 +57,7 @@ const pct = (bp: number) => `${(bp / 100).toFixed(2)}%`;
 
 export type DexscreenerInputs = {
   state: ProtocolState;
-  /** On-chain plan when recorded; otherwise the live-desk-count preview. */
+  /** On-chain plan when recorded; otherwise the fixed launch-policy-target preview. */
   tokenomics: TokenomicsView | null;
   plan: TokenomicsPlan;
   links?: DexscreenerLink[];

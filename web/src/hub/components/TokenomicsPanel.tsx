@@ -36,6 +36,10 @@ export function TokenomicsPanel({ state }: { state: ProtocolState }) {
     );
   }
   const { onChain, collection, deskCount, deskCountSource, plan, dexscreener } = q.data!;
+  // Desk-collection growth (the "supply milestone" progress below) is always the live on-chain
+  // count — a separate thing from `deskCount`, which sizes the tokenomics split itself and is
+  // pinned to the fixed launch-policy target pre-snapshot (see useTokenomics.ts).
+  const liveDeskCount = collection?.currentSize ?? 0;
   const slices: PieSlice[] = plan.slices.map((s) => ({
     id: s.id,
     label: s.label,
@@ -44,7 +48,9 @@ export function TokenomicsPanel({ state }: { state: ProtocolState }) {
     amount: fmtHub(s.units, d),
     share: fmtBpPct(s.bp),
   }));
-  const source = onChain ? "on-chain · TokenomicsConfig" : "preview · init_tokenomics not run";
+  const source = onChain
+    ? "on-chain · TokenomicsConfig"
+    : "target · launch policy (§A3/A7.1), pre-snapshot";
   const claimedPct =
     onChain && onChain.airdropUnits > 0n
       ? Number((onChain.airdropClaimedUnits * 10_000n) / onChain.airdropUnits)
@@ -66,20 +72,18 @@ export function TokenomicsPanel({ state }: { state: ProtocolState }) {
             sub="minted once · authority revoked"
           />
           <Stat
-            label="desks"
+            label="desks (plan basis)"
             value={fmtNum(deskCount)}
             sub={
               deskCountSource === "snapshot"
                 ? `snapshot ${onChain ? fmtUtc(onChain.snapshotTs) : ""}`
-                : deskCountSource === "live"
-                  ? `live · ${fmtNum(collection?.numMinted ?? 0)} minted lifetime`
-                  : "collection unreadable"
+                : `target · launch policy cap (live: ${fmtNum(liveDeskCount)} today)`
             }
           />
           <Stat
             label="supply milestone"
-            value={`${deskMilestoneProgressPct(deskCount)}%`}
-            sub={`${fmtNum(deskCount)} → ${fmtNum(NEXT_DESK_SUPPLY_MILESTONE)} next · ${fmtNum(MAX_DESK_SUPPLY)} max`}
+            value={`${deskMilestoneProgressPct(liveDeskCount)}%`}
+            sub={`${fmtNum(liveDeskCount)} → ${fmtNum(NEXT_DESK_SUPPLY_MILESTONE)} next · ${fmtNum(MAX_DESK_SUPPLY)} max`}
           />
           <Stat
             label="airdrop pool"

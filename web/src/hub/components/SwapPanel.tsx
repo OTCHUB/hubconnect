@@ -30,9 +30,19 @@ const SLIPPAGE = [
   { label: "1%", bps: 100 },
   { label: "3%", bps: 300 },
 ];
+const QUICK = [
+  { label: "25%", frac: 0.25 },
+  { label: "50%", frac: 0.5 },
+  { label: "MAX", frac: 1 },
+] as const;
 const btn = "border px-2 py-1 text-[11px] disabled:opacity-30";
 
-/** SOL ↔ $HUB via Jupiter, styled after otchub's JupiterSwapPanel. Quotes are public; swapping needs a signer. */
+/**
+ * SOL ↔ $HUB via Jupiter — Uniswap-style stacked YOU PAY / YOU RECEIVE cards with a flip button,
+ * quick amounts and a collapsible slippage drawer (matches otchub's SwapCard layout), rendered in
+ * the same DOS-terminal aesthetic as the rest of the dashboard. Quotes are public; swapping needs
+ * a signer.
+ */
 export function SwapPanel({ state, address }: Props) {
   const { connection, cluster, swapTransport, resolveSigner } = useHub();
   const mint = state.config.hubMint;
@@ -41,6 +51,7 @@ export function SwapPanel({ state, address }: Props) {
   const [amount, setAmount] = useState("0.1");
   const [slipBps, setSlipBps] = useState(100);
   const [customSlip, setCustomSlip] = useState("");
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [quote, setQuote] = useState<JupiterQuote | null>(null);
   const [quoting, setQuoting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -70,6 +81,11 @@ export function SwapPanel({ state, address }: Props) {
   }
   const params = raw ? { inputMint, outputMint, amount: raw.toString(), slippageBps } : null;
   const inBal = balances.data ? (isBuy ? balances.data.solLamports : balances.data.hubUnits) : null;
+  const outBal = balances.data
+    ? isBuy
+      ? balances.data.hubUnits
+      : balances.data.solLamports
+    : null;
 
   // Debounced public quote; stale responses are dropped via the generation counter.
   useEffect(() => {
@@ -98,9 +114,14 @@ export function SwapPanel({ state, address }: Props) {
       m === "BUY" ? "0.1" : balances.data ? formatRawAmount(balances.data.hubUnits, dec) : "",
     );
   };
-  const max = () => {
-    if (!balances.data) return;
-    const v = isBuy ? balances.data.solLamports - SOL_FEE_RESERVE_LAMPORTS : balances.data.hubUnits;
+  const flip = () => reset(isBuy ? "SELL" : "BUY");
+  const quickAmount = (frac: number) => {
+    if (!balances.data || busy) return;
+    const avail = isBuy
+      ? balances.data.solLamports - SOL_FEE_RESERVE_LAMPORTS
+      : balances.data.hubUnits;
+    if (avail <= 0n) return;
+    const v = frac >= 1 ? avail : (avail * BigInt(Math.round(frac * 100))) / 100n;
     if (v > 0n) setAmount(formatRawAmount(v, inDec));
   };
 
@@ -130,8 +151,32 @@ export function SwapPanel({ state, address }: Props) {
   };
 
   const ticker = isBuy ? "$HUB" : "SOL";
+  const payToken = isBuy ? "SOL" : "$HUB";
+  const recvToken = isBuy ? "$HUB" : "SOL";
+  const slipLabel = customSlip
+    ? `${customSlip}%`
+    : (SLIPPAGE.find((s) => s.bps === slipBps)?.label ?? `${slipBps / 100}%`);
   return (
-    <Panel title={`SWAP :: ${isBuy ? "SOL → $HUB" : "$HUB → SOL"}`} right="POWERED BY JUPITER">
+    <Panel
+      title={`SWAP :: ${isBuy ? "SOL → $HUB" : "$HUB → SOL"}`}
+      right={
+        <div className="flex items-center gap-2">
+          <span className="hidden sm:inline">POWERED BY JUPITER</span>
+          <button
+            type="button"
+            onClick={() => setSettingsOpen((o) => !o)}
+            aria-expanded={settingsOpen}
+            className={`border px-1.5 py-0.5 text-[11px] ${
+              settingsOpen
+                ? "border-emerald-500/60 text-emerald-300"
+                : "border-green-500/30 text-green-500/60 hover:border-green-500/50"
+            }`}
+          >
+            [⚙ SLIP {slipLabel}]
+          </button>
+        </div>
+      }
+    >
       <div className="flex flex-wrap items-center gap-2 text-[11px]">
         <span className="text-green-600">CA</span>
         <AddressLink address={mint} label={shortKey(mint, 6)} />
@@ -159,77 +204,13 @@ export function SwapPanel({ state, address }: Props) {
           the {cluster} mint.
         </div>
       )}
-      <div className="mt-2 flex gap-1">
-        {(["BUY", "SELL"] as Mode[]).map((m) => (
-          <button
-            key={m}
-            type="button"
-            disabled={busy}
-            onClick={() => reset(m)}
-            className={`flex-1 border py-1 text-[12px] font-bold disabled:opacity-30 ${
-              mode === m
-                ? m === "BUY"
-                  ? "border-emerald-500/60 bg-emerald-500/10 text-emerald-300"
-                  : "border-cyan-400/60 bg-cyan-500/10 text-cyan-300"
-                : "border-green-500/30 text-green-500/60"
-            }`}
-          >
-            [{m} $HUB]
-          </button>
-        ))}
-      </div>
 
-      {address && (
-        <div className="mt-2 grid grid-cols-2 gap-1 text-[11px]">
-          <div className="flex justify-between border border-green-500/20 px-2 py-1">
-            <span className="text-green-600">SOL_BAL</span>
-            <span className="text-emerald-300">
-              {balances.data ? formatRawAmount(balances.data.solLamports, SOL_DECIMALS) : "…"}
-            </span>
+      {settingsOpen && (
+        <div className="mt-2 border border-green-500/20 p-2">
+          <div className="mb-1.5 text-[10px] uppercase tracking-widest text-green-600">
+            slippage tolerance
           </div>
-          <div className="flex justify-between border border-green-500/20 px-2 py-1">
-            <span className="text-green-600">$HUB_ATA_BAL</span>
-            <span className="text-emerald-300">
-              {balances.data ? formatRawAmount(balances.data.hubUnits, dec) : "…"}
-            </span>
-          </div>
-        </div>
-      )}
-
-      <div className="mt-2 border border-green-500/20 p-2">
-        <div className="flex items-center justify-between text-[10px] uppercase tracking-widest text-green-600">
-          <span>you pay ({isBuy ? "SOL" : "$HUB"})</span>
-          {inBal != null && inBal > 0n && (
-            <button
-              type="button"
-              onClick={max}
-              disabled={busy}
-              className={`${btn} border-cyan-400/40 text-cyan-300`}
-            >
-              [MAX]
-            </button>
-          )}
-        </div>
-        <input
-          value={amount}
-          onChange={(e) => {
-            setErr(null);
-            setAmount(e.target.value);
-          }}
-          disabled={busy}
-          inputMode="decimal"
-          aria-label="swap amount"
-          className="mt-1 w-full border border-green-500/30 bg-black px-2 py-1.5 text-sm text-green-300 outline-none focus:border-emerald-500/60 disabled:opacity-40"
-        />
-        {isBuy && (
-          <div className="mt-1 text-[10px] text-green-700">
-            MAX leaves {formatRawAmount(SOL_FEE_RESERVE_LAMPORTS, SOL_DECIMALS)} SOL for fees/rent.
-          </div>
-        )}
-        {inputError && <div className="mt-1 text-[11px] text-amber-400">{inputError}</div>}
-        <div className="mt-2 flex flex-wrap items-center justify-between gap-1">
-          <span className="text-[10px] uppercase tracking-widest text-green-600">slippage</span>
-          <div className="flex gap-1">
+          <div className="flex flex-wrap items-center gap-1">
             {SLIPPAGE.map((s) => (
               <button
                 key={s.bps}
@@ -245,7 +226,7 @@ export function SwapPanel({ state, address }: Props) {
                     : "border-green-500/30 text-green-500/60"
                 }`}
               >
-                {s.label}
+                [{s.label}]
               </button>
             ))}
             <input
@@ -257,27 +238,102 @@ export function SwapPanel({ state, address }: Props) {
             />
           </div>
         </div>
-      </div>
+      )}
 
-      <div className="mt-2 border border-green-500/20 p-2">
-        <div className="flex items-center justify-between text-[10px] uppercase tracking-widest text-green-600">
-          <span>you receive ({ticker})</span>
-          <span>{quoting ? "QUOTING…" : quote ? "LIVE QUOTE" : "—"}</span>
+      {/* YOU PAY */}
+      <div className="mt-2 border border-green-500/20 bg-green-500/5 p-2.5">
+        <div className="flex flex-wrap items-center justify-between gap-1 text-[10px] uppercase tracking-widest text-green-600">
+          <span>
+            you pay · bal {inBal != null ? formatRawAmount(inBal, inDec) : "…"} {payToken}
+          </span>
+          <span className="flex gap-1">
+            {QUICK.map((q) => (
+              <button
+                key={q.label}
+                type="button"
+                onClick={() => quickAmount(q.frac)}
+                disabled={busy || inBal == null || inBal <= 0n}
+                className={`${btn} border-cyan-400/40 text-cyan-300`}
+              >
+                [{q.label}]
+              </button>
+            ))}
+          </span>
         </div>
-        <div className="mt-1 text-sm font-bold text-emerald-400">
-          {quote ? formatRawAmount(BigInt(quote.outAmount), outDec) : "—"}{" "}
-          <span className="text-[11px] font-normal text-green-600">{ticker}</span>
+        <div className="mt-1.5 flex items-center gap-2">
+          <input
+            value={amount}
+            onChange={(e) => {
+              setErr(null);
+              setAmount(e.target.value);
+            }}
+            disabled={busy}
+            inputMode="decimal"
+            aria-label="swap amount"
+            placeholder="0.0"
+            className="min-w-0 flex-1 bg-transparent text-xl font-bold text-green-200 outline-none placeholder:text-green-500/25 disabled:opacity-40"
+          />
+          <span className="shrink-0 text-sm font-bold text-green-300">{payToken}</span>
         </div>
-        {quote && (
-          <div className="mt-1 space-y-0.5 text-[10px] text-green-600">
-            <div>
-              MIN_RECV {formatRawAmount(BigInt(quote.otherAmountThreshold), outDec)} {ticker}
-            </div>
-            <div>PRICE_IMPACT {(Number(quote.priceImpactPct ?? 0) * 100).toFixed(3)}%</div>
-            <div>ROUTE {quote.routePlan?.map((r) => r.swapInfo?.label).join(" → ") || "—"}</div>
+        {isBuy && (
+          <div className="mt-1 text-[10px] text-green-700">
+            MAX leaves {formatRawAmount(SOL_FEE_RESERVE_LAMPORTS, SOL_DECIMALS)} SOL for fees/rent.
           </div>
         )}
+        {inputError && <div className="mt-1 text-[11px] text-amber-400">{inputError}</div>}
       </div>
+
+      {/* flip direction */}
+      <div className="relative z-10 -my-2.5 flex justify-center">
+        <button
+          type="button"
+          onClick={flip}
+          disabled={busy}
+          aria-label="Switch swap direction"
+          className="border border-green-500/50 bg-black px-2 py-1 text-sm leading-none text-green-400 transition-transform hover:border-emerald-400/60 hover:text-emerald-300 active:rotate-180 disabled:opacity-40"
+        >
+          ⇅
+        </button>
+      </div>
+
+      {/* YOU RECEIVE */}
+      <div className="border border-green-500/20 bg-green-500/5 p-2.5">
+        <div className="flex flex-wrap items-center justify-between gap-1 text-[10px] uppercase tracking-widest text-green-600">
+          <span>
+            you receive · bal {outBal != null ? formatRawAmount(outBal, outDec) : "…"} {recvToken}
+          </span>
+          <span>{quoting ? "QUOTING…" : quote ? "LIVE QUOTE" : "—"}</span>
+        </div>
+        <div className="mt-1.5 flex items-center justify-between gap-2">
+          <span className="min-w-0 break-all text-xl font-bold text-emerald-400">
+            {quote ? formatRawAmount(BigInt(quote.outAmount), outDec) : quoting ? "…" : "0.0"}
+          </span>
+          <span className="shrink-0 text-sm font-bold text-green-300">{ticker}</span>
+        </div>
+      </div>
+
+      {quote && (
+        <div className="mt-2 space-y-0.5 border border-green-500/10 bg-green-500/5 px-2 py-1.5 text-[10px] text-green-600">
+          <div>
+            MIN_RECV{" "}
+            <span className="text-green-300">
+              {formatRawAmount(BigInt(quote.otherAmountThreshold), outDec)} {ticker}
+            </span>
+          </div>
+          <div>
+            PRICE_IMPACT{" "}
+            <span className="text-green-300">
+              {(Number(quote.priceImpactPct ?? 0) * 100).toFixed(3)}%
+            </span>
+          </div>
+          <div className="truncate">
+            ROUTE{" "}
+            <span className="text-green-300">
+              {quote.routePlan?.map((r) => r.swapInfo?.label).join(" → ") || "—"}
+            </span>
+          </div>
+        </div>
+      )}
 
       <button
         type="button"
