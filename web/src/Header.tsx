@@ -67,7 +67,7 @@ export function Header() {
         <div className="flex flex-wrap items-center gap-2">
           <img src="/hub-logo.png" alt="$HUB" className="h-6 w-6 border border-green-500/40" />
           <h1 className="text-sm font-bold uppercase tracking-widest text-green-400">
-            $HUB :: TREASURY DASHBOARD &amp; YIELD TRACKER
+            $HUB :: OTC Desks Yield Optimizer
             <span className="ml-1 inline-block animate-blink text-green-500">▋</span>
           </h1>
           <EnvBadge />

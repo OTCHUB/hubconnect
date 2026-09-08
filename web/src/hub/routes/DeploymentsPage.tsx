@@ -119,9 +119,20 @@ export function DeploymentsPage() {
     <div className="space-y-2 font-mono">
       <BackLink />
       <Panel title="DEPLOYMENTS :: $HUB PROGRAM REGISTRY" right={toggle}>
-        <div className="mb-2 text-[10px] text-green-700">
-          Links open solscan.io on <span className="text-green-400">{cluster}</span>. Dashboard is
-          reading <span className="text-green-400">{active}</span>.
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-[10px] text-green-700">
+          <span>
+            Links open solscan.io on <span className="text-green-400">{cluster}</span>. Dashboard is
+            reading <span className="text-green-400">{active}</span>.
+          </span>
+          <a
+            href="https://github.com/nodecattel/hubconnect"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 whitespace-nowrap border border-green-500/50 px-2 py-1 text-[10px] tracking-widest text-green-400 hover:bg-green-500/10"
+            title="hubconnect source on GitHub"
+          >
+            [SOURCE ↗]
+          </a>
         </div>
         <div className="space-y-2">
           {DEPLOYMENTS.filter((d) => d.group === "hub").map((d) => (

@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 // 1:1 port of otchub's fixed terminal frame bars (src/components/otc/TerminalBars.jsx) so the
 // $HUB dashboard reads as the same continuous terminal session as the rest of the otchub eco.
 export function TerminalTopBar({
-  label = "HUB_TERMINAL",
+  label = "$HUB :: OTC Desks Yield Optimizer",
   statusText = "LINK_ACTIVE",
   live = true,
 }: {
@@ -28,6 +28,15 @@ export function TerminalBottomBar({ children }: { children: ReactNode }) {
   return (
     <div className="fixed inset-x-0 bottom-0 z-50 border-t border-green-500/20 bg-black px-3 py-1.5 text-center font-mono text-[10px] text-green-500/40 sm:text-[11px]">
       {children}
+      {" · "}
+      <a
+        href="https://github.com/nodecattel/hubconnect"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="underline hover:text-green-500/70"
+      >
+        SOURCE ↗
+      </a>
     </div>
   );
 }

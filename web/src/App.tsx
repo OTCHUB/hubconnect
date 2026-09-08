@@ -12,7 +12,7 @@ function AppShell() {
   const statusText = `${cluster.toUpperCase().replace(/-/g, "_")}_LINK_ACTIVE`;
   return (
     <div className="crt min-h-screen max-w-[100vw] overflow-x-hidden bg-black pt-[34px] pb-[34px] font-mono text-green-400">
-      <TerminalTopBar label="HUB_TERMINAL" statusText={statusText} />
+      <TerminalTopBar label="$HUB :: OTC Desks Yield Optimizer" statusText={statusText} />
       <div className="mx-auto max-w-7xl px-3 py-4 sm:px-4 sm:py-6 xl:max-w-[1500px]">
         <Header />
         <main className="mt-3">
