@@ -53,7 +53,7 @@ pub struct RecordOtcBuy<'info> {
     /// deposit (the deposit itself is enforced on-chain below, not merely attested).
     #[account(mut)]
     pub keeper: Signer<'info>,
-    #[account(mut, seeds = [SEED_CONFIG], bump = config.bump)]
+    #[account(mut, seeds = [SEED_CONFIG], bump = config.bump, constraint = !config.paused @ HubError::Paused)]
     pub config: Account<'info, Config>,
     #[account(
         mut, seeds = [SEED_OTC_POT], bump = otc_pot.bump,

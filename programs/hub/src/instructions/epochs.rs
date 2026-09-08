@@ -290,7 +290,7 @@ pub struct RecordBurn<'info> {
     /// Must be `burn.authority`: fronts SOL for the market buy, reimbursed here on proof of burn.
     #[account(mut)]
     pub keeper: Signer<'info>,
-    #[account(mut, seeds = [SEED_CONFIG], bump = config.bump)]
+    #[account(mut, seeds = [SEED_CONFIG], bump = config.bump, constraint = !config.paused @ HubError::Paused)]
     pub config: Account<'info, Config>,
     #[account(
         mut, seeds = [SEED_BURN], bump = burn.bump,

@@ -193,7 +193,7 @@ pub enum CreatorFeeLeg {
 pub struct DrawCreatorFeeLeg<'info> {
     #[account(mut)]
     pub keeper: Signer<'info>,
-    #[account(seeds = [SEED_CONFIG], bump = config.bump)]
+    #[account(seeds = [SEED_CONFIG], bump = config.bump, constraint = !config.paused @ HubError::Paused)]
     pub config: Account<'info, Config>,
     #[account(
         mut, seeds = [SEED_CREATOR_FEE], bump = creator_fee_state.bump,
