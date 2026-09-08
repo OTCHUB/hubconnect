@@ -1,7 +1,9 @@
-// $HUB claim portal: `claim_yield` for every activated desk a wallet owns. Same reliability model
-// as otchub's OTC stock claim (otcClaim.js): every tx is SIMULATED unsigned first (a failing sim is
+// $OTC claim portal: `claim_yield` for every activated desk a wallet owns, paid in $OTC from the
+// keeper-fed vault (§A5 90% leg — see OtcPotView/otcDueForLamports). Same reliability model as
+// otchub's OTC stock claim (otcClaim.js): every tx is SIMULATED unsigned first (a failing sim is
 // dropped, no fee spent), one wallet prompt signs the whole passing batch, txs are broadcast and
-// then confirmed. The program enforces `claimer == desk owner`; the pot pays the claimer directly.
+// then confirmed. The program enforces `claimer == desk owner`; the $OTC vault PDA pays the
+// claimer's standard ATA directly.
 import {
   ComputeBudgetProgram,
   Connection,
@@ -17,7 +19,9 @@ import {
   potPda,
   tierPda,
   TOKEN_PROGRAM_ID,
+  type ConfigView,
   type HubProgram,
+  type OtcPotView,
 } from "@hub-sdk";
 import type { TxLog } from "./swap";
 import type { WalletSigner } from "./wallets";
@@ -25,24 +29,24 @@ import type { WalletSigner } from "./wallets";
 export type ClaimPhase = "build" | "sim" | "sign" | "send" | "confirm";
 export type ClaimResult = { asset: string; ok: boolean; sig?: string; reason?: string };
 
-const CU_LIMIT = 300_000;
+const CU_LIMIT = 400_000;
 const CU_PRICE_MICRO = 10_000;
-/**
- * Legacy tx message budget; claim_yield now pays the $OTC leg via `transfer_checked` (11
- * accounts, incl. the token program), so a smaller batch than the old SOL-only path keeps
- * every packed tx well under 1232 B once the shared accounts (config/pot/otcPot/otcMint/
- * otcVault/claimerOtc) are deduped by the message compiler.
- */
+/** Legacy tx message budget; claim_yield now CPIs into the token program (11 accounts, several
+ * shared across ixs in the same tx), so 3 per tx stays well under 1232 B. */
 const MAX_IXS_PER_TX = 3;
+const SYSTEM_PROGRAM = new PublicKey("11111111111111111111111111111111");
 
-/** Unsigned `claim_yield` instruction — built through the read-only Anchor reader (no provider wallet). */
+/** Unsigned `claim_yield` instruction — built through the read-only Anchor reader (no provider
+ * wallet). `otcPot` must be provisioned (§A5 90% leg) — the caller should guard on this first. */
 export async function buildClaimYieldIx(
   program: HubProgram,
   claimer: PublicKey,
   deskAsset: PublicKey,
-  otc: { mint: PublicKey; vault: PublicKey },
+  config: ConfigView,
+  otcPot: OtcPotView,
 ): Promise<TransactionInstruction> {
   const id = program.programId;
+  const otcMint = new PublicKey(config.otcMint);
   return program.methods
     .claimYield()
     .accountsStrict({
@@ -52,73 +56,91 @@ export async function buildClaimYieldIx(
       deskTier: tierPda(id, deskAsset)[0],
       pot: potPda(id)[0],
       otcPot: otcPotPda(id)[0],
-      otcMint: otc.mint,
-      otcVault: otc.vault,
-      claimerOtc: ataPda(claimer, otc.mint)[0],
+      otcMint,
+      otcVault: new PublicKey(otcPot.otcVault),
+      claimerOtc: ataPda(claimer, otcMint)[0],
       tokenProgram: new PublicKey(TOKEN_PROGRAM_ID),
-      systemProgram: new PublicKey("11111111111111111111111111111111"),
+      systemProgram: SYSTEM_PROGRAM,
     })
     .instruction();
 }
 
+/** Splits `assets`/`ixs` into fixed-size groups — the first group shrinks to make room for the
+ * $OTC ATA-create-idempotent preamble (only ever needed once, in the first tx). */
+function groupBatches<T>(items: T[], preambleLen: number): T[][] {
+  const groups: T[][] = [];
+  const firstBatch = Math.max(1, MAX_IXS_PER_TX - preambleLen);
+  for (let i = 0; i < items.length; ) {
+    const batch = groups.length === 0 ? firstBatch : MAX_IXS_PER_TX;
+    groups.push(items.slice(i, i + batch));
+    i += batch;
+  }
+  return groups;
+}
+
 /**
- * The claimer's $OTC ATA is never created by the program (§B3, `require_token_account` only
- * checks mint/owner on an existing account) — prepend a `CreateIdempotent` to EVERY packed tx
- * (not just the first) since all txs are simulated against the same pre-landing state.
+ * One `Transaction` per group of claim ixs; `preamble` (the $OTC ATA-create-idempotent ix, if
+ * needed) rides along in the first tx only.
  */
 function packTxs(
-  ixs: TransactionInstruction[],
+  ixGroups: TransactionInstruction[][],
+  preamble: TransactionInstruction[],
   payer: PublicKey,
   blockhash: string,
-  ataIx: TransactionInstruction,
 ) {
-  const txs: Transaction[] = [];
-  for (let i = 0; i < ixs.length; i += MAX_IXS_PER_TX) {
+  return ixGroups.map((group, i) => {
     const tx = new Transaction({ feePayer: payer, recentBlockhash: blockhash });
     tx.add(
       ComputeBudgetProgram.setComputeUnitLimit({ units: CU_LIMIT }),
       ComputeBudgetProgram.setComputeUnitPrice({ microLamports: CU_PRICE_MICRO }),
-      ataIx,
-      ...ixs.slice(i, i + MAX_IXS_PER_TX),
+      ...(i === 0 ? preamble : []),
+      ...group,
     );
-    txs.push(tx);
-  }
-  return txs;
+    return tx;
+  });
 }
 
 /**
- * Claim yield for `assets` (one ix each, packed per tx). Sim → one signAll prompt → send →
- * confirm. Results are per asset; a dropped tx marks all of its assets failed.
+ * Claim yield for `assets` (one ix each, packed `MAX_IXS_PER_TX` per tx, plus a one-time $OTC ATA
+ * preamble). Sim → one signAll prompt → send → confirm. Results are per asset; a dropped tx marks
+ * all of its assets failed. Requires the §A5 90% leg to be provisioned (`otcPot` non-null) and to
+ * have recorded at least one buy — mirrors on-chain `NoOtcPurchased`.
  */
 export async function executeClaimYield(opts: {
   connection: Connection;
   program: HubProgram;
   signer: WalletSigner;
   assets: string[];
+  config: ConfigView;
+  otcPot: OtcPotView | null;
   onLog: (l: TxLog) => void;
   onPhase?: (p: ClaimPhase) => void;
 }): Promise<ClaimResult[]> {
-  const { connection, program, signer, assets, onLog, onPhase } = opts;
+  const { connection, program, signer, assets, config, otcPot, onLog, onPhase } = opts;
   const claimer = new PublicKey(signer.publicKey);
   const results: ClaimResult[] = [];
   if (!assets.length) return results;
+  if (!otcPot || otcPot.totalLamportsSpent <= 0) {
+    const reason = !otcPot
+      ? "$OTC yield vault not provisioned yet"
+      : "keeper hasn't recorded an $OTC buy yet";
+    onLog({ type: "err", msg: `ABORT: ${reason}` });
+    return assets.map((asset) => ({ asset, ok: false, reason }));
+  }
 
   onPhase?.("build");
-  const id = program.programId;
-  const [configKey] = configPda(id);
-  const [otcPotKey] = otcPotPda(id);
-  const [config, otcPot] = await Promise.all([
-    program.account.config.fetch(configKey),
-    program.account.otcPotState.fetch(otcPotKey),
-  ]);
-  const otc = { mint: config.otcMint as PublicKey, vault: otcPot.otcVault as PublicKey };
-  const ataIx = createAtaIdempotentIx(claimer, claimer, otc.mint);
+  const otcMint = new PublicKey(config.otcMint);
+  const [claimerOtc] = ataPda(claimer, otcMint);
+  const otcAtaInfo = await connection.getAccountInfo(claimerOtc, "confirmed");
+  const preamble = otcAtaInfo ? [] : [createAtaIdempotentIx(claimer, claimer, otcMint)];
   const ixs = await Promise.all(
-    assets.map((a) => buildClaimYieldIx(program, claimer, new PublicKey(a), otc)),
+    assets.map((a) => buildClaimYieldIx(program, claimer, new PublicKey(a), config, otcPot)),
   );
   const bh = await connection.getLatestBlockhash("confirmed");
-  const txs = packTxs(ixs, claimer, bh.blockhash, ataIx);
-  const assetsOf = (i: number) => assets.slice(i * MAX_IXS_PER_TX, (i + 1) * MAX_IXS_PER_TX);
+  const ixGroups = groupBatches(ixs, preamble.length);
+  const assetGroups = groupBatches(assets, preamble.length);
+  const txs = packTxs(ixGroups, preamble, claimer, bh.blockhash);
+  const assetsOf = (i: number) => assetGroups[i] ?? [];
   onLog({ type: "info", msg: `CLAIM :: ${assets.length} desk(s) in ${txs.length} tx(s)` });
 
   onPhase?.("sim");

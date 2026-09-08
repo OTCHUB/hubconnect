@@ -50,11 +50,13 @@ export function ActivatePanel({ address, state, desks, onChanged }: Props) {
   const [err, setErr] = useState<string | null>(null);
 
   const otcPay = otcPayQ.data ?? null;
+  const otcPot = state.otcPot;
   const rows = desks.filter((d) => currentTier(d) < MAX_TIER);
   const desk = rows.find((d) => d.asset === asset) ?? rows[0] ?? null;
   const fromTier = desk ? currentTier(desk) : 0;
   const pending =
     desk?.tier && !desk.tier.voided ? pendingYieldLamports(desk.tier, state.config) : 0;
+  const claimBlocked = pending > 0 && (!otcPot || otcPot.totalLamportsSpent <= 0);
   const signer = resolveSigner(address);
   const otcDecimals = balances.data?.otcDecimals ?? OTC_DECIMALS;
 
@@ -96,6 +98,8 @@ export function ActivatePanel({ address, state, desks, onChanged }: Props) {
     if (method === "otc" && !quote.otcAvailable)
       return setErr(`$OTC payment unavailable: ${quote.otcUnavailableReason}`);
     if (hubShort) return setErr("insufficient $HUB balance for this activation's burn cost");
+    if (claimBlocked)
+      return setErr("pending yield must settle first, but the $OTC yield vault isn't funded yet");
     setBusy(true);
     setLogs([]);
     const res = await executeTierChange({
@@ -108,6 +112,7 @@ export function ActivatePanel({ address, state, desks, onChanged }: Props) {
       method,
       config: state.config,
       otcPay,
+      otcPot,
       pendingLamports: pending,
       onLog: (l) => setLogs((p) => [...p, l]),
       onPhase: setPhase,
@@ -296,7 +301,9 @@ export function ActivatePanel({ address, state, desks, onChanged }: Props) {
             <button
               type="button"
               onClick={run}
-              disabled={busy || !hasQuote || hubShort || (method === "otc" && !otcAvailable)}
+              disabled={
+                busy || !hasQuote || hubShort || claimBlocked || (method === "otc" && !otcAvailable)
+              }
               className={`${btn} border-emerald-500/60 font-bold text-emerald-300 hover:bg-emerald-500/10`}
             >
               {runLabel}
@@ -305,6 +312,12 @@ export function ActivatePanel({ address, state, desks, onChanged }: Props) {
               {shortKey(desk.asset, 6)} · T{fromTier} → T{toTier}
             </span>
           </div>
+          {claimBlocked && (
+            <div className="mt-1 text-[11px] text-amber-400">
+              this desk has {fmtSol(pending, 4)} pending yield that must settle first, but the $OTC
+              yield vault isn't funded yet — try again once the keeper has recorded a buy.
+            </div>
+          )}
         </>
       )}
       {!signer && (

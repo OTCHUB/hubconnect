@@ -1,10 +1,10 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { TIER_NAMES, pendingYieldLamports, type ProtocolState } from "@hub-sdk";
+import { otcDueForLamports, pendingYieldLamports, TIER_NAMES, type ProtocolState } from "@hub-sdk";
 import { useHub } from "../HubProvider";
 import type { OwnedDesk } from "../hooks/useWalletPortfolio";
 import { executeClaimYield, type ClaimPhase } from "../lib/claim";
-import { fmtNum, fmtSol } from "../lib/format";
+import { fmtNum, fmtSol, fmtUnits } from "../lib/format";
 import { magicEdenItemUrl } from "../lib/marketplace";
 import type { TxLog } from "../lib/swap";
 import { AddressLink } from "./ui/AddressLink";
@@ -13,9 +13,12 @@ import { TxLogView } from "./ui/TxLogView";
 
 type Props = { address: string; state: ProtocolState; desks: OwnedDesk[]; onClaimed?: () => void };
 
+/** $OTC mint decimals fallback when no ATA balance has been fetched to read the real value from. */
+const OTC_DECIMALS = 6;
+
 const btn = "border px-2.5 py-1 text-[12px] disabled:opacity-30";
 
-/** CLAIM_PORTAL — `claim_yield` for the wallet's activated desks (SOL from the pot, one prompt). */
+/** CLAIM_PORTAL — `claim_yield` for the wallet's activated desks, paid in $OTC (§A5 90% leg). */
 export function ClaimPanel({ address, state, desks, onClaimed }: Props) {
   const { connection, program, resolveSigner } = useHub();
   const qc = useQueryClient();
@@ -25,12 +28,15 @@ export function ClaimPanel({ address, state, desks, onClaimed }: Props) {
   const [logs, setLogs] = useState<TxLog[]>([]);
   const [err, setErr] = useState<string | null>(null);
 
+  const otcPot = state.otcPot;
+  const otcReady = !!otcPot && otcPot.totalLamportsSpent > 0;
   const rows = desks
     .filter((d) => d.tier && !d.tier.voided)
     .map((d) => ({ ...d, pending: pendingYieldLamports(d.tier!, state.config) }))
     .sort((a, b) => b.pending - a.pending);
   const claimable = rows.filter((r) => r.pending > 0);
   const totalPending = claimable.reduce((s, r) => s + r.pending, 0);
+  const totalOtcDue = otcDueForLamports(totalPending, otcPot);
   const signer = resolveSigner(address);
 
   const toggle = (a: string) =>
@@ -44,6 +50,12 @@ export function ClaimPanel({ address, state, desks, onClaimed }: Props) {
   const run = async () => {
     setErr(null);
     if (!signer) return setErr("read-only address — connect the wallet itself to sign claims");
+    if (!otcReady)
+      return setErr(
+        !otcPot
+          ? "$OTC yield vault not provisioned yet — nothing to claim into"
+          : "keeper hasn't recorded an $OTC buy yet — try again shortly",
+      );
     const targets = (
       selected.size ? claimable.filter((r) => selected.has(r.asset)) : claimable
     ).map((r) => r.asset);
@@ -55,6 +67,8 @@ export function ClaimPanel({ address, state, desks, onClaimed }: Props) {
       program,
       signer,
       assets: targets,
+      config: state.config,
+      otcPot,
       onLog: (l) => setLogs((p) => [...p, l]),
       onPhase: setPhase,
     });
@@ -119,7 +133,7 @@ export function ClaimPanel({ address, state, desks, onClaimed }: Props) {
         <button
           type="button"
           onClick={run}
-          disabled={busy || !claimable.length}
+          disabled={busy || !claimable.length || !otcReady}
           className={`${btn} border-emerald-500/60 font-bold text-emerald-300 hover:bg-emerald-500/10`}
         >
           {busy
@@ -137,8 +151,9 @@ export function ClaimPanel({ address, state, desks, onClaimed }: Props) {
           [CLEAR]
         </button>
         <span className="text-[11px] text-green-600">
-          pending total {fmtSol(totalPending, 4)} · 1 wallet prompt · ~
-          {Math.ceil(claimable.length / 4) || 0} tx
+          pending total {fmtSol(totalPending, 4)}
+          {totalOtcDue != null ? ` ≈ ${fmtUnits(totalOtcDue, OTC_DECIMALS)} $OTC` : ""} · 1 wallet
+          prompt · ~{Math.ceil(claimable.length / 3) || 0} tx
         </span>
       </div>
       {!signer && (
@@ -146,11 +161,19 @@ export function ClaimPanel({ address, state, desks, onClaimed }: Props) {
           read-only address — connect the wallet itself (WALLET_CONNECT) to sign claims.
         </div>
       )}
+      {signer && !otcReady && (
+        <div className="mt-1 text-[10px] text-amber-400/80">
+          {!otcPot
+            ? "$OTC yield vault not provisioned yet — claim_yield will revert until it is."
+            : "keeper hasn't recorded an $OTC buy yet — claim_yield will revert until it does."}
+        </div>
+      )}
       {err && <div className="mt-2 text-[11px] text-amber-400">ERR: {err}</div>}
       <TxLogView logs={logs} />
       <div className="mt-2 text-[10px] text-green-700">
-        pending = ⌊(acc − stamp) × w / 10¹²⌋, paid from the pot PDA to the claimer. Each tx is
-        simulated unsigned first; a failing sim is dropped with no fee spent.
+        pending = ⌊(acc − stamp) × w / 10¹²⌋ lamport-equivalent, paid in $OTC from the keeper-fed
+        vault at the pot's lifetime average buy rate. Each tx is simulated unsigned first; a
+        failing sim is dropped with no fee spent.
       </div>
     </Panel>
   );
