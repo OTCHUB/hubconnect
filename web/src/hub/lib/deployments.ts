@@ -43,6 +43,10 @@ const HUB_MAINNET: string | null = null;
 /** Anchor 1.x writes the IDL to a Program Metadata account — written at devnet deploy. */
 const HUB_IDL_DEVNET = "GSw7mRX3gsHEYsEvH8Gr8vWoDYkabT3PzAUsznqx7dxi";
 const OTC_PROGRAM_MAINNET = "AjMx5My4YUDHMiCtLpTAtgkiUJgrpJnQqd5AcQnddHQW";
+/** OTC Desks pot wallet — read from otcdesks.cash/docs on-chain links, 2026-09-08. This is the
+ *  `otc_desk_pot` value `initialize_config` needs on mainnet (Config.otcDeskPot mirrors it once
+ *  set); exported so the mainnet init script can import it instead of hardcoding it inline. */
+export const OTC_DESK_POT_MAINNET = "BZcvtxDy4WihU24k3pezzajuiqYtTUHPfH7b5m26BucR";
 /** "OTC Desks" Core collection — read from the OTC Config (9b5V…REU4) on mainnet, 2026-09-07.
  *  Exported for the explicit, clearly-labeled "Mainnet preview" lookup (MainnetPreviewPanel.tsx) —
  *  the only place this is used outside this registry. Never wired into the connected wallet's
