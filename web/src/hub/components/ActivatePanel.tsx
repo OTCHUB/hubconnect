@@ -249,6 +249,11 @@ export function ActivatePanel({ address, state, desks, onChanged }: Props) {
             </div>
           )}
 
+          {hasQuote && !busy && (
+            <div className="mt-2 text-[10px] uppercase tracking-widest text-emerald-400/70">
+              activation ready — press the big green button.
+            </div>
+          )}
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <button
               type="button"

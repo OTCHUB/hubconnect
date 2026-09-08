@@ -64,13 +64,23 @@ export function Header() {
   return (
     <header className="sticky top-[34px] z-40 border border-green-500/30 bg-black">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-green-500/30 px-3 py-2">
-        <div className="flex flex-wrap items-center gap-2">
-          <img src="/hub-logo.png" alt="$HUB" className="h-6 w-6 border border-green-500/40" />
-          <h1 className="text-sm font-bold uppercase tracking-widest text-green-400">
-            $HUB :: OTC Desks Yield Optimizer
-            <span className="ml-1 inline-block animate-blink text-green-500">▋</span>
-          </h1>
-          <EnvBadge />
+        <div className="flex flex-col gap-0.5">
+          <div className="flex flex-wrap items-center gap-2">
+            <img
+              src="/hub-logo.png"
+              alt="$HUB"
+              className="h-6 w-6 cursor-help border border-green-500/40"
+              title="H.U.B. — Headquarters for Unhinged Brokers"
+            />
+            <h1 className="text-sm font-bold uppercase tracking-widest text-green-400">
+              $HUB :: OTC Desks Yield Optimizer
+              <span className="ml-1 inline-block animate-blink text-green-500">▋</span>
+            </h1>
+            <EnvBadge />
+          </div>
+          <p className="pl-8 text-[10px] uppercase tracking-widest text-green-500/50">
+            the big green button of OTC Desks.
+          </p>
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
           <a
