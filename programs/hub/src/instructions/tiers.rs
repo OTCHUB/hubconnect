@@ -385,7 +385,7 @@ pub(crate) fn void_tier(
     let (forfeited, frac) = pending_yield(config.acc_per_weight, t.stamp_acc_per_weight, w)?;
     add_dust(config, (forfeited as u128) * ACC_SCALE + frac)?;
     t.stamp_acc_per_weight = config.acc_per_weight;
-    config.total_weight_bp = config.total_weight_bp.saturating_sub(w);
+    config.total_weight_bp = sub(config.total_weight_bp, w)?;
     t.voided = true;
     emit!(TierVoided {
         asset: t.asset_id,

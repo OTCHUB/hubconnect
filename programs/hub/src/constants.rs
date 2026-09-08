@@ -37,6 +37,13 @@ pub const TIER_HUB_COST_UNITS: [u64; TIER_COUNT] = [
 pub const BURN_PCT_BP: u16 = 500;
 /// LP_BUILD_PCT = 5% of every pot inflow, earmarked for the $HUB/$OTC LP (phase-2 `build_lp`).
 pub const LP_PCT_BP: u16 = 500;
+/// Compile-time guard: the two fixed legs must never exceed 100% — `finalize_epoch` derives
+/// the remaining OTC-buy leg as `inflow - burn - lp`, which would underflow-panic (or, worse,
+/// silently misbehave if that subtraction were ever changed to an unchecked op) otherwise.
+const _: () = assert!(
+    (BURN_PCT_BP as u64) + (LP_PCT_BP as u64) <= BPS_DENOMINATOR,
+    "round split (BURN_PCT_BP + LP_PCT_BP) exceeds 100%"
+);
 
 /// MIN_POT_THRESHOLD = 0.1 SOL. A round (epoch) closes as soon as its inflow reaches this —
 /// the same trigger the OTC desk pot uses ("the moment the pot clears 0.1 SOL it is spent").
@@ -90,6 +97,18 @@ pub const CREATOR_FEE_OPS_BP: u16 = 500;
 /// Default clearing threshold: 1,000 $OTC (assumes the pump.fun-standard 6 decimals; the
 /// authority may retune via `init_creator_fee_state`'s arg — this is only the launch default).
 pub const CREATOR_FEE_CLEAR_THRESHOLD_UNITS: u64 = 1_000 * 1_000_000;
+/// Compile-time guard: `clear_creator_fees` derives the desk-pot leg as the remainder after
+/// subtracting the other four (`cleared - burn - lp - stack - ops`) — this must sum to exactly
+/// 100% or that remainder silently drifts from the intended 80% desk-pot share.
+const _: () = assert!(
+    (CREATOR_FEE_DESK_POT_BP as u64)
+        + (CREATOR_FEE_BURN_BP as u64)
+        + (CREATOR_FEE_LP_BP as u64)
+        + (CREATOR_FEE_STACK_BP as u64)
+        + (CREATOR_FEE_OPS_BP as u64)
+        == BPS_DENOMINATOR,
+    "creator-fee split (desk_pot + burn + lp + stack + ops) must sum to exactly 100%"
+);
 
 /// §A6.2 phase-2 lock+burn — Raydium CP-Swap (mainnet + devnet, same address). `deposit`
 /// CPI accounts/order per Raydium's published IDL; `remaining_accounts` on `build_lp` are

@@ -76,7 +76,10 @@ pub fn consign_desk(ctx: Context<ConsignDesk>) -> Result<()> {
     cd.active = true;
     cd.bump = ctx.bumps.consigned_desk;
     let ts = &mut ctx.accounts.treasury_state;
-    ts.desks_consigned = ts.desks_consigned.saturating_add(1);
+    ts.desks_consigned = ts
+        .desks_consigned
+        .checked_add(1)
+        .ok_or(HubError::MathOverflow)?;
 
     emit!(DeskConsigned {
         asset: cd.asset_id,
@@ -147,7 +150,10 @@ pub fn unconsign_desk(ctx: Context<UnconsignDesk>) -> Result<()> {
     let cd = &mut ctx.accounts.consigned_desk;
     cd.active = false;
     let ts = &mut ctx.accounts.treasury_state;
-    ts.desks_consigned = ts.desks_consigned.saturating_sub(1);
+    ts.desks_consigned = ts
+        .desks_consigned
+        .checked_sub(1)
+        .ok_or(HubError::MathOverflow)?;
 
     emit!(DeskUnconsigned {
         asset: cd.asset_id,

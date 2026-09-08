@@ -168,8 +168,12 @@ pub fn register_treasury_inflow(
     let config = &mut ctx.accounts.config;
     book_inflow(config, &mut ctx.accounts.epoch, lamports)?;
     if source == InflowSource::D {
-        ctx.accounts.treasury_state.total_exits =
-            ctx.accounts.treasury_state.total_exits.saturating_add(1);
+        ctx.accounts.treasury_state.total_exits = ctx
+            .accounts
+            .treasury_state
+            .total_exits
+            .checked_add(1)
+            .ok_or(HubError::MathOverflow)?;
     }
     assert_pot_solvent(config, &ctx.accounts.pot)?;
     emit!(InflowRegistered {
