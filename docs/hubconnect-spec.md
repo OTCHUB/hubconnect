@@ -218,12 +218,30 @@ inflow (plus whole lamports of dust carried from earlier rounds) reaches
 seconds or days long depending on flow.
 
 ```text
-burn           = ⌊0.10 × round_inflow⌋                 [buy $HUB → burn]
-distributable  = round_inflow − burn
-per_weight     = ⌊distributable × 10¹² / Σ w_j⌋          [scaled, u128]
+burn           = ⌊0.05 × round_inflow⌋                  [buy $HUB → burn, BURN_PCT_BP]
+lp_pending    += ⌊0.05 × round_inflow⌋                  [TreasuryState, phase-2 build_lp, LP_PCT_BP]
+distributable  = round_inflow − burn − lp_pending        [the 90% $OTC leg]
+per_weight     = ⌊distributable × 10¹² / Σ w_j⌋          [scaled, u128, lamport-equivalent]
 acc_per_weight += per_weight                            [Config, lifetime]
-yield_i        = ⌊(acc_per_weight − stamp_i) × w_i / 10¹²⌋
+yield_i        = ⌊(acc_per_weight − stamp_i) × w_i / 10¹²⌋   [owed, lamport-equivalent]
+otc_due_i      = ⌊owed_i × OtcPotState.total_otc_bought_units / OtcPotState.total_lamports_spent⌋
 ```
+
+`acc_per_weight` still accrues in **lamport-equivalent** units (unchanged accounting) —
+only `claim_yield`'s payout leg changed. Desks are paid in **$OTC**, not SOL: the pot
+never buys $OTC itself, a keeper does. `init_otc_pot` (authority, one-time) creates
+`OtcPotState` (`["otc_pot"]`) + its vault-owned `otc_vault` token account. Every
+`finalize_epoch` adds its distributable amount to `OtcPotState.otc_pending_lamports`
+(pot liability, tracked in `Config.pot_liability_lamports` like every other pot leg).
+The keeper then calls `record_otc_buy(otc_bought, lamports_spent, buy_tx)`: it fronts
+SOL, buys $OTC on the market, deposits it into `otc_vault` in the **same transaction**
+(`TransferChecked`, enforced on-chain — not merely attested), then is reimbursed from
+the pot up to `otc_pending_lamports` (a replay can never over-draw it). This produces a
+running **lifetime average buy rate** — `total_otc_bought_units / total_lamports_spent`
+— that `claim_yield` uses to convert each desk's lamport-equivalent `owed` into $OTC
+(`otc_due` above), paid straight from `otc_vault` to the claimer's ATA. `claim_yield`
+reverts with `NoOtcPurchased` until the first buy is recorded — there is nothing to
+convert into until then.
 
 Each `DeskTier` stores `stamp_acc_per_weight` (set at activation and on every
 claim), so one `claim_yield` pays everything a desk earned across **every round
@@ -231,7 +249,9 @@ closed since its stamp** in a single transaction — there is no per-round claim
 and nothing to catch up. Sub-lamport fractions (from the ⌊⌋ floors) accumulate in
 `Config.dust_scaled`; whole lamports of dust re-enter the next round as inflow,
 so the accounting is exactly zero-sum. Desks activated after a round closed do
-not share in it (their stamp is already past it).
+not share in it (their stamp is already past it). The 5% LP-build leg accumulates
+in `TreasuryState.lp_pending_lamports` (mirrors `BurnState.burn_pending_lamports`'s
+keeper-draw pattern) until the phase-2 `build_lp(HubOtc)` adapter lands.
 
 Direct-to-holder stream (no tier needed, per wallet, pro-rata on HUB held):
 `0.70 × f × V_HUB_volume` of OTC bought daily, where `f` = creator-fee rate
@@ -444,14 +464,15 @@ IDL account and singleton PDAs are listed in **Appendix — Deployment addresses
 
 | Account | Seeds (all under program id) | Key fields |
 |---|---|---|
-| `Config` | `["config"]` | authority, pot PDA, ops_wallet, treasury, **OTC-side refs** (otc_program, otc_desk_pot, desk_collection, hub_mint, otc_mint — runtime-set, §A2), tier_weights_bp[4], step_fee_lamports (flat, §A4), **tier_hub_cost_units[4]** (cumulative $HUB burn table, §A4), min_pot_threshold_lamports (0.1 SOL), burn_pct_bp (1000), ops_pct_bp (1000), consignment_enabled, consignor_share_bp, lp_enabled, lp_target_sol_lamports, lp_phase2_open_ts, paused, current_epoch, genesis_ts, total_weight_bp, pot_liability_lamports, **acc_per_weight (u128, lifetime)**, **dust_scaled (u128)**, bumps |
+| `Config` | `["config"]` | authority, pot PDA, ops_wallet, treasury, **OTC-side refs** (otc_program, otc_desk_pot, desk_collection, hub_mint, otc_mint — runtime-set, §A2), tier_weights_bp[4], step_fee_lamports (flat, §A4), **tier_hub_cost_units[4]** (cumulative $HUB burn table, §A4), min_pot_threshold_lamports (0.1 SOL), burn_pct_bp (500), **lp_pct_bp (500)** — §A5 90/5/5 split, remainder is the $OTC-vault leg, ops_pct_bp (1000, step-fee split only), consignment_enabled, consignor_share_bp, lp_enabled, lp_target_sol_lamports, lp_phase2_open_ts, paused, current_epoch, genesis_ts, total_weight_bp, pot_liability_lamports, **acc_per_weight (u128, lifetime, lamport-equivalent)**, **dust_scaled (u128)**, bumps |
+| `OtcPotState` | `["otc_pot"]` | authority (keeper trusted for `record_otc_buy`), otc_vault (vault-owned $OTC token account `claim_yield` pays from), otc_pending_lamports (pot liability awaiting a buy), total_lamports_spent, total_otc_bought_units (⇒ lifetime avg buy rate), last_buy_tx, bump — §A5 90% leg, created once via `init_otc_pot` |
 | `Epoch` (one round) | `["epoch", epoch_index u64]` | index, start_ts, finalized_ts, inflow_lamports, distributed_lamports (credited), burn_pending_lamports, rolled_forward_lamports (floor remainder), total_weight_bp (Σw at close), per_weight_scaled, acc_per_weight_after, finalized |
 | `DeskTier` | `["tier", asset_id]` | asset_id, owner_at_activation, tier 1–4, activated_epoch, **stamp_acc_per_weight**, total_claimed_lamports, voided |
 | `ConsignedDesk` | `["consign", asset_id]` | asset_id, consignor, consigned_epoch, active |
 | `StakerAccrual` | `["accrual", wallet]` | per-wallet consignor credits: owed_lamports, total_claimed_lamports |
 | `Pot` (SOL escrow) | `["pot"]` | system-owned PDA; balance via lamports (no data) |
 | `BurnState` | `["burn"]` | authority, total_hub_burned, burn_pending_lamports, last_burn_tx[64] |
-| `TreasuryState` | `["treasury"]` | multisig, vault (PDA below), desks_owned, desks_consigned, sweep_budget_cap_bp (1000), sweep_payback_cap_lamports (4.2 SOL), exit_discount_bp (1000), exit_hub_leg_bp (5000), floor_staleness_bp (500), hub_float_cap_bp (200), total_exits, total_sweeps |
+| `TreasuryState` | `["treasury"]` | multisig, vault (PDA below), desks_owned, desks_consigned, sweep_budget_cap_bp (1000), sweep_payback_cap_lamports (4.2 SOL), exit_discount_bp (1000), exit_hub_leg_bp (5000), floor_staleness_bp (500), hub_float_cap_bp (200), total_exits, total_sweeps, **lp_pending_lamports** (§A5 5% LP-build leg, drawn down by phase-2 `build_lp`) |
 | `Vault` (NFT custody) | `["vault"]` | program-signed PDA that owns consigned desks; no data account (created lazily by Core on first transfer) |
 | `OtcPayConfig` | `["otc_pay"]` | §A4.1: enabled, otc_per_sol, rate_ts, premium_bp (20_000, fixed), pol_account (vault-owned $OTC ATA = POL reserve), total_otc_collected. Created by `init_otc_payments` after M1; optional |
 
@@ -472,8 +493,10 @@ the OTC program config on-chain and proposes updates.
 | 1 | `initialize_config` | payer, Config, Pot, BurnState, TreasuryState, Vault, Epoch[0] | once; args = ops_wallet, treasury, otc_program, otc_desk_pot, desk_collection, hub_mint, otc_mint, tier weights, step fee, `min_pot_threshold_lamports`; payer becomes `Config.authority` and `BurnState.authority`; opens round 0 |
 | 2 | `activate_tier` | payer, desk NFT (Metaplex Core asset), Config, Epoch, Pot, ops wallet, hub_mint, payer $HUB ATA, Token program, DeskTier | args: `target_tier` (1..4); verify payer owns desk asset via Core plugin/DAS **inside the instruction**; fresh activation (or re-activation of a voided tier) straight into `target_tier`; pay flat 0.5 SOL: 90% → Pot, 10% → ops; `BurnChecked` the full $HUB cost of `target_tier` from the payer's $HUB ATA |
 | 3 | `upgrade_tier` | payer, desk NFT, Config, Epoch, Pot, ops, hub_mint, payer $HUB ATA, Token program, DeskTier | args: `target_tier`; pay the same flat 0.5 SOL fee again (once, regardless of step size); `BurnChecked` only the $HUB delta between the current tier and `target_tier`; same ownership check (mismatch → void, no charge) |
-| 4 | `finalize_epoch` | keeper (permissionless), Config, Epoch, next Epoch, Pot, BurnState | **threshold gate**: rejected (`PotBelowThreshold`) until inflow + dust carry ≥ `min_pot_threshold_lamports`; Σw > 0; 10% → burn-pending; `acc_per_weight += ⌊distributable × 10¹² / Σw⌋`; opens the next round with the floor remainder |
-| 5 | `claim_yield` | claimer, desk NFT, DeskTier, Config, Pot | **lazy revocation**: re-verify desk ownership on-chain NOW; if caller ≠ owner → void tier (voided = true, no refund) and revert; pay `⌊(acc − stamp) × w / 10¹²⌋` for every round since the stamp in one tx; stamp := acc; `NothingToClaim` when zero |
+| 4 | `finalize_epoch` | keeper (permissionless), Config, Epoch, next Epoch, Pot, BurnState, TreasuryState | **threshold gate**: rejected (`PotBelowThreshold`) until inflow + dust carry ≥ `min_pot_threshold_lamports`; Σw > 0; 5% → burn-pending, 5% → `TreasuryState.lp_pending_lamports`, remaining 90% → `OtcPotState.otc_pending_lamports` (§A5); `acc_per_weight += ⌊distributable × 10¹² / Σw⌋` (still lamport-equivalent); opens the next round with the floor remainder |
+| 4b | `init_otc_pot` | authority (one-time), Config, otc_vault, OtcPotState | args: `keeper` pubkey; creates `OtcPotState` + records its vault-owned $OTC token account (§A5) |
+| 4c | `record_otc_buy` | keeper (must be `OtcPotState.authority`), Config, OtcPotState, otc_mint, keeper $OTC ATA, otc_vault, Pot | args: `otc_bought`, `lamports_spent`, `buy_tx`; `TransferChecked`-deposits `otc_bought` into `otc_vault` in this tx (enforced, not attested), then reimburses the keeper `lamports_spent` from the pot, capped at `otc_pending_lamports` (`OtcBuyExceedsPending`); updates the lifetime avg buy rate |
+| 5 | `claim_yield` | claimer, desk NFT, DeskTier, Config, OtcPotState, otc_mint, otc_vault, claimer $OTC ATA, Token program, Pot | **lazy revocation**: re-verify desk ownership on-chain NOW; if caller ≠ owner → void tier (voided = true, no refund) and revert; `owed = ⌊(acc − stamp) × w / 10¹²⌋` for every round since the stamp; reverts `NoOtcPurchased` until the first `record_otc_buy`; pays `otc_due = ⌊owed × total_otc_bought_units / total_lamports_spent⌋` in $OTC from `otc_vault`; stamp := acc; `NothingToClaim` when `owed` or `otc_due` rounds to zero |
 | 5b | `claim_accrual` | wallet, StakerAccrual, Config, Pot | pay the wallet's consignor credits (`owed_lamports`) in one tx; `AccrualEmpty` when zero |
 | 6 | `register_treasury_inflow` / `register_consigned_inflow` | treasury multisig, Config, Epoch, Pot (+ ConsignedDesk, consignor StakerAccrual) | record source B/C/D/F (or E) inflows into the open round; for consigned-desk (E) proceeds, credit `consignor_share_bp` to the consignor's StakerAccrual, remainder → round inflow |
 | 7 | `record_burn` | keeper, Config, BurnState, Pot | after the keeper buys HUB and burns it: mark burn executed, decrement burn-pending |
@@ -537,13 +560,17 @@ keeper-anyone with a small reward? — start permissioned, open later).
 **Unit (Rust):**
 - Tier math: flat SOL fee regardless of step size, $HUB burn cost deltas,
   weight lookups, void semantics.
-- Epoch math: pro-rata distribution, 90/10 split, roll-forward, no rounding
-  loss (last claimer gets remainder).
+- Epoch math: pro-rata distribution, 90/5/5 split (burn / LP-pending / $OTC leg),
+  roll-forward, no rounding loss (last claimer gets remainder).
+- $OTC yield math: `record_otc_buy` pending/spent/bought bookkeeping, replay
+  rejection (`buy_tx` reuse), overspend rejection (`OtcBuyExceedsPending`),
+  `claim_yield`'s lamport→$OTC conversion at the lifetime avg buy rate.
 - Config guardrails: bp bounds, whitelisted update fields.
 
 **Integration (bankrun + devnet):**
-- Happy path: initialize → activate 4 desks across tiers → finalize → claim →
-  verify exact lamports per weight and the 10% burn-pending.
+- Happy path: initialize → activate 4 desks across tiers → finalize → `init_otc_pot`
+  → `record_otc_buy` → claim → verify exact lamports per weight, the 5%/5%
+  burn/LP-pending split, and the $OTC payout at the recorded avg buy rate.
 - **Threshold gate**: `finalize_epoch` rejected below `min_pot_threshold`;
   allowed immediately once reached (no clock); `claim_yield` with nothing closed
   since the stamp → `NothingToClaim`.
@@ -796,7 +823,9 @@ treasury ATA is the only locked holder.
 | OTC_RATE_MAX_AGE | 24h — $OTC path rejects an `otc_per_sol` older than this |
 | MIN_POT_THRESHOLD | 0.1 SOL per round (no clock; `update_config`-adjustable) |
 | ACC_SCALE | 10¹² (accumulator precision) |
-| BUYBACK_BURN_PCT | 10% of every pot inflow |
+| BURN_PCT_BP | 5% of every round's distributable inflow → buy $HUB, burn (§A5) |
+| LP_PCT_BP | 5% of every round's distributable inflow → `TreasuryState.lp_pending_lamports`, phase-2 $HUB/$OTC LP (§A5) |
+| OTC yield leg | remaining 90% — desks claim it in $OTC from `OtcPotState.otc_vault` at the pot's lifetime average buy rate (§A5) |
 | REWARD_STOCK ($HUB launch) | OTC |
 | LAUNCHER_SHARE | 0% |
 | TREASURY_HUB_FLOAT_CAP | ≤2% of supply (announced launch buy, tranched; never sold — source C claims + LP pairing only) |
