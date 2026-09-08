@@ -140,7 +140,11 @@ export function createAtaIdempotentIx(
       { pubkey: ata, isSigner: false, isWritable: true },
       { pubkey: owner, isSigner: false, isWritable: false },
       { pubkey: mint, isSigner: false, isWritable: false },
-      { pubkey: new PublicKey("11111111111111111111111111111111"), isSigner: false, isWritable: false },
+      {
+        pubkey: new PublicKey("11111111111111111111111111111111"),
+        isSigner: false,
+        isWritable: false,
+      },
       { pubkey: new PublicKey(TOKEN_PROGRAM_ID), isSigner: false, isWritable: false },
     ],
     data: Buffer.from([1]),

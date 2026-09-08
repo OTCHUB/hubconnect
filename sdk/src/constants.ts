@@ -26,9 +26,12 @@ export const LP_PCT_BP = 500;
  * activation burns the full cost of the target tier; an upgrade burns only the difference from
  * the tier already held.
  */
-export const TIER_HUB_COST_UNITS = [100_000, 125_000, 150_000, 200_000].map(
-  (v) => v * 10 ** 6,
-) as [number, number, number, number];
+export const TIER_HUB_COST_UNITS = [100_000, 125_000, 150_000, 200_000].map((v) => v * 10 ** 6) as [
+  number,
+  number,
+  number,
+  number,
+];
 /** A round closes once its inflow reaches this (OTC desk-pot trigger: 0.1 SOL). */
 export const MIN_POT_THRESHOLD_LAMPORTS = LAMPORTS_PER_SOL / 10;
 /** Fixed-point scale of `Config.acc_per_weight` (lamports × ACC_SCALE per bp of weight). */

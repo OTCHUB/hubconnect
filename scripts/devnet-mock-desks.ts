@@ -131,7 +131,7 @@ async function setTier(ctx: Ctx, asset: PublicKey, target: number) {
     opsWallet: cfg.opsWallet,
     deskTier,
   };
-  const ixs = [await ctx.program.methods.activateTier().accountsPartial(accounts).instruction()];
+  const ixs = [await ctx.program.methods.activateTier(1).accountsPartial(accounts).instruction()];
   for (let t = 2; t <= target; t++) {
     ixs.push(await ctx.program.methods.upgradeTier(t).accountsPartial(accounts).instruction());
   }

@@ -483,7 +483,9 @@ export async function fetchOtcPot(program: HubProgram): Promise<OtcPotView | nul
  */
 export function otcDueForLamports(owedLamports: number, pot: OtcPotView | null): bigint | null {
   if (!pot || pot.totalLamportsSpent <= 0 || owedLamports <= 0) return null;
-  return (BigInt(Math.trunc(owedLamports)) * pot.totalOtcBoughtUnits) / BigInt(pot.totalLamportsSpent);
+  return (
+    (BigInt(Math.trunc(owedLamports)) * pot.totalOtcBoughtUnits) / BigInt(pot.totalLamportsSpent)
+  );
 }
 
 export function toCreatorFeeView(

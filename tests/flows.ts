@@ -28,7 +28,7 @@ export async function activate(h: Harness, f: Fixture, owner: Keypair, asset: Pu
   const { key: epoch } = await currentEpoch(h, f);
   const [deskTier] = tierPda(h.program.programId, asset);
   await h.program.methods
-    .activateTier()
+    .activateTier(1)
     .accountsPartial({
       payer: owner.publicKey,
       deskAsset: asset,
@@ -116,7 +116,7 @@ export async function activateOtc(
 ) {
   const [deskTier] = tierPda(h.program.programId, asset);
   await h.program.methods
-    .activateTierOtc()
+    .activateTierOtc(1)
     .accountsPartial({
       payer: owner.publicKey,
       deskAsset: asset,
