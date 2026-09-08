@@ -302,7 +302,7 @@ pub struct DistributeHubPotReward<'info> {
     #[account(mut)]
     pub authority: Signer<'info>,
     #[account(seeds = [SEED_CONFIG], bump = config.bump, has_one = authority @ HubError::Unauthorized, constraint = !config.paused @ HubError::Paused)]
-    pub config: Account<'info, Config>,
+    pub config: Box<Account<'info, Config>>,
     /// CHECK: Metaplex Core asset; current owner read directly — push model, matching
     /// `distribute_treasury_reward`'s "pay whoever holds the desk right now" policy.
     pub desk_asset: UncheckedAccount<'info>,
@@ -310,13 +310,13 @@ pub struct DistributeHubPotReward<'info> {
         seeds = [SEED_TIER, desk_asset.key().as_ref()], bump = desk_tier.bump,
         constraint = !desk_tier.voided && desk_tier.tier > 0 @ HubError::DeskNotActive
     )]
-    pub desk_tier: Account<'info, DeskTier>,
+    pub desk_tier: Box<Account<'info, DeskTier>>,
     #[account(mut, seeds = [SEED_HUB_POT], bump = hub_pot.bump)]
-    pub hub_pot: Account<'info, HubPotConfig>,
+    pub hub_pot: Box<Account<'info, HubPotConfig>>,
     #[account(mut, seeds = [SEED_HUB_POT_ROUND, &round_index.to_le_bytes()], bump = round.bump)]
-    pub round: Account<'info, HubPotRound>,
+    pub round: Box<Account<'info, HubPotRound>>,
     #[account(seeds = [SEED_TREASURY], bump = treasury_state.bump)]
-    pub treasury_state: Account<'info, TreasuryState>,
+    pub treasury_state: Box<Account<'info, TreasuryState>>,
     /// CHECK: program-signed owner of the 4 bucket vaults.
     #[account(seeds = [SEED_VAULT], bump = treasury_state.vault_bump)]
     pub vault: UncheckedAccount<'info>,
@@ -364,9 +364,16 @@ pub struct DistributeHubPotReward<'info> {
         init, payer = authority, space = 8 + HubPotClaim::INIT_SPACE,
         seeds = [SEED_HUB_POT_CLAIM, &round_index.to_le_bytes(), desk_asset.key().as_ref()], bump
     )]
-    pub claim: Account<'info, HubPotClaim>,
+    pub claim: Box<Account<'info, HubPotClaim>>,
     pub system_program: Program<'info, System>,
 }
+
+// NOTE (stack): config/desk_tier/hub_pot/round/treasury_state/claim are Box<Account<...>> here
+// (unlike the 1-mint DistributeTreasuryReward this mirrors) because the 4x mint/vault/ATA fan-out
+// pushes try_accounts' generated stack frame past the SBF 4096-byte limit — solana-verify's build
+// reported "overflows the maximum allowed frame space ... 5312 bytes" without boxing. Boxing moves
+// each account's data to the heap; Deref/DerefMut make every existing field access below
+// (ctx.accounts.config.foo, &mut ctx.accounts.hub_pot, etc.) work unchanged.
 
 /// Pays an active desk's tier-weighted share of all 4 HUB Pot buckets in one transaction,
 /// mirroring `distribute_treasury_reward` exactly but ×4 mints. Each bucket's payout is
@@ -513,20 +520,20 @@ pub struct ClaimHubPotReward<'info> {
     #[account(mut)]
     pub claimant: Signer<'info>,
     #[account(seeds = [SEED_CONFIG], bump = config.bump, constraint = !config.paused @ HubError::Paused)]
-    pub config: Account<'info, Config>,
+    pub config: Box<Account<'info, Config>>,
     /// CHECK: Metaplex Core asset; owner verified against `claimant` in the handler.
     pub desk_asset: UncheckedAccount<'info>,
     #[account(
         seeds = [SEED_TIER, desk_asset.key().as_ref()], bump = desk_tier.bump,
         constraint = !desk_tier.voided && desk_tier.tier > 0 @ HubError::DeskNotActive
     )]
-    pub desk_tier: Account<'info, DeskTier>,
+    pub desk_tier: Box<Account<'info, DeskTier>>,
     #[account(mut, seeds = [SEED_HUB_POT], bump = hub_pot.bump)]
-    pub hub_pot: Account<'info, HubPotConfig>,
+    pub hub_pot: Box<Account<'info, HubPotConfig>>,
     #[account(mut, seeds = [SEED_HUB_POT_ROUND, &round_index.to_le_bytes()], bump = round.bump)]
-    pub round: Account<'info, HubPotRound>,
+    pub round: Box<Account<'info, HubPotRound>>,
     #[account(seeds = [SEED_TREASURY], bump = treasury_state.bump)]
-    pub treasury_state: Account<'info, TreasuryState>,
+    pub treasury_state: Box<Account<'info, TreasuryState>>,
     /// CHECK: program-signed owner of the 4 bucket vaults.
     #[account(seeds = [SEED_VAULT], bump = treasury_state.vault_bump)]
     pub vault: UncheckedAccount<'info>,
@@ -574,9 +581,12 @@ pub struct ClaimHubPotReward<'info> {
         init, payer = claimant, space = 8 + HubPotClaim::INIT_SPACE,
         seeds = [SEED_HUB_POT_CLAIM, &round_index.to_le_bytes(), desk_asset.key().as_ref()], bump
     )]
-    pub claim: Account<'info, HubPotClaim>,
+    pub claim: Box<Account<'info, HubPotClaim>>,
     pub system_program: Program<'info, System>,
 }
+
+// NOTE (stack): boxed for the same reason as DistributeHubPotReward above — see that struct's
+// comment.
 
 /// User-initiated pull: a desk's current owner claims its own tier-weighted share of all 4
 /// M.I.M ETF (Magic Internet Money — $OTC/CRCLx/OpenAI/Anthropic) buckets for an open round,
