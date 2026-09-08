@@ -119,3 +119,16 @@ export function deskMilestoneProgressPct(deskCount: number): number {
   if (NEXT_DESK_SUPPLY_MILESTONE <= 0) return 0;
   return Math.max(0, Math.min(100, Math.round((deskCount / NEXT_DESK_SUPPLY_MILESTONE) * 100)));
 }
+
+/**
+ * Launch target for treasury-owned desks (sweeps + donations), not a program constant — bumped
+ * by hand as the treasury's desk stack grows. Used only for the progress display; the actual
+ * count is always read live from `TreasuryState.desks_owned`.
+ */
+export const TREASURY_DESK_TARGET = 20;
+
+/** 0–100 progress of `desksOwned` toward `TREASURY_DESK_TARGET`, clamped. */
+export function treasuryDeskProgressPct(desksOwned: number): number {
+  if (TREASURY_DESK_TARGET <= 0) return 0;
+  return Math.max(0, Math.min(100, Math.round((desksOwned / TREASURY_DESK_TARGET) * 100)));
+}

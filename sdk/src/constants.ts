@@ -82,6 +82,14 @@ export function supplyBreakdown(
  */
 export const AIRDROP_PER_DESK = 10_000;
 export const AIRDROP_PER_DESK_UNITS = BigInt(AIRDROP_PER_DESK) * 10n ** BigInt(HUB_DECIMALS);
+/**
+ * Launch policy cap, not a program constant: `apply_snapshot(desk_count)` accepts whatever
+ * `desk_count` the snapshot script passes in, so the cap is enforced by only including the
+ * first 2,500 desks activated on otcdesks.cash (by activation order) in the Merkle tree passed
+ * to `publish_airdrop_root`. Kept here so the preview math and UI agree with that policy before
+ * the real snapshot is taken.
+ */
+export const AIRDROP_DESK_CAP = 2_500;
 export const TREASURY_LOCK_BP = 500;
 export const TEAM_ALLOCATION_BP = 0;
 /** Domain tag for airdrop Merkle leaves: `sha256(tag ‖ asset ‖ amount_le)`. */
@@ -100,6 +108,12 @@ export type TokenomicsPlan = {
   maxUnits: bigint;
   deskCount: number;
   airdropPerDeskUnits: bigint;
+  /** Desks the airdrop pool is actually sized on: `min(deskCount, airdropDeskCap)`. */
+  airdropEligibleDeskCount: number;
+  /** Policy cap on airdrop-eligible desks (§A7.1 launch policy, `AIRDROP_DESK_CAP`). */
+  airdropDeskCap: number;
+  /** True when `deskCount` has grown past `airdropDeskCap` — later desks earn no airdrop. */
+  airdropCapped: boolean;
   slices: AllocationSlice[];
   airdropUnits: bigint;
   treasuryLockUnits: bigint;
@@ -111,7 +125,9 @@ export type TokenomicsPlan = {
 
 /**
  * Pure mirror of `TokenomicsConfig::apply_snapshot` — used before the PDA exists (preview from
- * the live desk count) and to cross-check the on-chain numbers afterwards.
+ * the live desk count) and to cross-check the on-chain numbers afterwards. Also applies the
+ * `AIRDROP_DESK_CAP` launch policy: only the first `airdropDeskCap` desks activated on
+ * otcdesks.cash before the snapshot are eligible, regardless of how large the collection grows.
  */
 export function tokenomicsPlan(
   deskCount: number,
@@ -120,14 +136,19 @@ export function tokenomicsPlan(
     airdropPerDeskUnits?: bigint;
     treasuryLockBp?: number;
     teamBp?: number;
+    airdropDeskCap?: number;
   } = {},
 ): TokenomicsPlan {
   const maxUnits = opts.maxUnits ?? HUB_MAX_SUPPLY_UNITS;
   const perDesk = opts.airdropPerDeskUnits ?? AIRDROP_PER_DESK_UNITS;
   const treasuryLockBp = opts.treasuryLockBp ?? TREASURY_LOCK_BP;
   const teamBp = opts.teamBp ?? TEAM_ALLOCATION_BP;
+  const airdropDeskCap = opts.airdropDeskCap ?? AIRDROP_DESK_CAP;
   const bps = BigInt(BPS);
-  const airdropUnits = BigInt(Math.max(0, Math.floor(deskCount))) * perDesk;
+  const clampedDeskCount = Math.max(0, Math.floor(deskCount));
+  const airdropEligibleDeskCount = Math.min(clampedDeskCount, airdropDeskCap);
+  const airdropCapped = clampedDeskCount > airdropDeskCap;
+  const airdropUnits = BigInt(airdropEligibleDeskCount) * perDesk;
   const treasuryLockUnits = (maxUnits * BigInt(treasuryLockBp)) / bps;
   const teamUnits = (maxUnits * BigInt(teamBp)) / bps;
   const carved = airdropUnits + treasuryLockUnits + teamUnits;
@@ -145,7 +166,7 @@ export function tokenomicsPlan(
     },
     {
       id: "airdrop",
-      label: `Desk airdrop (${AIRDROP_PER_DESK.toLocaleString()} / desk)`,
+      label: `Desk airdrop (${AIRDROP_PER_DESK.toLocaleString()} / desk, capped at ${airdropDeskCap.toLocaleString()} desks)`,
       units: airdropUnits,
       bp: airdropBp,
     },
@@ -155,6 +176,9 @@ export function tokenomicsPlan(
     maxUnits,
     deskCount,
     airdropPerDeskUnits: perDesk,
+    airdropEligibleDeskCount,
+    airdropDeskCap,
+    airdropCapped,
     slices,
     airdropUnits,
     treasuryLockUnits,

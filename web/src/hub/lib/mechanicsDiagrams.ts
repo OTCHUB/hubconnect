@@ -5,7 +5,7 @@
 
 // Investor-facing overview — the deflationary loop in four steps, no technical detail.
 export const CYCLE_DIAGRAM = `flowchart LR
-    A["BUY\\nGet a Desk NFT\\n(mint or secondary market)"] --> B["ACTIVATE\\nPay the Activation Cost\\nchoose your tier"]
+    A["INITIAL BUY\\nGet a Desk NFT via otcdesks.cash\\n(mint on the launch curve or buy on secondary market)"] --> B["ACTIVATE\\nPay the Activation Cost\\nchoose your tier"]
     B --> C["EARN\\nDaily Rewards flow in\\nfrom Protocol Revenue"]
     C --> D["BURN\\nA slice of every reward round\\nbuys back & burns $HUB, forever"]
     D --> E["Supply shrinks\\nwhile activated desks keep earning"]

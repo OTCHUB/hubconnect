@@ -1,6 +1,7 @@
 import { burnPda, potPda, treasuryPda, vaultPda, type ProtocolState } from "@hub-sdk";
 import { useHub } from "../HubProvider";
 import { fmtBp, fmtBpPct, fmtHub, fmtNum, fmtSol, fmtUtc } from "../lib/format";
+import { TREASURY_DESK_TARGET, treasuryDeskProgressPct } from "../lib/yield";
 import { AddressLink } from "./ui/AddressLink";
 import { CollapsibleCard, Flag, Panel, Row, Stat } from "./ui/Panel";
 import { TreasuryPortfolio } from "./TreasuryPortfolio";
@@ -24,7 +25,11 @@ export function TreasuryPanel({ state }: { state: ProtocolState }) {
     <div className="space-y-2">
       <Panel title="TREASURY">
         <div className="grid grid-cols-2 gap-2 md:grid-cols-3 lg:grid-cols-6">
-          <Stat label="desks owned" value={fmtNum(treasury.desksOwned)} sub="bought via sweeps" />
+          <Stat
+            label="desks owned"
+            value={fmtNum(treasury.desksOwned)}
+            sub={`bought via sweeps · ${treasuryDeskProgressPct(treasury.desksOwned)}% of ${fmtNum(TREASURY_DESK_TARGET)} target`}
+          />
           <Stat label="desks consigned" value={fmtNum(treasury.desksConsigned)} sub="in vault" />
           <Stat label="sweeps" value={fmtNum(treasury.totalSweeps)} sub="floor buys executed" />
           <Stat label="exits" value={fmtNum(treasury.totalExits)} sub="desks sold back" />

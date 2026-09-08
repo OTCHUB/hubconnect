@@ -83,7 +83,7 @@ export function TokenomicsPanel({ state }: { state: ProtocolState }) {
           <Stat
             label="airdrop pool"
             value={fmtHub(plan.airdropUnits, d)}
-            sub={`${fmtTokens(plan.airdropPerDeskUnits, d)} $HUB × ${fmtNum(deskCount)} desks`}
+            sub={`${fmtTokens(plan.airdropPerDeskUnits, d)} $HUB × ${fmtNum(plan.airdropEligibleDeskCount)} of ${fmtNum(plan.airdropDeskCap)} capped desks`}
           />
           <Stat
             label="treasury lock"
@@ -111,6 +111,14 @@ export function TokenomicsPanel({ state }: { state: ProtocolState }) {
         <Row
           k="mechanism"
           v="Merkle claim · one claim per desk asset · paid to the desk's current owner"
+        />
+        <Row
+          k="eligibility"
+          v="Desk must be activated on otcdesks.cash before the launch snapshot — activation status, not just ownership, decides inclusion in the Merkle tree"
+        />
+        <Row
+          k="cap"
+          v={`first ${fmtNum(plan.airdropDeskCap)} activated desks only${plan.airdropCapped ? ` — ${fmtNum(deskCount - plan.airdropEligibleDeskCount)} desk(s) past the cap earn no airdrop` : ""}`}
         />
         <Row k="per desk" v={`${fmtTokens(plan.airdropPerDeskUnits, d)} $HUB`} />
         <Row k="pool" v={fmtHub(plan.airdropUnits, d)} />

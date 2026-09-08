@@ -55,6 +55,13 @@ export function MechanicsPanel({ state }: { state: ProtocolState }) {
       <CollapsibleCard title="1. ACTIVATE YOUR DESK" defaultOpen>
         <ul className="space-y-1">
           <li className={li}>
+            <span className="text-green-300">Initial buy</span> comes first and is separate from
+            activation: get a desk NFT either by minting through the OTC launch curve on
+            otcdesks.cash or by buying one on a secondary market (e.g. Magic Eden). This is a
+            one-time purchase of the NFT itself — it doesn't start yield and isn't the Activation
+            Cost below.
+          </li>
+          <li className={li}>
             Every desk NFT can be activated into one of four tiers. Activation is tied to the desk
             itself, not your wallet — sell the desk and the new owner keeps earning immediately, no
             re-activation needed.

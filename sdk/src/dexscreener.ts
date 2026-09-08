@@ -120,7 +120,7 @@ export function dexscreenerTokenInfo(i: DexscreenerInputs): DexscreenerTokenInfo
         }
       : {
           perDesk: whole(plan.airdropPerDeskUnits, d),
-          deskCount: plan.deskCount,
+          deskCount: plan.airdropEligibleDeskCount,
           total: whole(plan.airdropUnits, d),
           claimed: "0",
           claims: 0,
