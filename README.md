@@ -1,20 +1,42 @@
-# hubconnect — $HUB protocol
+<div align="center">
+
+# 🟢 hubconnect — the $HUB protocol
+
+**Stake-to-earn yield layer built on top of the OTCDesks Protocol.**
+Anchor program · keeper services · read-only SDK · treasury dashboard.
 
 [![ci](https://github.com/OTCHUB/hubconnect/actions/workflows/ci.yml/badge.svg)](https://github.com/OTCHUB/hubconnect/actions/workflows/ci.yml)
 [![verified build](https://github.com/OTCHUB/hubconnect/actions/workflows/verify.yml/badge.svg)](https://github.com/OTCHUB/hubconnect/actions/workflows/verify.yml)
 [![program](https://img.shields.io/badge/program-5tCDEazU…5rewQv-14f195?logo=solana&logoColor=white)](https://explorer.solana.com/address/5tCDEazUAkRjrkasup1uWcYo3t1C2ht76LmQva5rewQv/verified-build)
+[![website](https://img.shields.io/badge/website-otchub.dev-14f195)](https://otchub.dev)
+[![app](https://img.shields.io/badge/app-app.otchub.dev-14f195)](https://app.otchub.dev)
+[![x](https://img.shields.io/badge/-@otchubdev-000000?logo=x&logoColor=white)](https://x.com/otchubdev)
 
-Stake-to-earn layer for OTC desk NFTs. Anchor program, keeper services, read-only SDK.
-**Community tooling — not affiliated with OTC.**
+**Community tooling — not affiliated with the OTC Desks / OTCDesks Protocol team.**
+
+</div>
 
 Single source of truth: [`docs/hubconnect-spec.md`](docs/hubconnect-spec.md) (v1.2).
 Implement from it; never re-derive tokenomics. Section refs below (`§A…`, `§B…`) point there.
 
-## Protocol overview
+## Links
 
-$HUB launches through the OTC launcher (otcdesks.cash) with **$OTC** as its reward stock, so
-every $HUB trade's creator fees buy $OTC for $HUB holders. Two independent mechanisms turn that
-into desk-owner yield:
+| | |
+|---|---|
+| 🌐 Website | [otchub.dev](https://otchub.dev) |
+| 📊 $HUB app (treasury dashboard) | [app.otchub.dev](https://app.otchub.dev) |
+| 🐦 X / Twitter | [@otchubdev](https://x.com/otchubdev) |
+| 📈 DexScreener | pending — published here once the $HUB mint and its first liquidity pool exist (see [Program IDs](#program-ids)) |
+| 📖 Full spec | [`docs/hubconnect-spec.md`](docs/hubconnect-spec.md) |
+
+## What is $HUB?
+
+**OTCDesks Protocol** (otcdesks.cash) runs OTC desk NFTs and an OTC launcher: any token launched
+through it (including $HUB) pays creator fees that buy **$OTC** for the launched token's holders.
+**hubconnect is a separate, community-built layer on top of that base protocol** — it does not
+fork or modify OTCDesks, it only reads its on-chain state and composes with it. $HUB launches
+*through* the OTC launcher and uses the $OTC it earns to fund yield for desk owners, on top of two
+protocol-native mechanisms of its own:
 
 1. **Desk tier activation** (`§A4`) — an OTC desk NFT owner activates a tier on-chain (burn-based,
    never lock-based) and earns pro-rata $OTC yield from six pot-inflow sources: activation fees,
@@ -119,20 +141,30 @@ exactly 10,000 bp.
 
 ## Program IDs
 
+**$HUB-native (this repo):**
+
+| Item | Devnet | Mainnet-beta |
+|---|---|---|
+| Hub program | [`5tCDEazUAkRjrkasup1uWcYo3t1C2ht76LmQva5rewQv`](https://explorer.solana.com/address/5tCDEazUAkRjrkasup1uWcYo3t1C2ht76LmQva5rewQv?cluster=devnet) — live | same keypair reserved; **pending** (after M3.5 devnet suite + verified build, see [Milestones](#milestones)) |
+| $HUB mint | `HWBPrRKgVRetz6Sa7p2aHLwDgapKpzkeZkyhKd9nDwaj` — devnet mock, 1B × 10⁶ | **pending** — published here the moment `initialize_config` runs on mainnet |
+| DexScreener | — | **pending** — link goes live once the $HUB mint and its first liquidity pool exist |
+
+**External (OTCDesks Protocol + Solana infra — not deployed by this repo):**
+
 | Item | Address | Status |
 |---|---|---|
-| Hub program | `5tCDEazUAkRjrkasup1uWcYo3t1C2ht76LmQva5rewQv` | live on **devnet**; same keypair reused for **mainnet-beta** (pending M6, see [Milestones](#milestones)) |
-| Metaplex Core program | `CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d` | external, devnet + mainnet |
-| OTC Desk program | `AjMx5My4YUDHMiCtLpTAtgkiUJgrpJnQqd5AcQnddHQW` | external, mainnet-only (mocked on devnet) |
-| OTC Desks collection | `D7sLW9uKZG3G7bNbWfMHvKSgVhU9nXdv7huTfepF5Jrh` | external, mainnet-only |
-| Raydium CP-Swap | `CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C` | external, devnet + mainnet |
-| Raydium `lock_cp_liquidity` | `LockrWmn6K5twhz3y9w1dQERbmgSaRkfnTeTKbpofwE` | external, devnet + mainnet |
+| Metaplex Core program | `CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d` | devnet + mainnet |
+| OTC Desk program | `AjMx5My4YUDHMiCtLpTAtgkiUJgrpJnQqd5AcQnddHQW` | mainnet-only (mocked on devnet) |
+| OTC Desks collection | `D7sLW9uKZG3G7bNbWfMHvKSgVhU9nXdv7huTfepF5Jrh` | mainnet-only |
+| Raydium CP-Swap | `CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C` | devnet + mainnet |
+| Raydium `lock_cp_liquidity` | `LockrWmn6K5twhz3y9w1dQERbmgSaRkfnTeTKbpofwE` | devnet + mainnet |
 
 Full PDA table (`Config`, `Pot`, `BurnState`, `TreasuryState`, `Vault`, `Epoch[0]`) and current
 devnet `Config` values: [Appendix — Deployment addresses](docs/hubconnect-spec.md#appendix--deployment-addresses-verified-on-chain-2026-09-07)
 in the spec. `hub_mint`, `otc_mint`, `desk_collection`, `otc_desk_pot`, `ops_wallet` and
 `authority` are never hardcoded in the frontend — every consumer reads them live off the on-chain
-`Config` singleton (`§A3.2`).
+`Config` singleton (`§A3.2`). The devnet $HUB mint above is a **test-only mock** minted by
+`scripts/devnet-hub-mint.ts` — it is not the real $HUB token and carries no value.
 
 ## Security
 
