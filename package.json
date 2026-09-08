@@ -22,7 +22,8 @@
     "mainnet:airdrop-snapshot": "ts-node -T scripts/mainnet-airdrop-snapshot.ts",
     "mainnet:airdrop-distribute": "ts-node -T scripts/mainnet-distribute.ts",
     "mainnet:treasury-reward": "ts-node -T scripts/mainnet-distribute.ts --reward",
-    "idl:copy": "node scripts/copy-idl.mjs"
+    "idl:copy": "node scripts/copy-idl.mjs",
+    "snapshot:ingest": "ts-node -T scripts/hub-snapshot-ingest.ts"
   },
   "dependencies": {
     "@anchor-lang/core": "^1.2.0",

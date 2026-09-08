@@ -1,0 +1,29 @@
+name: snapshot-ingest
+
+# Historical-metrics cron for the Hub dashboard's trend charts (HubEarningsChart,
+# HubSupplyChart) — writes one row per run into Supabase's `hub_dashboard` table via
+# `npm run snapshot:ingest` (scripts/hub-snapshot-ingest.ts). See
+# supabase/migrations/0001_hub_dashboard.sql for the table schema and
+# web/src/hub/lib/supabaseHistory.ts for the read side.
+on:
+  schedule:
+    - cron: "0 */6 * * *"
+  workflow_dispatch:
+
+env:
+  NODE_VERSION: 22
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npm run snapshot:ingest
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

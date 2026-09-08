@@ -5,6 +5,7 @@ import { useTokenomics } from "../hooks/useTokenomics";
 import { fmtBpPct, fmtHub, fmtNum, fmtTokens, fmtUtc } from "../lib/format";
 import { TREASURY_DESK_TARGET, treasuryDeskProgressPct } from "../lib/yield";
 import { AddressLink } from "./ui/AddressLink";
+import { HubSupplyChart } from "./HubSupplyChart";
 import { PieChart, type PieSlice } from "./ui/PieChart";
 import { CollapsibleCard, Flag, Panel, Row, Stat } from "./ui/Panel";
 
@@ -117,6 +118,8 @@ export function TokenomicsPanel({ state }: { state: ProtocolState }) {
           <Flag on={plan.teamUnits === 0n} label="0% TEAM" />
         </div>
       </Panel>
+
+      <HubSupplyChart />
 
       <Panel title="AIRDROP">
         <Row
