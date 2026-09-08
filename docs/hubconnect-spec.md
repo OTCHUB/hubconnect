@@ -116,6 +116,27 @@ reads as a dev wallet. At ≤2%:
 - Size in 2–3 announced tranches; re-verify the actual on-chain supply % after
   each tranche before continuing (curve pricing makes pre-computation unreliable).
 
+**§A3.2 Config propagation checklist — going live on mainnet.** `hub_mint`,
+`otc_mint`, `desk_collection`, `otc_desk_pot`, `ops_wallet` and `authority` are
+**not hardcoded anywhere in the frontend** — every consumer (`sdk/src/reader.ts`,
+both dashboards' hooks/panels) reads them live off the on-chain `Config`
+singleton each poll. Once `initialize_config` runs on mainnet with the real
+values from the OTC launcher (https://otcdesks.cash/launcher) mint, both
+dashboards pick them up automatically — **no source change required**. What
+does need a manual, one-time flip per deploy target:
+
+| Knob | File | Value at launch |
+|---|---|---|
+| `VITE_HUB_CLUSTER` | `web/.env.production.local` (hubconnect) and `otchub/.env.production.local` | `mainnet-beta` |
+| `VITE_HUB_RPC_URL` | same two files | mainnet RPC (Helius, allowlisted to each origin) |
+| `VITE_HUB_PROGRAM_ID` | same two files | mainnet program id (omit if the mainnet deploy reuses the devnet program keypair, since the SDK falls back to the address baked into the IDL) |
+| `VITE_HUB_ENABLED` | `otchub/.env.production.local` only | `true` (otchub hides `/hub` behind this flag pre-launch; see `src/lib/hubFlag.js`) |
+
+`web/src/hub/lib/deployments.ts`'s `HUB_MAINNET` constant (Deployments page
+registry) is cosmetic only — that page self-detects a live mainnet program via
+a real `Config` read the moment one succeeds, so it can't go stale even if this
+constant is never hand-updated. Update it anyway for the static/offline view.
+
 ### A4. Tier system
 
 Tiers bind to a desk NFT asset id, not to a wallet. Upgrade-only (pay the step

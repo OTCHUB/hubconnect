@@ -28,6 +28,13 @@ export type Deployment = {
 };
 
 // Mainnet $HUB program: not deployed yet — populate when the mainnet deployer ships it.
+// Cosmetic fallback only: DeploymentsPage self-detects a live mainnet deploy via a real
+// Config-account read (useProtocolState) and overrides this the moment one succeeds, so
+// forgetting to update this constant post-launch can't make the page lie about deploy status.
+// The value that actually decides which chain the whole app talks to is VITE_HUB_CLUSTER +
+// VITE_HUB_PROGRAM_ID (web/.env or otchub/.env.production.local) — see hubconnect-spec.md
+// launch checklist. hub_mint / otc_mint / desk_collection need NO code change at launch: every
+// consumer reads them live off the on-chain Config singleton once initialize_config sets them.
 const HUB_MAINNET: string | null = null;
 /** Anchor 1.x writes the IDL to a Program Metadata account — written at devnet deploy. */
 const HUB_IDL_DEVNET = "CnSKvxwKb3eNS6oF6GaAyAn8m3B8axXSCQYeBYrjdQfS";

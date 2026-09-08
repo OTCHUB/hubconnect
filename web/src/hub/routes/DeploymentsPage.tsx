@@ -92,13 +92,20 @@ export function DeploymentsPage() {
   );
 
   const hub = DEPLOYMENTS.find((d) => d.id === "hub-program")!;
-  const programDeployed = hub.address[cluster] !== null;
+  // A successful Config read on the cluster we're actually viewing proves the program is
+  // deployed there even if the static registry (deployments.ts's HUB_MAINNET) hasn't been
+  // hand-updated post-launch yet — the live on-chain read is the single source of truth once
+  // it exists, so this page can't silently drift out of sync with reality after mainnet launch.
+  const liveOnViewedCluster = cluster === active && status.kind === "ready";
+  const programDeployed = hub.address[cluster] !== null || liveOnViewedCluster;
   const showLive = cluster === active && programDeployed;
   const config = status.kind === "ready" ? status.state.config : null;
   const { pdas, fromConfig } = liveDeployments(
     showLive ? programId : null,
     showLive ? config : null,
   );
+  const hubProgramAddress = liveOnViewedCluster ? programId.toBase58() : hub.address[cluster];
+  const hubProgramStatus: DeploymentStatus = liveOnViewedCluster ? "live" : hub.status[cluster];
 
   const toggle = (
     <span className="flex gap-1">
@@ -139,8 +146,8 @@ export function DeploymentsPage() {
             <Entry
               key={d.id}
               {...d}
-              address={d.address[cluster]}
-              status={d.status[cluster]}
+              address={d.id === "hub-program" ? hubProgramAddress : d.address[cluster]}
+              status={d.id === "hub-program" ? hubProgramStatus : d.status[cluster]}
               cluster={cluster}
             />
           ))}
