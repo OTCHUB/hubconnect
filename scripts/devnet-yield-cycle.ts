@@ -1,14 +1,12 @@
 // One full treasury → pot → stakers → burn cycle on devnet, with every invariant asserted.
 //   npx ts-node -T scripts/devnet-yield-cycle.ts [--sweep-price 0.05] [--desk-round 0.144]
-//        [--inflow-c 0] [--consignor-share <bp>] [--hub-per-sol 1000000] [--no-sweep] [--consign]
-//        [--quick]
+//        [--inflow-c 0] [--hub-per-sol 1000000] [--no-sweep] [--quick]
 //
 // Mainnet model (§A5): OTC creator fees feed the OTC desk pot; every desk claims a desk-pot
-// round (≈0.144 SOL/desk/day). Rounds claimed by TREASURY-OWNED desks are pot inflow source B,
-// rounds claimed on OWNER-CONSIGNED vault desks are source E; the treasury multisig books both
-// with `register_treasury_inflow` / `register_consigned_inflow`. Stakers (activated desks) then
-// share 90% by tier weight and 10% buys + burns $HUB. There is no OTC program on devnet, so the
-// payer (= treasury) fronts the rounds; everything from the register call onward is real.
+// round (≈0.144 SOL/desk/day). Rounds claimed by TREASURY-OWNED desks are pot inflow source B;
+// the treasury multisig books them with `register_treasury_inflow`. Stakers (activated desks)
+// then share 90% by tier weight and 10% buys + burns $HUB. There is no OTC program on devnet, so
+// the payer (= treasury) fronts the rounds; everything from the register call onward is real.
 //
 // Rounds are THRESHOLD-gated, like the OTC desk pot ("the moment the pot clears 0.1 SOL it is
 // spent"): `finalize_epoch` is rejected until the open round's inflow reaches
@@ -20,25 +18,20 @@
 //    lists a desk; the treasury pays `sweep-price` SOL and receives the desk in the same tx
 //    (atomic SOL ↔ Core transfer) inside the §A6 caps. The sweep tx also creates the treasury's
 //    $HUB ATA when missing. The desk stays treasury-owned → its rounds are source B.
-//    Consignment (§A6.1): an owner-sent desk goes into the vault PDA via `consign_desk`
-//    (TreasuryState.desks_consigned) → its rounds are source E. Existing active consignments are
-//    reused; --consign (or none existing) mints + consigns one more.
 // 2. Gate (negative): with the round below threshold, `finalize_epoch` → PotBelowThreshold and
 //    `claim_yield` on a current desk → NothingToClaim.
-//    Inflow: B = desk_round × treasury-owned desks, E = desk_round per consigned desk (minus
-//    `consignor_share_bp` credited to the consignor's per-wallet StakerAccrual), optional C.
-//    Σw must NOT change — treasury/vault desks feed the pot, they never take a tier.
+//    Inflow: B = desk_round × treasury-owned desks, optional C.
+//    Σw must NOT change — treasury desks feed the pot, they never take a tier.
 // 3. `finalize_epoch` (allowed once ≥ threshold; topped up with C if the rounds fell short):
 //    burn slice = ⌊inflow × burn_pct_bp / 10⁴⌋ → BurnState.burn_pending; the rest is credited
 //    to `Config.acc_per_weight` as ⌊distributable × 10¹² / Σw⌋ per bp of weight.
 // 4. `claim_yield` ONCE per owned tier: payout == ⌊(acc − stamp) × w / 10¹²⌋ — every round
 //    closed since the desk's stamp in a single tx; the stamp catches up to `acc`.
-//    `claim_accrual` for the payer's consignor credits: balance += owed, owed → 0, one tx.
 // 5. Burn: keeper burns $HUB from its ATA (mock market buy at --hub-per-sol) and `record_burn`
 //    reimburses burn-pending from the pot; BurnState + mint supply reflect it.
 //
-// --quick is the streamlined path (no sweep/consign/mint): inflow → finalize → claim → burn on
-// whatever treasury-owned + consigned desks already exist.
+// --quick is the streamlined path (no sweep/mint): inflow → finalize → claim → burn on whatever
+// treasury-owned desks already exist.
 import {
   Keypair,
   LAMPORTS_PER_SOL,
@@ -61,20 +54,17 @@ import {
 import { create, fetchAsset, transferV1 } from "@metaplex-foundation/mpl-core";
 import {
   ACC_SCALE,
-  MPL_CORE_PROGRAM_ID,
   SWEEP_BUDGET_CAP_BP,
   SWEEP_PAYBACK_CAP_LAMPORTS,
   TIER_NAMES,
   TIER_WEIGHTS_BP,
-  accrualPda,
   burnPda,
-  consignPda,
   epochPda,
   fetchOwnedDesks,
+  otcPotPda,
   potPda,
   tierPda,
   treasuryPda,
-  vaultPda,
 } from "../sdk/src";
 import {
   TOKEN_PROGRAM_ID,
@@ -86,11 +76,11 @@ import {
   finalizeIx,
   hubAtaIx,
   openEpoch,
+  otcAtaIx,
   ownedTieredDesks,
   registerInflow,
   roundStatus,
   sendIxs,
-  setConfigValue,
   settleRound,
   sol,
   tokenAmount,
@@ -98,8 +88,8 @@ import {
   type Ctx,
 } from "./lib/devnet";
 
-/** Attributes label on mock desks so the script can tell treasury-swept from owner-consigned. */
-const MOCK_ROLE = { key: "hub_mock_role", swept: "treasury-swept", consigned: "owner-consigned" };
+/** Attributes label on mock desks so the script can tell treasury-swept desks apart. */
+const MOCK_ROLE = { key: "hub_mock_role", swept: "treasury-swept" };
 /** §A5 source B reference: ≈0.144 SOL desk-pot take per desk per day at current OTC volume. */
 const MAINNET_DESK_ROUND_SOL = 0.144;
 const BPS = 10_000n;
@@ -148,14 +138,6 @@ async function ownedByRole(ctx: Ctx, collection: PublicKey, role: string) {
     if (attrs.some((kv) => kv.key === MOCK_ROLE.key && kv.value === role)) out.push(asset);
   }
   return out;
-}
-
-/** Active `ConsignedDesk` records — the vault desks whose rounds are source E. */
-async function activeConsignments(ctx: Ctx) {
-  const all = await ctx.program.account.consignedDesk.all();
-  return all
-    .filter((c) => c.account.active)
-    .map((c) => ({ asset: c.account.assetId, consignor: c.account.consignor, key: c.publicKey }));
 }
 
 /**
@@ -219,38 +201,6 @@ async function sweep(ctx: Ctx, collection: PublicKey, hubMint: PublicKey, price:
   return assetPk;
 }
 
-/** §A6.1 owner-sent desk: mint to the payer (as desk owner) and consign it into the vault PDA. */
-async function consignNewDesk(ctx: Ctx, collection: PublicKey) {
-  const minted = await mintMockDesk(ctx, collection, ctx.payer.publicKey, MOCK_ROLE.consigned);
-  const asset = toWeb3JsPublicKey(minted.publicKey);
-  const [vault] = vaultPda(ctx.program.programId);
-  const [treasuryState] = treasuryPda(ctx.program.programId);
-  const [consignedDesk] = consignPda(ctx.program.programId, asset);
-  const before = (await ctx.program.account.treasuryState.fetch(treasuryState)).desksConsigned;
-  const sig = await ctx.program.methods
-    .consignDesk()
-    .accountsPartial({
-      owner: ctx.payer.publicKey,
-      deskAsset: asset,
-      deskCollection: collection,
-      config: ctx.config,
-      vault,
-      treasuryState,
-      consignedDesk,
-      mplCoreProgram: new PublicKey(MPL_CORE_PROGRAM_ID),
-    })
-    .rpc();
-  const owner = toWeb3JsPublicKey((await fetchAsset(ctx.umi, minted.publicKey)).owner);
-  const after = await ctx.program.account.treasuryState.fetch(treasuryState);
-  check("Core owner == vault PDA", owner.equals(vault), `${vault.toBase58()} (${sig})`);
-  check(
-    "TreasuryState.desks_consigned +1",
-    after.desksConsigned === before + 1,
-    `${before} → ${after.desksConsigned}`,
-  );
-  return asset;
-}
-
 /** spl-token `Burn` (ix 8). */
 const burnIx = (account: PublicKey, mint: PublicKey, owner: PublicKey, amount: bigint) => {
   const data = Buffer.alloc(9);
@@ -267,21 +217,19 @@ const burnIx = (account: PublicKey, mint: PublicKey, owner: PublicKey, amount: b
   });
 };
 
-/** Payer balance delta of one tx, net of its fee. */
-async function netReceived(ctx: Ctx, send: () => Promise<string>) {
-  const before = await ctx.connection.getBalance(ctx.payer.publicKey);
-  const sig = await send();
-  const tx = await ctx.connection.getTransaction(sig, {
-    commitment: "confirmed",
-    maxSupportedTransactionVersion: 0,
-  });
-  const after = await ctx.connection.getBalance(ctx.payer.publicKey);
-  return { got: BigInt(after - before + (tx?.meta?.fee ?? 5000)), sig };
+/** Single-tx `claim_yield`; returns $OTC base units credited to the claimer's ATA. */
+async function claimOneOtc(ctx: Ctx, asset: PublicKey, claimerOtc: PublicKey) {
+  const before = (await tokenAmount(ctx, claimerOtc)) ?? 0n;
+  const sig = await sendIxs(ctx, [await claimYieldIx(ctx, asset)]);
+  const after = (await tokenAmount(ctx, claimerOtc)) ?? 0n;
+  return { got: after - before, sig };
 }
 
-/** Single-tx `claim_yield`; returns lamports received net of fee. */
-async function claimOne(ctx: Ctx, asset: PublicKey) {
-  return netReceived(ctx, async () => sendIxs(ctx, [await claimYieldIx(ctx, asset)]));
+/** `$OTC` base units `claim_yield` would pay for `owedLamports` at the pot's lifetime average
+ * buy rate — mirrors the on-chain price in `claim_yield` (tiers.rs) exactly. */
+function otcDue(owedLamports: bigint, otcPot: { totalOtcBoughtUnits: bigint; totalLamportsSpent: bigint }) {
+  if (otcPot.totalLamportsSpent <= 0n) return 0n;
+  return (owedLamports * otcPot.totalOtcBoughtUnits) / otcPot.totalLamportsSpent;
 }
 
 /** `(acc − stamp) × w / ACC_SCALE` — the program's `pending_yield` for one desk right now. */
@@ -323,14 +271,20 @@ async function main() {
   }
   if (cfg0.hubMint.equals(PublicKey.default))
     throw new Error("Config.hub_mint unset — devnet:mint");
+  if (cfg0.otcMint.equals(PublicKey.default))
+    throw new Error("Config.otc_mint unset — devnet:otc-mint");
+  const [otcPotKey] = otcPotPda(ctx.program.programId);
+  const otcPot0Raw = await ctx.program.account.otcPotState.fetchNullable(otcPotKey);
+  if (!otcPot0Raw) throw new Error("OtcPotState not initialized — run devnet:otc-mint first");
   const quick = process.argv.includes("--quick");
   const doSweep = !quick && !process.argv.includes("--no-sweep");
   const price = lam(argNum("--sweep-price", 0.05));
   const deskRound = lam(argNum("--desk-round", MAINNET_DESK_ROUND_SOL));
   const inflowC = lam(argNum("--inflow-c", 0));
-  const consignorShare = argNum("--consignor-share", -1);
   const hubPerSol = argNum("--hub-per-sol", 1_000_000);
+  const otcPerSol = argNum("--otc-per-sol", 5_000_000);
   const collection = cfg0.deskCollection;
+  const claimerOtc = ata(ctx.payer.publicKey, cfg0.otcMint);
 
   console.log("\n[0] BRING CURRENT");
   // A leftover round already at threshold would make the negative gate check meaningless:
@@ -343,23 +297,14 @@ async function main() {
     await settleRound(ctx);
   }
   const r0 = await claimAllOwned(ctx);
-  if (r0.claims) console.log(`  caught up ${r0.claims} pending claim(s) → +${sol(r0.received)}`);
+  if (r0.claims) console.log(`  caught up ${r0.claims} pending claim(s) → +${r0.received} $OTC units`);
+  else if (r0.blocked) console.log(`  ${r0.desks} owned tier(s) have pending yield, but the $OTC vault isn't funded yet — leaving as-is`);
   else console.log(`  ${r0.desks} owned tier(s), nothing pending`);
-  if (consignorShare >= 0) {
-    await setConfigValue(ctx, "consignorShareBp", { u16: consignorShare });
-  }
 
   console.log(`\n[1] DESK CUSTODY${quick ? " (--quick: reuse existing)" : ""}`);
   if (doSweep) await sweep(ctx, collection, cfg0.hubMint, price);
-  const consignments0 = await activeConsignments(ctx);
-  if (!quick && (consignments0.length === 0 || process.argv.includes("--consign"))) {
-    await consignNewDesk(ctx, collection);
-  }
   const swept = await ownedByRole(ctx, collection, MOCK_ROLE.swept);
-  const consignments = await activeConsignments(ctx);
-  console.log(
-    `  treasury-owned (source B): ${swept.length} desk(s) · consigned in vault (source E): ${consignments.length}`,
-  );
+  console.log(`  treasury-owned (source B): ${swept.length} desk(s)`);
 
   console.log("\n[2] GATE + INFLOW — desk-pot rounds (mock OTC creator-fee take) → pot");
   const gate = await roundStatus(ctx);
@@ -386,7 +331,6 @@ async function main() {
     `  desk_round ${sol(deskRound)} per desk (mainnet ref ≈ ${MAINNET_DESK_ROUND_SOL} SOL/desk/day)`,
   );
   const e0 = await openEpoch(ctx);
-  const shareBp = BigInt(e0.cfg.consignorShareBp);
   const inflowB = deskRound * swept.length;
   const registerTreasury = async (source: "b" | "c", lamports: number) => {
     const sig = await registerInflow(ctx, source, lamports);
@@ -394,67 +338,23 @@ async function main() {
   };
   if (inflowB > 0) await registerTreasury("b", inflowB);
   if (inflowC > 0) await registerTreasury("c", inflowC);
-  let inflowE = 0n;
-  let shareE = 0n;
-  // Per consignor: the per-wallet accrual PDA, owed before, and the share we expect it to gain.
-  const accruals = new Map<string, { key: PublicKey; before: bigint; expected: bigint }>();
-  for (const c of consignments) {
-    const [consignorAccrual] = accrualPda(ctx.program.programId, c.consignor);
-    const id = c.consignor.toBase58();
-    if (!accruals.has(id)) {
-      const prev = await ctx.program.account.stakerAccrual.fetchNullable(consignorAccrual);
-      accruals.set(id, {
-        key: consignorAccrual,
-        before: prev ? big(prev.owedLamports) : 0n,
-        expected: 0n,
-      });
-    }
-    const sigE = await ctx.program.methods
-      .registerConsignedInflow(new BN(deskRound))
-      .accountsPartial({
-        treasury: ctx.payer.publicKey,
-        config: ctx.config,
-        epoch: e0.key,
-        pot: potKey,
-        consignedDesk: c.key,
-        consignorAccrual,
-      })
-      .rpc();
-    const share = (BigInt(deskRound) * shareBp) / BPS;
-    inflowE += BigInt(deskRound);
-    shareE += share;
-    accruals.get(id)!.expected += share;
-    console.log(
-      `  source E ${sol(deskRound)} via vault desk ${c.asset.toBase58().slice(0, 4)}… (${sigE})`,
-    );
-  }
   const e1 = await openEpoch(ctx);
-  const pool = BigInt(inflowB + inflowC) + inflowE - shareE;
+  const pool = BigInt(inflowB + inflowC);
   check(
-    `epoch inflow += B + C + (E − consignor share ${e0.cfg.consignorShareBp} bp)`,
+    "epoch inflow += B + C",
     big(e1.epoch.inflowLamports) - big(e0.epoch.inflowLamports) === pool,
     `${sol(e0.epoch.inflowLamports)} → ${sol(e1.epoch.inflowLamports)}`,
   );
   check(
-    "pot liability += B + C + E (pool + consignor share)",
-    big(e1.cfg.potLiabilityLamports) - big(e0.cfg.potLiabilityLamports) === pool + shareE,
+    "pot liability += B + C",
+    big(e1.cfg.potLiabilityLamports) - big(e0.cfg.potLiabilityLamports) === pool,
     `${sol(e0.cfg.potLiabilityLamports)} → ${sol(e1.cfg.potLiabilityLamports)}`,
   );
   check(
-    "Σw unchanged by treasury / vault desks",
+    "Σw unchanged by treasury desks",
     e1.cfg.totalWeightBp.eq(e0.cfg.totalWeightBp),
     `${e1.cfg.totalWeightBp} bp`,
   );
-  if (shareE > 0n) {
-    for (const [wallet, a] of accruals) {
-      const owed = big((await ctx.program.account.stakerAccrual.fetch(a.key)).owedLamports);
-      check(
-        `consignor ${wallet.slice(0, 4)}… StakerAccrual += share`,
-        owed - a.before === a.expected,
-        `${sol(a.before)} → ${sol(owed)}`,
-      );
-    }
-  }
 
   console.log("\n[3] FINALIZE ROUND — allowed once inflow ≥ min_pot_threshold");
   const pre = await roundStatus(ctx);
@@ -464,6 +364,12 @@ async function main() {
     );
   }
   const burnBefore = (await ctx.program.account.burnState.fetch(burnKey)).burnPendingLamports;
+  const [treasuryStateKey] = treasuryPda(ctx.program.programId);
+  const treasuryLpBefore = big(
+    (await ctx.program.account.treasuryState.fetch(treasuryStateKey)).lpPendingLamports,
+  );
+  const otcPotBeforeFinalize = await ctx.program.account.otcPotState.fetch(otcPotKey);
+  const otcPendingBefore = big(otcPotBeforeFinalize.otcPendingLamports);
   const acc0 = big(pre.cfg.accPerWeight);
   const { idx, epoch } = await settleRound(ctx, true);
   const cfg3 = await ctx.program.account.config.fetch(ctx.config);
@@ -479,7 +385,13 @@ async function main() {
     big(epoch.burnPendingLamports) === expBurn,
     sol(expBurn),
   );
-  const distributable = inflow - expBurn;
+  const expLp = (inflow * BigInt(e1.cfg.lpPctBp)) / BPS; // §A5 5% LP-build earmark
+  check(
+    `lp_pending == ⌊inflow × ${e1.cfg.lpPctBp} bp⌋`,
+    big(epoch.lpPendingLamports) === expLp,
+    sol(expLp),
+  );
+  const distributable = inflow - expBurn - expLp; // remaining 90% == the $OTC leg
   const sw = big(epoch.totalWeightBp);
   const expPerW = (distributable * ACC_SCALE) / sw;
   check(
@@ -506,6 +418,18 @@ async function main() {
     big(burnAfter) - big(burnBefore) === expBurn,
     sol(burnAfter),
   );
+  const treasuryAfter = await ctx.program.account.treasuryState.fetch(treasuryStateKey);
+  check(
+    "TreasuryState.lp_pending += slice",
+    big(treasuryAfter.lpPendingLamports) - treasuryLpBefore === expLp,
+    sol(treasuryAfter.lpPendingLamports),
+  );
+  const otcPotAfterFinalize = await ctx.program.account.otcPotState.fetch(otcPotKey);
+  check(
+    "OtcPotState.otc_pending_lamports += credited (§A5 90% leg)",
+    big(otcPotAfterFinalize.otcPendingLamports) - otcPendingBefore === big(epoch.distributedLamports),
+    sol(otcPotAfterFinalize.otcPendingLamports),
+  );
   const next = await openEpoch(ctx);
   check(
     `next round #${next.idx} opens with the floor remainder only`,
@@ -513,7 +437,55 @@ async function main() {
     sol(next.epoch.inflowLamports),
   );
 
-  console.log("\n[4] CLAIMS — one tx per desk settles every closed round");
+  console.log("\n[3b] OTC BUY — keeper deposits $OTC into the vault, reimbursed from the pot");
+  const otcPending = big(otcPotAfterFinalize.otcPendingLamports);
+  const otcUnits = (otcPending * BigInt(otcPerSol) * 1_000_000n) / BigInt(LAMPORTS_PER_SOL);
+  const preamble = await otcAtaIx(ctx, ctx.payer.publicKey, cfg0.otcMint);
+  if (preamble) await sendIxs(ctx, [preamble]);
+  const keeperOtcRaw = await tokenAmount(ctx, ata(ctx.payer.publicKey, cfg0.otcMint));
+  check("keeper $OTC ATA exists", keeperOtcRaw !== null, preamble ? "created now" : "already existed");
+  const keeperOtc = keeperOtcRaw ?? 0n;
+  if (keeperOtc < otcUnits) {
+    throw new Error(
+      `keeper holds ${keeperOtc} $OTC units but the mock buy needs ${otcUnits} — fund the ATA (devnet:otc-mint)`,
+    );
+  }
+  const buyTxBytes = new Array(64).fill(0);
+  buyTxBytes[0] = idx + 1; // unique per round so `last_buy_tx` never collides across cycle runs
+  const liabBeforeBuy = (await ctx.program.account.config.fetch(ctx.config)).potLiabilityLamports;
+  const buySig = await ctx.program.methods
+    .recordOtcBuy(new BN(otcUnits.toString()), new BN(otcPending.toString()), buyTxBytes)
+    .accountsPartial({
+      keeper: ctx.payer.publicKey,
+      config: ctx.config,
+      otcPot: otcPotKey,
+      otcMint: cfg0.otcMint,
+      keeperOtc: ata(ctx.payer.publicKey, cfg0.otcMint),
+      otcVault: otcPotAfterFinalize.otcVault,
+      pot: potKey,
+      tokenProgram: TOKEN_PROGRAM_ID,
+    })
+    .rpc();
+  const otcPot1 = await ctx.program.account.otcPotState.fetch(otcPotKey);
+  check(
+    "otc_pending_lamports -= lamports_spent",
+    otcPot1.otcPendingLamports.isZero(),
+    `${sol(otcPotAfterFinalize.otcPendingLamports)} → ${sol(otcPot1.otcPendingLamports)} (${buySig})`,
+  );
+  check(
+    "total_otc_bought_units / total_lamports_spent lifted",
+    big(otcPot1.totalOtcBoughtUnits) ===
+      big(otcPotAfterFinalize.totalOtcBoughtUnits) + otcUnits &&
+      big(otcPot1.totalLamportsSpent) === big(otcPotAfterFinalize.totalLamportsSpent) + otcPending,
+    `${otcPot1.totalOtcBoughtUnits} units / ${sol(otcPot1.totalLamportsSpent)} spent`,
+  );
+  const liabAfterBuy = (await ctx.program.account.config.fetch(ctx.config)).potLiabilityLamports;
+  check(
+    "pot liability −= lamports_spent (reimbursed to keeper)",
+    liabBeforeBuy.sub(liabAfterBuy).eq(new BN(otcPending.toString())),
+  );
+
+  console.log("\n[4] CLAIMS — one tx per desk settles every closed round (paid in $OTC)");
   const desks = await ownedTieredDesks(ctx);
   const dist = big(epoch.distributedLamports);
   TIER_NAMES.forEach((name, i) => {
@@ -529,18 +501,22 @@ async function main() {
     const w = BigInt(TIER_WEIGHTS_BP[tier.tier - 1]);
     const expected = await pendingOf(ctx, asset); // (acc − stamp) × w / 10¹², all rounds since stamp
     const thisRound = (expPerW * w) / ACC_SCALE;
-    const { got } = await claimOne(ctx, asset);
+    const expectedOtc = otcDue(expected, {
+      totalOtcBoughtUnits: big(otcPot1.totalOtcBoughtUnits),
+      totalLamportsSpent: big(otcPot1.totalLamportsSpent),
+    });
+    const { got: gotOtc } = await claimOneOtc(ctx, asset, claimerOtc);
     const t = await ctx.program.account.deskTier.fetch(tierPda(ctx.program.programId, asset)[0]);
     claimedW += w;
-    sum += got;
+    sum += expected;
     check(
-      `T${tier.tier} ${asset.toBase58().slice(0, 4)}… paid ${sol(got)} in one tx`,
-      got === expected && expected >= thisRound,
-      `expected ${sol(expected)}${expected > thisRound ? ` (incl. ${sol(expected - thisRound)} from earlier rounds)` : ""}`,
+      `T${tier.tier} ${asset.toBase58().slice(0, 4)}… paid ${gotOtc} $OTC units in one tx`,
+      gotOtc === expectedOtc && expected >= thisRound,
+      `owed ${sol(expected)} lamport-equiv ≈ ${expectedOtc} $OTC${expected > thisRound ? ` (incl. ${sol(expected - thisRound)} from earlier rounds)` : ""}`,
     );
     check(
       `  stamp caught up to acc · lifetime ${sol(t.totalClaimedLamports)}`,
-      t.stampAccPerWeight.eq(cfg3.accPerWeight) && big(t.totalClaimedLamports) >= got,
+      t.stampAccPerWeight.eq(cfg3.accPerWeight) && big(t.totalClaimedLamports) >= expected,
     );
   }
   const cfg4 = await ctx.program.account.config.fetch(ctx.config);
@@ -549,6 +525,7 @@ async function main() {
     // Every staker is the payer → in scaled units, credited × 10¹² == per_w × Σw + slack, where
     // `slack` went to dust at finalize and each claim's sub-lamport fraction goes to dust now.
     // So (credited − Σ payouts) × 10¹² == Δdust since finalize + slack, exactly (zero-sum).
+    // This invariant is lamport-equivalent bookkeeping — unaffected by the $OTC payout medium.
     const slack = dist * ACC_SCALE - expPerW * sw;
     const dustDelta = big(cfg4.dustScaled) - dust0;
     check(
@@ -571,55 +548,6 @@ async function main() {
       "NothingToClaim",
     );
     check("second claim in the same round rejected", r.ok, r.detail);
-  }
-
-  console.log("\n[4b] CONSIGNOR ACCRUAL — claim_accrual (payer-owned consignments)");
-  const [payerAccrual] = accrualPda(ctx.program.programId, ctx.payer.publicKey);
-  const acc = await ctx.program.account.stakerAccrual.fetchNullable(payerAccrual);
-  if (acc && !acc.owedLamports.isZero()) {
-    const owed = big(acc.owedLamports);
-    const liab0 = big(cfg4.potLiabilityLamports);
-    const { got } = await netReceived(ctx, () =>
-      ctx.program.methods
-        .claimAccrual()
-        .accountsPartial({
-          wallet: ctx.payer.publicKey,
-          config: ctx.config,
-          accrual: payerAccrual,
-          pot: potKey,
-        })
-        .rpc(),
-    );
-    const a1 = await ctx.program.account.stakerAccrual.fetch(payerAccrual);
-    const liab1 = big((await ctx.program.account.config.fetch(ctx.config)).potLiabilityLamports);
-    check("claim_accrual pays owed_lamports in one tx", got === owed, `${sol(owed)}`);
-    check(
-      "owed → 0 · total_claimed += owed · liability −= owed",
-      a1.owedLamports.isZero() &&
-        big(a1.totalClaimedLamports) - big(acc.totalClaimedLamports) === owed &&
-        liab0 - liab1 === owed,
-      `lifetime ${sol(a1.totalClaimedLamports)}`,
-    );
-    const r = await expectErr(
-      ctx.program.methods
-        .claimAccrual()
-        .accountsPartial({
-          wallet: ctx.payer.publicKey,
-          config: ctx.config,
-          accrual: payerAccrual,
-          pot: potKey,
-        })
-        .rpc(),
-      "AccrualEmpty",
-    );
-    check("second claim_accrual rejected", r.ok, r.detail);
-  } else {
-    console.log(
-      `  nothing owed to the payer (consignor_share_bp = ${e0.cfg.consignorShareBp}; pass --consignor-share 5000 to exercise)`,
-    );
-  }
-  if (consignorShare >= 0 && consignorShare !== cfg0.consignorShareBp) {
-    await setConfigValue(ctx, "consignorShareBp", { u16: cfg0.consignorShareBp });
   }
 
   console.log("\n[5] BURN ($HUB) + record_burn");

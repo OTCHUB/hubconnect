@@ -296,7 +296,12 @@ pub fn claim_yield(ctx: Context<ClaimYield>) -> Result<()> {
     t.stamp_acc_per_weight = config.acc_per_weight;
     t.total_claimed_lamports = add(t.total_claimed_lamports, owed)?;
     add_dust(config, frac)?;
-    config.pot_liability_lamports = sub(config.pot_liability_lamports, owed)?;
+    // NOTE: unlike the pre-§A5 SOL payout, `owed`'s SOL-equivalent liability was already
+    // retired in bulk by `record_otc_buy` (which subtracts the epoch's whole `credited` —
+    // i.e. Σ owed — from `pot_liability_lamports` when the keeper is reimbursed for the $OTC
+    // buy). Subtracting `owed` again here would double-decrement the same liability and
+    // eventually underflow `pot_liability_lamports`. This claim only moves $OTC out of
+    // `otc_vault`, which never touches the pot's lamport balance.
 
     let pot_bump = config.pot_bump;
     transfer_checked(

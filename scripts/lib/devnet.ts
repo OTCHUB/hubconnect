@@ -25,6 +25,7 @@ import {
   epochPda,
   fetchDeskTier,
   fetchOwnedDesks,
+  otcPotPda,
   pendingYieldLamports,
   potPda,
   tierPda,
@@ -100,8 +101,8 @@ export type PubkeyField =
   | "otcProgram"
   | "treasury"
   | "authority";
-export type BpsField = "burnPctBp" | "opsPctBp" | "consignorShareBp";
-export type BoolField = "consignmentEnabled" | "lpEnabled";
+export type BpsField = "burnPctBp" | "opsPctBp";
+export type BoolField = "lpEnabled";
 export type U64Field = "lpTargetSolLamports" | "minPotThresholdLamports";
 export type ConfigValueArg =
   | { pubkey: PublicKey }
@@ -112,7 +113,7 @@ export type ConfigValueArg =
 
 /**
  * `update_config(field, value)` — the single admin entry point for protocol parameters
- * (§B3 #9). Signer must be `Config.authority`. Rate fields (burn/ops/consignor bps) apply
+ * (§B3 #9). Signer must be `Config.authority`. Rate fields (burn/ops bps) apply
  * to rounds finalized after the call; `minPotThresholdLamports` gates the next finalize.
  * Returns the signature, or null when the value is already set.
  */
@@ -210,6 +211,21 @@ export async function hubAtaIx(ctx: Ctx, owner: PublicKey, hubMint?: PublicKey) 
   return createAtaIdempotent(ctx.payer.publicKey, owner, mint);
 }
 
+/**
+ * §A5 90% leg: `claim_yield` pays into the claimer's standard $OTC ATA but never creates it
+ * (on-chain `require_token_account` only checks mint/owner). Returns a `CreateIdempotent`
+ * instruction when `owner` has none, or null when it already exists.
+ */
+export async function otcAtaIx(ctx: Ctx, owner: PublicKey, otcMint?: PublicKey) {
+  const mint = otcMint ?? (await ctx.program.account.config.fetch(ctx.config)).otcMint;
+  if (mint.equals(PublicKey.default))
+    throw new Error("Config.otc_mint unset — run devnet:otc-mint");
+  const key = ata(owner, mint);
+  const info = await ctx.connection.getAccountInfo(key);
+  if (info) return null;
+  return createAtaIdempotent(ctx.payer.publicKey, owner, mint);
+}
+
 /** Append web3 instructions (e.g. the ATA init) to a umi builder so they land in the same tx. */
 export function withIxs(builder: TransactionBuilder, ixs: (TransactionInstruction | null)[]) {
   return ixs
@@ -258,6 +274,8 @@ export function finalizeIx(ctx: Ctx, idx: number) {
   const [nextEpoch] = epochPda(ctx.program.programId, idx + 1);
   const [pot] = potPda(ctx.program.programId);
   const [burn] = burnPda(ctx.program.programId);
+  const [otcPot] = otcPotPda(ctx.program.programId);
+  const [treasuryState] = treasuryPda(ctx.program.programId);
   const [key] = epochPda(ctx.program.programId, idx);
   return ctx.program.methods
     .finalizeEpoch(new BN(idx))
@@ -268,6 +286,8 @@ export function finalizeIx(ctx: Ctx, idx: number) {
       nextEpoch,
       pot,
       burn,
+      otcPot,
+      treasuryState,
     })
     .rpc();
 }
@@ -330,10 +350,17 @@ export async function ownedTieredDesks(ctx: Ctx) {
   return out;
 }
 
-/** `claim_yield` instruction for one owned desk (single tx settles every closed round). */
-export function claimYieldIx(ctx: Ctx, asset: PublicKey) {
+/**
+ * `claim_yield` instruction for one owned desk (single tx settles every closed round, paid in
+ * $OTC — §A5 90% leg). Requires `init_otc_pot` to have run and the claimer's $OTC ATA to
+ * already exist (see `otcAtaIx`).
+ */
+export async function claimYieldIx(ctx: Ctx, asset: PublicKey) {
+  const cfg = await ctx.program.account.config.fetch(ctx.config);
   const [pot] = potPda(ctx.program.programId);
   const [deskTier] = tierPda(ctx.program.programId, asset);
+  const [otcPot] = otcPotPda(ctx.program.programId);
+  const otcPotState = await ctx.program.account.otcPotState.fetch(otcPot);
   return ctx.program.methods
     .claimYield()
     .accountsPartial({
@@ -342,24 +369,40 @@ export function claimYieldIx(ctx: Ctx, asset: PublicKey) {
       config: ctx.config,
       deskTier,
       pot,
+      otcPot,
+      otcMint: cfg.otcMint,
+      otcVault: otcPotState.otcVault,
+      claimerOtc: ata(ctx.payer.publicKey, cfg.otcMint),
+      tokenProgram: TOKEN_PROGRAM_ID,
     })
     .instruction();
 }
 
 /**
  * One `claim_yield` per owned active tier with pending yield — each claim settles every round
- * closed since that desk's stamp. Batches 5 desks per transaction. Returns lamports received.
+ * closed since that desk's stamp. Batches 5 desks per transaction. Returns $OTC base units
+ * received. Skips (with `blocked` set) when the §A5 90% leg isn't provisioned/funded yet.
  */
 export async function claimAllOwned(ctx: Ctx) {
   const desks = await ownedTieredDesks(ctx);
   const cfg = toConfigView(await ctx.program.account.config.fetch(ctx.config));
   const due = desks.filter(({ tier }) => pendingYieldLamports(tier, cfg) > 0);
+  if (!due.length) return { claims: 0, desks: desks.length, received: 0n, blocked: false };
+  const [otcPotKey] = otcPotPda(ctx.program.programId);
+  const otcPotState = await ctx.program.account.otcPotState.fetchNullable(otcPotKey);
+  if (!otcPotState || otcPotState.totalLamportsSpent.isZero()) {
+    return { claims: 0, desks: desks.length, received: 0n, blocked: true };
+  }
+  const otcMint = new PublicKey(cfg.otcMint);
+  const claimerOtc = ata(ctx.payer.publicKey, otcMint);
+  const preamble = await otcAtaIx(ctx, ctx.payer.publicKey, otcMint);
   const ixs: TransactionInstruction[] = [];
   for (const { asset } of due) ixs.push(await claimYieldIx(ctx, asset));
-  const before = await ctx.connection.getBalance(ctx.payer.publicKey);
+  const before = (await tokenAmount(ctx, claimerOtc)) ?? 0n;
+  if (preamble) await sendIxs(ctx, [preamble]);
   for (let i = 0; i < ixs.length; i += 5) await sendIxs(ctx, ixs.slice(i, i + 5));
-  const after = await ctx.connection.getBalance(ctx.payer.publicKey);
-  return { claims: due.length, desks: desks.length, received: after - before };
+  const after = (await tokenAmount(ctx, claimerOtc)) ?? 0n;
+  return { claims: due.length, desks: desks.length, received: after - before, blocked: false };
 }
 
 export const sol = (l: BN | number | bigint) =>

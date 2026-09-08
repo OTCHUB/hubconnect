@@ -1,5 +1,4 @@
-//! §B3 #4 finalize_epoch, #6 register_treasury_inflow (+ consigned variant), #7 record_burn,
-//! and claim_accrual (pays consignor-share credits recorded on StakerAccrual).
+//! §B3 #4 finalize_epoch, #6 register_treasury_inflow, #7 record_burn.
 //!
 //! Burn-pending and lp-pending are marked once, at finalize, with the rates in effect then
 //! (§B3 #9: rate changes apply to future epochs).
@@ -125,13 +124,12 @@ pub fn finalize_epoch(ctx: Context<FinalizeEpoch>, epoch_index: u64) -> Result<(
     Ok(())
 }
 
-/// §A5 inflow sources. `E` (consigned desk yield) uses `register_consigned_inflow`.
+/// §A5 inflow sources.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum InflowSource {
     B,
     C,
     D,
-    E,
     F,
 }
 
@@ -158,7 +156,6 @@ pub fn register_treasury_inflow(
     lamports: u64,
 ) -> Result<()> {
     require!(lamports > 0, HubError::ZeroAmount);
-    require!(source != InflowSource::E, HubError::ConsignmentInactive);
     transfer_from_signer(
         &ctx.accounts.system_program,
         &ctx.accounts.treasury,
@@ -180,107 +177,6 @@ pub fn register_treasury_inflow(
         epoch: config.current_epoch,
         source: source as u8,
         lamports,
-        consignor_share: 0
-    });
-    Ok(())
-}
-
-#[derive(Accounts)]
-pub struct RegisterConsignedInflow<'info> {
-    #[account(mut)]
-    pub treasury: Signer<'info>,
-    #[account(mut, seeds = [SEED_CONFIG], bump = config.bump, has_one = treasury @ HubError::Unauthorized)]
-    pub config: Account<'info, Config>,
-    #[account(mut, seeds = [SEED_EPOCH, &config.current_epoch.to_le_bytes()], bump = epoch.bump)]
-    pub epoch: Account<'info, Epoch>,
-    /// CHECK: system-owned lamport vault PDA.
-    #[account(mut, seeds = [SEED_POT], bump = config.pot_bump)]
-    pub pot: UncheckedAccount<'info>,
-    #[account(
-        seeds = [SEED_CONSIGN, consigned_desk.asset_id.as_ref()], bump = consigned_desk.bump,
-        constraint = consigned_desk.active @ HubError::ConsignmentInactive
-    )]
-    pub consigned_desk: Account<'info, ConsignedDesk>,
-    #[account(
-        init_if_needed, payer = treasury, space = 8 + StakerAccrual::INIT_SPACE,
-        seeds = [SEED_ACCRUAL, consigned_desk.consignor.as_ref()], bump
-    )]
-    pub consignor_accrual: Account<'info, StakerAccrual>,
-    pub system_program: Program<'info, System>,
-}
-
-/// Source E: `consignor_share_bp` is credited to the consignor's accrual, remainder → pool.
-pub fn register_consigned_inflow(
-    ctx: Context<RegisterConsignedInflow>,
-    lamports: u64,
-) -> Result<()> {
-    require!(lamports > 0, HubError::ZeroAmount);
-    transfer_from_signer(
-        &ctx.accounts.system_program,
-        &ctx.accounts.treasury,
-        &ctx.accounts.pot,
-        lamports,
-    )?;
-
-    let config = &mut ctx.accounts.config;
-    let share = bps_of(lamports, config.consignor_share_bp)?;
-    let pool = sub(lamports, share)?;
-    book_inflow(config, &mut ctx.accounts.epoch, pool)?;
-
-    let a = &mut ctx.accounts.consignor_accrual;
-    a.wallet = ctx.accounts.consigned_desk.consignor;
-    a.owed_lamports = add(a.owed_lamports, share)?;
-    a.bump = ctx.bumps.consignor_accrual;
-    config.pot_liability_lamports = add(config.pot_liability_lamports, share)?;
-
-    assert_pot_solvent(config, &ctx.accounts.pot)?;
-    emit!(InflowRegistered {
-        epoch: config.current_epoch,
-        source: InflowSource::E as u8,
-        lamports,
-        consignor_share: share,
-    });
-    Ok(())
-}
-
-#[derive(Accounts)]
-pub struct ClaimAccrual<'info> {
-    #[account(mut)]
-    pub wallet: Signer<'info>,
-    #[account(mut, seeds = [SEED_CONFIG], bump = config.bump, constraint = !config.paused @ HubError::Paused)]
-    pub config: Account<'info, Config>,
-    #[account(
-        mut, seeds = [SEED_ACCRUAL, wallet.key().as_ref()], bump = accrual.bump,
-        has_one = wallet @ HubError::Unauthorized
-    )]
-    pub accrual: Account<'info, StakerAccrual>,
-    /// CHECK: system-owned lamport vault PDA.
-    #[account(mut, seeds = [SEED_POT], bump = config.pot_bump)]
-    pub pot: UncheckedAccount<'info>,
-    pub system_program: Program<'info, System>,
-}
-
-/// Pays everything a wallet is owed from consignor shares in one tx. Independent of tiers
-/// and of any finalize.
-pub fn claim_accrual(ctx: Context<ClaimAccrual>) -> Result<()> {
-    let a = &mut ctx.accounts.accrual;
-    let owed = a.owed_lamports;
-    require!(owed > 0, HubError::AccrualEmpty);
-    a.owed_lamports = 0;
-    a.total_claimed_lamports = add(a.total_claimed_lamports, owed)?;
-    let config = &mut ctx.accounts.config;
-    config.pot_liability_lamports = sub(config.pot_liability_lamports, owed)?;
-    pay_from_pot(
-        &ctx.accounts.system_program,
-        &ctx.accounts.pot,
-        &ctx.accounts.wallet,
-        config.pot_bump,
-        owed,
-    )?;
-    assert_pot_solvent(config, &ctx.accounts.pot)?;
-    emit!(AccrualClaimed {
-        wallet: ctx.accounts.wallet.key(),
-        lamports: owed
     });
     Ok(())
 }

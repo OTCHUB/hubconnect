@@ -28,8 +28,6 @@ describe("M1 — initialize_config", () => {
     expect(c.dustScaled.isZero()).to.eq(true);
     expect(c.burnPctBp).to.eq(K.BURN_PCT_BP);
     expect(c.opsPctBp).to.eq(K.OPS_PCT_BP);
-    expect(c.consignmentEnabled).to.eq(K.CONSIGNMENT_ENABLED);
-    expect(c.consignorShareBp).to.eq(K.CONSIGNOR_SHARE_BP);
     expect(c.lpEnabled).to.eq(K.LP_ENABLED);
     expect(c.paused).to.eq(false);
 

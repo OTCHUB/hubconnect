@@ -65,10 +65,6 @@ pub const SWEEP_PAYBACK_CAP_LAMPORTS: u64 = 4_200_000_000;
 /// FLOOR_STALENESS_GUARD = 5%.
 pub const FLOOR_STALENESS_BP: u16 = 500;
 
-/// CONSIGNMENT_ENABLED = true; CONSIGNOR_SHARE default 0% (A9.5).
-pub const CONSIGNMENT_ENABLED: bool = true;
-pub const CONSIGNOR_SHARE_BP: u16 = 0;
-
 /// LP_TARGET_SOL_DEPTH reference ceiling 100–200 SOL-side; default lower bound.
 pub const LP_ENABLED: bool = false;
 pub const LP_TARGET_SOL_LAMPORTS: u64 = 100 * LAMPORTS_PER_SOL;
@@ -152,12 +148,23 @@ pub const TREASURY_LOCK_BP: u16 = YIELD_RESERVE_BP + LP_RESERVE_BP;
 pub const TEAM_ALLOCATION_BP: u16 = 0;
 /// Domain tag for airdrop Merkle leaves: `keccak(tag ‖ asset ‖ amount_le)`.
 pub const AIRDROP_LEAF_TAG: &[u8] = b"hub-airdrop-v1";
+/// Hard cap on `set_airdrop_root`'s `desk_count`: the launch policy caps the snapshot airdrop at
+/// the first 2,500 desks (§A7.1), and `TokenomicsConfig::apply_snapshot` derives `airdrop_bp`
+/// straight from `desk_count` — without an on-chain ceiling a snapshot could silently eat into
+/// the public/team share past the intended 2.5%. Multiple snapshot rounds are still supported:
+/// `set_airdrop_root` may raise `desk_count` in a later call (never lower it once claims have
+/// started) to onboard desks minted after an earlier round, up to this cap.
+pub const AIRDROP_DESK_CAP: u32 = 2_500;
 
+/// §A6.3/§A7.1 bridge — `treasury_lock_vault` (holding the immutable 2% genesis floor) is also
+/// the landing account for `fund_treasury_reward` deposits: $HUB swapped off-chain from the OTC
+/// launcher's holders-in-stock reward leg (same source as `CreatorFeeState`'s `Stack` leg, but
+/// routed here instead of the ordinary treasury float). `open_reward_round` snapshots the pending
+/// deposit across the live Σw of active desks into a `RewardRound`; `distribute_treasury_reward`
+/// then pays each active desk its tier-weighted share, exactly once per round.
 pub const SEED_CONFIG: &[u8] = b"config";
 pub const SEED_EPOCH: &[u8] = b"epoch";
 pub const SEED_TIER: &[u8] = b"tier";
-pub const SEED_CONSIGN: &[u8] = b"consign";
-pub const SEED_ACCRUAL: &[u8] = b"accrual";
 pub const SEED_POT: &[u8] = b"pot";
 pub const SEED_BURN: &[u8] = b"burn";
 /// $OTC yield-vault bookkeeping (§A5): otc_pending_lamports budget + lifetime avg buy rate.
@@ -165,13 +172,17 @@ pub const SEED_OTC_POT: &[u8] = b"otc_pot";
 /// §A6.3 creator-fee flywheel bookkeeping: pending $OTC + per-leg earmarks.
 pub const SEED_CREATOR_FEE: &[u8] = b"creator_fee";
 pub const SEED_TREASURY: &[u8] = b"treasury";
-/// Program-signed custody PDA that owns consigned desk assets (§A6.1).
+/// Program-signed custody PDA for treasury-side token positions (e.g. LP tokens, §A6.2).
 pub const SEED_VAULT: &[u8] = b"vault";
 /// $OTC payment parameters + POL reserve pointer (§A4.1).
 pub const SEED_OTC_PAY: &[u8] = b"otc_pay";
 /// Supply allocation plan + airdrop root (§A7.1); per-desk airdrop claim receipts.
 pub const SEED_TOKENOMICS: &[u8] = b"tokenomics";
 pub const SEED_AIRDROP: &[u8] = b"airdrop";
+/// `["reward_round", index]` — one `fund_treasury_reward` snapshot, split across active desks.
+pub const SEED_REWARD_ROUND: &[u8] = b"reward_round";
+/// `["reward_claim", round_index, asset]` — one payout per desk asset per reward round.
+pub const SEED_REWARD_CLAIM: &[u8] = b"reward_claim";
 
 /// Classic SPL Token program ($OTC is a pump.fun mint, 6 decimals, Token-v1).
 pub const TOKEN_PROGRAM_ID: Pubkey = pubkey!("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
@@ -193,4 +204,4 @@ pub const CORE_IX_TRANSFER_V1: u8 = 14;
 
 #[constant]
 pub const SEEDS_DOC: &str =
-    "config|epoch+u64|tier+asset|consign+asset|accrual+wallet+u64|pot|burn|otc_pot|creator_fee|treasury|vault|otc_pay|tokenomics|airdrop+asset";
+    "config|epoch+u64|tier+asset|pot|burn|otc_pot|creator_fee|treasury|vault|otc_pay|tokenomics|airdrop+asset|reward_round+u32|reward_claim+u32+asset";

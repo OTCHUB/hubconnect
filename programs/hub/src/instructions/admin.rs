@@ -33,7 +33,7 @@ pub struct InitializeConfig<'info> {
     pub burn: Account<'info, BurnState>,
     #[account(init, payer = payer, space = 8 + TreasuryState::INIT_SPACE, seeds = [SEED_TREASURY], bump)]
     pub treasury_state: Account<'info, TreasuryState>,
-    /// CHECK: program-signed custody PDA for consigned desks; never holds data.
+    /// CHECK: program-signed custody PDA for treasury-side token positions (LP, §A6.2).
     #[account(seeds = [SEED_VAULT], bump)]
     pub vault: UncheckedAccount<'info>,
     /// Genesis epoch — the open epoch must always exist (§B3 #4 roll-forward chain).
@@ -84,8 +84,6 @@ pub fn initialize_config(ctx: Context<InitializeConfig>, args: InitializeConfigA
     c.burn_pct_bp = BURN_PCT_BP;
     c.lp_pct_bp = LP_PCT_BP;
     c.ops_pct_bp = OPS_PCT_BP;
-    c.consignment_enabled = CONSIGNMENT_ENABLED;
-    c.consignor_share_bp = CONSIGNOR_SHARE_BP;
     c.lp_enabled = LP_ENABLED;
     c.lp_target_sol_lamports = LP_TARGET_SOL_LAMPORTS;
     c.lp_phase2_open_ts = 0;
@@ -111,7 +109,6 @@ pub fn initialize_config(ctx: Context<InitializeConfig>, args: InitializeConfigA
     t.vault = ctx.accounts.vault.key();
     t.vault_bump = ctx.bumps.vault;
     t.desks_owned = 0;
-    t.desks_consigned = 0;
     t.sweep_budget_cap_bp = SWEEP_BUDGET_CAP_BP;
     t.sweep_payback_cap_lamports = SWEEP_PAYBACK_CAP_LAMPORTS;
     t.exit_discount_bp = EXIT_DISCOUNT_BP;
@@ -171,8 +168,6 @@ pub fn update_config(
         ConfigField::BurnPctBp => c.burn_pct_bp = bps(&value)?,
         ConfigField::LpPctBp => c.lp_pct_bp = bps(&value)?,
         ConfigField::OpsPctBp => c.ops_pct_bp = bps(&value)?,
-        ConfigField::ConsignorShareBp => c.consignor_share_bp = bps(&value)?,
-        ConfigField::ConsignmentEnabled => c.consignment_enabled = flag(&value)?,
         ConfigField::LpEnabled => c.lp_enabled = flag(&value)?,
         ConfigField::Treasury => c.treasury = pk(&value)?,
         ConfigField::LpTargetSolLamports => c.lp_target_sol_lamports = u64v(&value)?,

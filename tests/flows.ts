@@ -1,9 +1,9 @@
 // Instruction wrappers + invariant checks shared by the M2/M3 suites.
 import { expect } from "chai";
 import * as anchor from "@anchor-lang/core";
-import { Keypair, PublicKey, SystemProgram } from "@solana/web3.js";
-import { Harness, Fixture, MPL_CORE, TOKEN_PROGRAM_ID } from "./harness";
-import { epochPda, tierPda, consignPda, accrualPda, otcPayPda } from "../sdk/src/pda";
+import { Keypair, PublicKey } from "@solana/web3.js";
+import { Harness, Fixture, TOKEN_PROGRAM_ID } from "./harness";
+import { epochPda, tierPda, otcPayPda } from "../sdk/src/pda";
 import * as K from "../sdk/src/constants";
 
 export const bn = (n: number | bigint) => new anchor.BN(n.toString());
@@ -168,15 +168,6 @@ export async function claim(h: Harness, f: Fixture, claimer: Keypair, asset: Pub
     .rpc();
 }
 
-export async function claimAccrual(h: Harness, f: Fixture, wallet: Keypair) {
-  const [accrual] = accrualPda(h.program.programId, wallet.publicKey);
-  return h.program.methods
-    .claimAccrual()
-    .accountsPartial({ wallet: wallet.publicKey, config: f.config, accrual, pot: f.pot })
-    .signers([wallet])
-    .rpc();
-}
-
 export async function inflow(
   h: Harness,
   f: Fixture,
@@ -195,31 +186,6 @@ export async function inflow(
     })
     .signers([f.treasury])
     .rpc();
-}
-
-export async function consignedInflow(
-  h: Harness,
-  f: Fixture,
-  asset: PublicKey,
-  consignor: PublicKey,
-  lamports: number,
-) {
-  const { key: epoch, idx } = await currentEpoch(h, f);
-  const [consignedDesk] = consignPda(h.program.programId, asset);
-  const [consignorAccrual] = accrualPda(h.program.programId, consignor);
-  await h.program.methods
-    .registerConsignedInflow(bn(lamports))
-    .accountsPartial({
-      treasury: f.treasury.publicKey,
-      config: f.config,
-      epoch,
-      pot: f.pot,
-      consignedDesk,
-      consignorAccrual,
-    })
-    .signers([f.treasury])
-    .rpc();
-  return { epochIdx: idx, consignorAccrual };
 }
 
 /** Raw finalize of `idx` (no waiting) — also used for negative cases. */
@@ -312,46 +278,6 @@ export async function recordBurn(
   return h.program.methods
     .recordBurn(bn(hubBurned), bn(lamportsSpent), sig)
     .accountsPartial({ keeper: h.payer.publicKey, config: f.config, burn: f.burn, pot: f.pot })
-    .rpc();
-}
-
-export async function consign(h: Harness, f: Fixture, owner: Keypair, asset: PublicKey) {
-  const [consignedDesk] = consignPda(h.program.programId, asset);
-  return h.program.methods
-    .consignDesk()
-    .accountsPartial({
-      owner: owner.publicKey,
-      deskAsset: asset,
-      deskCollection: f.deskCollection,
-      config: f.config,
-      vault: f.vault,
-      treasuryState: f.treasuryState,
-      consignedDesk,
-      mplCoreProgram: MPL_CORE,
-    })
-    .signers([owner])
-    .rpc();
-}
-
-export async function unconsign(h: Harness, f: Fixture, consignor: Keypair, asset: PublicKey) {
-  const [consignedDesk] = consignPda(h.program.programId, asset);
-  const cd = await h.program.account.consignedDesk.fetch(consignedDesk);
-  const [consignEpoch] = epochPda(h.program.programId, cd.consignedEpoch.toNumber());
-  return h.program.methods
-    .unconsignDesk()
-    .accountsPartial({
-      consignor: consignor.publicKey,
-      deskAsset: asset,
-      deskCollection: f.deskCollection,
-      config: f.config,
-      consignEpoch,
-      vault: f.vault,
-      treasuryState: f.treasuryState,
-      consignedDesk,
-      mplCoreProgram: MPL_CORE,
-      systemProgram: SystemProgram.programId,
-    })
-    .signers([consignor])
     .rpc();
 }
 

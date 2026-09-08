@@ -39,13 +39,12 @@ fork or modify OTCDesks, it only reads its on-chain state and composes with it. 
 protocol-native mechanisms of its own:
 
 1. **Desk tier activation** (`§A4`) — an OTC desk NFT owner activates a tier on-chain (burn-based,
-   never lock-based) and earns pro-rata $OTC yield from six pot-inflow sources: activation fees,
+   never lock-based) and earns pro-rata $OTC yield from five pot-inflow sources: activation fees,
    treasury desk-sweep proceeds, the treasury's launcher holder-leg claim, discount-exit proceeds,
-   consigned-desk proceeds, and LP swap fees (`§A5`).
+   and LP swap fees (`§A5`).
 2. **Treasury desk flywheel** (`§A6`) — the treasury sweeps listed desks when cheaper than minting
    (zero dilution to the desk pot), harvests their yield for stakers, and can resell them to the
-   community at a floor discount. Owners can also **consign** a desk to the treasury without
-   selling it (`§A6.1`).
+   community at a floor discount.
 
 Design principles, in priority order (`§A1`): not greedy (nothing taken from other OTC
 participants, only added buy pressure and pot funding); better yield for desk owners;
@@ -171,7 +170,7 @@ in the spec. `hub_mint`, `otc_mint`, `desk_collection`, `otc_desk_pot`, `ops_wal
 - **Disclosure**: report privately via [GitHub Security Advisories](https://github.com/OTCHUB/hubconnect/security/advisories/new) — see [`SECURITY.md`](SECURITY.md). Do not open a public issue for security bugs.
 - **On-chain `security.txt`**: embedded in the deployed `.so` ([neodyme-labs/solana-security-txt](https://github.com/neodyme-labs/solana-security-txt)), so explorers and researchers can find the disclosure channel from the binary alone — `programs/hub/src/lib.rs`.
 - **Audit status**: `auditors: "None"` (declared in the embedded security.txt). No third-party audit has been performed; treat the program as unaudited until this changes.
-- **Arithmetic policy**: every accounting counter (`total_weight_bp`, `pot_liability_lamports`, `desks_consigned`, `total_exits`, all `*_pending_*` balances) uses checked `add()`/`sub()` helpers that error on overflow/underflow — no `saturating_*` on state that must never silently clamp.
+- **Arithmetic policy**: every accounting counter (`total_weight_bp`, `pot_liability_lamports`, `total_exits`, all `*_pending_*` balances) uses checked `add()`/`sub()` helpers that error on overflow/underflow — no `saturating_*` on state that must never silently clamp.
 - **Split invariants**: the 90/5/5 round split and 80/5/5/5/5 creator-fee split are asserted to sum to exactly 10,000 bp at **compile time** (`programs/hub/src/constants.rs`), not just at runtime.
 - **Emergency pause (`Config.paused`, authority-only)**: gates new value-creating actions (`activate_tier`, `upgrade_tier`, `claim_yield`) and every keeper reimbursement draw that pays protocol-custodied funds out to an externally-controlled wallet (`record_burn`, `record_otc_buy`, `draw_creator_fee_leg`) — the fastest stop available against a compromised keeper key, since those keepers' authorities aren't independently rotatable. Inbound deposits, internal PDA-signed bookkeeping (`clear_creator_fees`), and pure off-chain attestations stay open under pause so a keeper mid-recovery isn't stranded. Full instruction-level gating: [`§B3`](docs/hubconnect-spec.md#b3-on-chain-program--instructions).
 - **Verified builds**: reproducible `.so`, SLSA provenance and independent verification steps — see [Verified builds](#verified-builds) below.
@@ -181,7 +180,7 @@ in the spec. `hub_mint`, `otc_mint`, `desk_collection`, `otc_desk_pot`, `ops_wal
 ```
 programs/hub/        Anchor program — §B2 accounts, §B3 instructions
   src/constants.rs   Appendix defaults (written into Config at initialize_config)
-  src/state/         Config, Epoch, DeskTier, ConsignedDesk, StakerAccrual, BurnState, TreasuryState, OtcPayConfig
+  src/state/         Config, Epoch, DeskTier, BurnState, TreasuryState, OtcPayConfig
   src/instructions/  admin | tiers | otc_pay ($OTC step fees → POL reserve) | epochs | treasury
 sdk/                 PDA derivation + constants mirror; account decoders (M3)
 keeper/              §B4 services: keeper (epoch+burn), sweeper, treasury (exit), lp
@@ -193,7 +192,7 @@ docs/                spec, master prompt, evidence/ (mainnet read-only verificat
 
 `Pot` is a data-less system-owned PDA (`["pot"]`); its lamport balance is the pot.
 Liability is tracked on `Config.pot_liability_lamports` (staker yield via the `acc_per_weight`
-accumulator + consignor `StakerAccrual` credits) and `BurnState.burn_pending_lamports`.
+accumulator) and `BurnState.burn_pending_lamports`.
 
 Distribution is threshold-gated like the OTC desk pot: inflow fills the open round (`Epoch`);
 `finalize_epoch` is allowed the moment the round reaches `min_pot_threshold_lamports` (0.1 SOL),
@@ -312,14 +311,12 @@ npm run devnet:desks -- --count 10 --tiers 1,1,1,1,2,2,2,3,3,4 --recycle
                                   # round + claims owned yield whenever the payer runs short (10 desks
                                   # ≈ 1 SOL net instead of 9); asserts Σw and pot ≥ liability
 npm run devnet:cycle              # sweep mock (seller → treasury, atomic; creates the buyer's $HUB ATA
-                                  # if missing) → owner-sent desk consigned into the vault PDA → gate
-                                  # (finalize/claim rejected below 0.1 SOL) → desk-pot rounds
-                                  # (--desk-round, default 0.144 SOL/desk = §A5 mainnet take) booked as
-                                  # source B per treasury-owned desk + source E per vault desk → finalize
+                                  # if missing) → gate (finalize/claim rejected below 0.1 SOL) →
+                                  # desk-pot rounds (--desk-round, default 0.144 SOL/desk = §A5 mainnet
+                                  # take) booked as source B per treasury-owned desk → finalize
                                   # (⌊inflow×burn_bp⌋ burn, rest → acc_per_weight) → one claim_yield per
-                                  # tier settles every closed round → claim_accrual → burn → record_burn
+                                  # tier settles every closed round → burn → record_burn
 npm run devnet:cycle -- --quick   # streamlined: inflow → finalize → claim → burn on existing desks
-npm run devnet:cycle -- --consignor-share 5000   # also exercises the consignor's claim_accrual path
 npm run authority -- status       # program upgrade authority vs $HUB mint/freeze authority
 npm run authority -- revoke-mint --yes   # irreversible: mint + freeze authority → None
 ```
@@ -392,7 +389,7 @@ SolanaFM and Solscan show the program as verified and wallets can resolve the so
 | | Gate |
 |---|---|
 | M1 | scaffold builds; `initialize_config` writes Appendix constants; admin paths enforce authority ✔ |
-| M2 | tier math, round math (threshold gate, 90/10, accumulator + dust zero-sum), lazy revocation, consignment, LP gates, invariants ✔ |
+| M2 | tier math, round math (threshold gate, 90/10, accumulator + dust zero-sum), lazy revocation, LP gates, invariants ✔ |
 | M3 | integration + adversarial suites on localnet, then Helius devnet with mock OTC accounts |
 | M4 | keepers (dry-run, resume-safe journals) |
 | M5 | mainnet read-only verification checklist → `docs/evidence/` |

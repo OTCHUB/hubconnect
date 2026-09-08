@@ -10,8 +10,6 @@ export const SEEDS = {
   config: Buffer.from("config"),
   epoch: Buffer.from("epoch"),
   tier: Buffer.from("tier"),
-  consign: Buffer.from("consign"),
-  accrual: Buffer.from("accrual"),
   pot: Buffer.from("pot"),
   burn: Buffer.from("burn"),
   otcPot: Buffer.from("otc_pot"),
@@ -21,9 +19,12 @@ export const SEEDS = {
   otcPay: Buffer.from("otc_pay"),
   tokenomics: Buffer.from("tokenomics"),
   airdrop: Buffer.from("airdrop"),
+  rewardRound: Buffer.from("reward_round"),
+  rewardClaim: Buffer.from("reward_claim"),
 } as const;
 
 const u64le = (n: BN | number | bigint) => new BN(n.toString()).toArrayLike(Buffer, "le", 8);
+const u32le = (n: BN | number | bigint) => new BN(n.toString()).toArrayLike(Buffer, "le", 4);
 
 export function configPda(programId: PublicKey) {
   return PublicKey.findProgramAddressSync([SEEDS.config], programId);
@@ -60,18 +61,22 @@ export function tokenomicsPda(programId: PublicKey) {
 export function airdropClaimPda(programId: PublicKey, asset: PublicKey) {
   return PublicKey.findProgramAddressSync([SEEDS.airdrop, asset.toBuffer()], programId);
 }
+/** §A6.3/§A7.1 bridge — one `fund_treasury_reward` snapshot, split across active desks. */
+export function rewardRoundPda(programId: PublicKey, index: BN | number | bigint) {
+  return PublicKey.findProgramAddressSync([SEEDS.rewardRound, u32le(index)], programId);
+}
+/** One payout receipt per desk asset per reward round (exists ⇒ already paid this round). */
+export function rewardClaimPda(programId: PublicKey, round: BN | number | bigint, asset: PublicKey) {
+  return PublicKey.findProgramAddressSync(
+    [SEEDS.rewardClaim, u32le(round), asset.toBuffer()],
+    programId,
+  );
+}
 export function epochPda(programId: PublicKey, index: BN | number | bigint) {
   return PublicKey.findProgramAddressSync([SEEDS.epoch, u64le(index)], programId);
 }
 export function tierPda(programId: PublicKey, asset: PublicKey) {
   return PublicKey.findProgramAddressSync([SEEDS.tier, asset.toBuffer()], programId);
-}
-export function consignPda(programId: PublicKey, asset: PublicKey) {
-  return PublicKey.findProgramAddressSync([SEEDS.consign, asset.toBuffer()], programId);
-}
-/** Per-wallet ledger: consignor-share credits (`owed`) + lifetime claimed yield. */
-export function accrualPda(programId: PublicKey, wallet: PublicKey) {
-  return PublicKey.findProgramAddressSync([SEEDS.accrual, wallet.toBuffer()], programId);
 }
 
 /** SPL associated token account (classic Token program). */

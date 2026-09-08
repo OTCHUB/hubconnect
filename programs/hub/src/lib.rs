@@ -71,19 +71,6 @@ pub mod hub {
         instructions::epochs::register_treasury_inflow(ctx, source, lamports)
     }
 
-    /// §B3 #6, source E — consignor-share split (§A6.1).
-    pub fn register_consigned_inflow(
-        ctx: Context<RegisterConsignedInflow>,
-        lamports: u64,
-    ) -> Result<()> {
-        instructions::epochs::register_consigned_inflow(ctx, lamports)
-    }
-
-    /// Pays a wallet-level StakerAccrual (consignor share credits).
-    pub fn claim_accrual(ctx: Context<ClaimAccrual>) -> Result<()> {
-        instructions::epochs::claim_accrual(ctx)
-    }
-
     /// §B3 #7
     pub fn record_burn(
         ctx: Context<RecordBurn>,
@@ -111,16 +98,6 @@ pub mod hub {
     /// §B3 #10
     pub fn unpause(ctx: Context<AuthorityOnly>) -> Result<()> {
         instructions::admin::set_paused(ctx, false)
-    }
-
-    /// §B3 #11
-    pub fn consign_desk(ctx: Context<ConsignDesk>) -> Result<()> {
-        instructions::treasury::consign_desk(ctx)
-    }
-
-    /// §B3 #12
-    pub fn unconsign_desk(ctx: Context<UnconsignDesk>) -> Result<()> {
-        instructions::treasury::unconsign_desk(ctx)
     }
 
     /// §B3 #13
@@ -175,6 +152,17 @@ pub mod hub {
         proof: Vec<[u8; 32]>,
     ) -> Result<()> {
         instructions::tokenomics::claim_airdrop(ctx, amount_units, proof)
+    }
+
+    /// §A7.1 #20b — authority pushes a snapshot allocation straight to the desk's current owner
+    /// (genesis "1-time 1-address" distribution); shares the same `AirdropClaim` PDA guard as
+    /// `claim_airdrop`, so a desk can only ever be paid once regardless of the path used.
+    pub fn distribute_airdrop(
+        ctx: Context<DistributeAirdrop>,
+        amount_units: u64,
+        proof: Vec<[u8; 32]>,
+    ) -> Result<()> {
+        instructions::tokenomics::distribute_airdrop(ctx, amount_units, proof)
     }
 
     /// §A5 #21 — authority creates the $OTC yield-vault bookkeeping (one-time, post-init).
@@ -273,5 +261,27 @@ pub mod hub {
         sol_amount: u64,
     ) -> Result<()> {
         instructions::creator_fee::record_creator_fee_ops(ctx, otc_spent, sol_amount)
+    }
+
+    /// §A6.3/§A7.1 bridge #30 — treasury deposits $HUB (swapped off-chain from the OTC launcher's
+    /// holders-in-stock reward leg) into `treasury_lock_vault` (enforced deposit), earmarked for
+    /// the next `open_reward_round`.
+    pub fn fund_treasury_reward(ctx: Context<FundTreasuryReward>, hub_amount: u64) -> Result<()> {
+        instructions::tokenomics::fund_treasury_reward(ctx, hub_amount)
+    }
+
+    /// #31 — permissionless: snapshots the pending reward deposit across the live Σw of active
+    /// desks into a new `RewardRound`.
+    pub fn open_reward_round(ctx: Context<OpenRewardRound>) -> Result<()> {
+        instructions::tokenomics::open_reward_round(ctx)
+    }
+
+    /// #32 — authority pushes one active desk's tier-weighted share of an open `RewardRound`
+    /// straight to its current owner; capped so a round can never pay out more than it holds.
+    pub fn distribute_treasury_reward(
+        ctx: Context<DistributeTreasuryReward>,
+        round_index: u32,
+    ) -> Result<()> {
+        instructions::tokenomics::distribute_treasury_reward(ctx, round_index)
     }
 }

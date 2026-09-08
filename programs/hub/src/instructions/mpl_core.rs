@@ -1,5 +1,5 @@
-//! Metaplex Core helpers: on-chain ownership/collection verification (§B3 #2/#5/#11)
-//! and the `TransferV1` CPI used by consignment. Reads the fixed `AssetV1` prefix
+//! Metaplex Core helpers: on-chain ownership/collection verification (§B3 #2/#5)
+//! and the `TransferV1` CPI. Reads the fixed `AssetV1` prefix
 //! (key u8 | owner 32 | update_authority tag u8 [+ pubkey 32]) directly — no mpl-core
 //! crate dependency, so the toolchain pin stays minimal.
 

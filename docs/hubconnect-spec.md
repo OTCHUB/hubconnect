@@ -205,8 +205,6 @@ Pot inflow sources:
 - **C — Treasury OTC-stock claims**: treasury HUB float (§A3.1, ≤2% of supply)
   claims its pro-rata launcher 70% leg (paid in OTC) like any holder; OTC sold → pot.
 - **D — Discount-exit SOL leg**: 50% SOL half of every treasury desk sale → pot.
-- **E — Consigned desks**: owner-sent desks (§A6.1) whose desk-pot rounds the
-  treasury claims for the pool and distributes to activated desks.
 - **F — LP swap fees**: $HUB/SOL and $HUB/OTC LP positions held by the treasury
   (§A6.2); harvested swap fees → pot.
 
@@ -293,34 +291,6 @@ SOL leg    = 0.50 × sale_value           → pot, in the sale tx
 - Exit economics (live example): buy 6.86, exit 5.77 → break-even after ≈ 8
   desk-days of yield. Exits are optional liquidity, not the business model.
 
-### A6.1 Desk consignment — owner-sent desks
-
-Any desk owner can **consign** their desk to the treasury instead of selling it:
-
-- `consign_desk` transfers the desk NFT into the **treasury vault** and records a
-  `ConsignedDesk` entry (asset_id → consignor). The owner keeps the withdrawal
-  right; the desk is off the market while consigned.
-- From the consignment round onward, the treasury claims that desk's desk-pot
-  rounds exactly like its owned desks (same OTC claim instruction). Proceeds are
-  pot inflow **(source E)** and are distributed to **connected (activated) desks**
-  per the normal round formula.
-- Optional contributor reward: `CONSIGNOR_SHARE` (default **0%** — all yield goes
-  to the pool, per the community-first ethos) can later be raised via config to
-  credit a share directly to the consignor's per-wallet `StakerAccrual`
-  (`owed_lamports`), claimable any time in one `claim_accrual` tx. Consigned-desk
-  claim proceeds are tracked separately so the split is always auditable.
-- `unconsign_desk` returns the desk to the consignor once the round it was
-  consigned in has closed (no round is double-counted); any accrued consignor
-  share stays claimable.
-- Guardrails: consigned desks are **never eligible for discount exits** (the exit
-  pool is treasury-*owned* desks only); the program-enforced `ConsignedDesk`
-  record blocks any treasury transfer/sale of a consigned desk; a
-  claim-before-consign UI flag warns owners of unclaimed vault yield ≥ 0.02 SOL.
-
-Why: owners who believe in $HUB can put idle desks' yield to work for stakers
-without selling the desk — desk-pot take is turned into $HUB staker yield while
-the owner stays long the desk.
-
 ### A6.2 LP building — $HUB/SOL first, $HUB/OTC as we grow
 
 **Bootstrap LP is free**: launching via the OTC launcher means the $HUB bonding
@@ -368,7 +338,7 @@ hand-seed day-one liquidity. The LP program then deepens beyond the curve:
 
 A **second**, independent $OTC stream feeds the same desk-pot: the treasury
 holds 2% of $HUB supply (§A7.1) and, as a $HUB holder, claims its pro-rata
-share of the OTC launcher's own 70% holders-in-stock leg (§A1/A6.1) — an
+share of the OTC launcher's own 70% holders-in-stock leg (§A1) — an
 inflow that arrives **already denominated in $OTC**, no swap required to
 receive it. That claim is re-split 80/5/5/5/5 every time it clears a
 threshold, funding the desk pot directly plus four smaller protocol legs:
@@ -500,13 +470,10 @@ cliff) — hence the sweep payback cap and treating sources A/C as uncorrelated 
    spread inverts (`sweep_cost ≥ mint_cost`, e.g. no viable stocked listings) **and**
    the treasury already holds the full 100k OTC + 0.5 SOL free — it never sells the
    SOL reserve short to force a mint.
-5. Consignor reward: `CONSIGNOR_SHARE` default **0%** (pure community
-   contribution) vs a direct credit (e.g. 25–50%) to attract consignments —
-   revisit after launch once real consignment demand is observable.
-6. LP growth funding: ops surplus + explicit allocations (default) vs carving
+5. LP growth funding: ops surplus + explicit allocations (default) vs carving
    a small % of pot inflows pre-distribution (deepens the pool but dilutes
    staker yield short-term) — revisit once LP fee revenue is measurable.
-7. Treasury launch-buy cap: **≤2% of supply** (§A3.1) vs lower (1%) — revisit
+6. Treasury launch-buy cap: **≤2% of supply** (§A3.1) vs lower (1%) — revisit
    after observing real source-C OTC proceeds vs community optics.
 
 ---
@@ -545,17 +512,15 @@ IDL account and singleton PDAs are listed in **Appendix — Deployment addresses
 
 | Account | Seeds (all under program id) | Key fields |
 |---|---|---|
-| `Config` | `["config"]` | authority, pot PDA, ops_wallet, treasury, **OTC-side refs** (otc_program, otc_desk_pot, desk_collection, hub_mint, otc_mint — runtime-set, §A2), tier_weights_bp[4], step_fee_lamports (flat, §A4), **tier_hub_cost_units[4]** (cumulative $HUB burn table, §A4), min_pot_threshold_lamports (0.1 SOL), burn_pct_bp (500), **lp_pct_bp (500)** — §A5 90/5/5 split, remainder is the $OTC-vault leg, ops_pct_bp (1000, step-fee split only), consignment_enabled, consignor_share_bp, lp_enabled, lp_target_sol_lamports, lp_phase2_open_ts, paused, current_epoch, genesis_ts, total_weight_bp, pot_liability_lamports, **acc_per_weight (u128, lifetime, lamport-equivalent)**, **dust_scaled (u128)**, bumps |
+| `Config` | `["config"]` | authority, pot PDA, ops_wallet, treasury, **OTC-side refs** (otc_program, otc_desk_pot, desk_collection, hub_mint, otc_mint — runtime-set, §A2), tier_weights_bp[4], step_fee_lamports (flat, §A4), **tier_hub_cost_units[4]** (cumulative $HUB burn table, §A4), min_pot_threshold_lamports (0.1 SOL), burn_pct_bp (500), **lp_pct_bp (500)** — §A5 90/5/5 split, remainder is the $OTC-vault leg, ops_pct_bp (1000, step-fee split only), lp_enabled, lp_target_sol_lamports, lp_phase2_open_ts, paused, current_epoch, genesis_ts, total_weight_bp, pot_liability_lamports, **acc_per_weight (u128, lifetime, lamport-equivalent)**, **dust_scaled (u128)**, bumps |
 | `OtcPotState` | `["otc_pot"]` | authority (keeper trusted for `record_otc_buy`), otc_vault (vault-owned $OTC token account `claim_yield` pays from), otc_pending_lamports (pot liability awaiting a buy), total_lamports_spent, total_otc_bought_units (⇒ lifetime avg buy rate), last_buy_tx, bump — §A5 90% leg, created once via `init_otc_pot` |
 | `CreatorFeeState` | `["creator_fee"]` | authority (keeper), creator_fee_vault (vault-owned $OTC token account), clear_threshold_units (default 1,000 $OTC), pending_otc_units, burn/lp/stack/ops_pending_otc (per-leg earmarks awaiting a keeper draw), total_received_otc, total_desk_pot_otc, total_burn_otc/hub, total_lp_otc, total_stack_otc/hub, total_ops_otc, total_ops_sol_lamports, last_burn_result_tx / last_stack_tx (idempotency), bump — §A6.3 second flywheel, created once via `init_creator_fee_state` |
 | `Epoch` (one round) | `["epoch", epoch_index u64]` | index, start_ts, finalized_ts, inflow_lamports, distributed_lamports (credited), burn_pending_lamports, rolled_forward_lamports (floor remainder), total_weight_bp (Σw at close), per_weight_scaled, acc_per_weight_after, finalized |
 | `DeskTier` | `["tier", asset_id]` | asset_id, owner_at_activation, tier 1–4, activated_epoch, **stamp_acc_per_weight**, total_claimed_lamports, voided |
-| `ConsignedDesk` | `["consign", asset_id]` | asset_id, consignor, consigned_epoch, active |
-| `StakerAccrual` | `["accrual", wallet]` | per-wallet consignor credits: owed_lamports, total_claimed_lamports |
 | `Pot` (SOL escrow) | `["pot"]` | system-owned PDA; balance via lamports (no data) |
 | `BurnState` | `["burn"]` | authority, total_hub_burned, burn_pending_lamports, last_burn_tx[64] |
-| `TreasuryState` | `["treasury"]` | multisig, vault (PDA below), desks_owned, desks_consigned, sweep_budget_cap_bp (1000), sweep_payback_cap_lamports (4.2 SOL), exit_discount_bp (1000), exit_hub_leg_bp (5000), floor_staleness_bp (500), hub_float_cap_bp (200), total_exits, total_sweeps, **lp_pending_lamports** (§A5 5% LP-build leg, drawn down by phase-2 `build_lp`) |
-| `Vault` (NFT custody) | `["vault"]` | program-signed PDA that owns consigned desks; no data account (created lazily by Core on first transfer) |
+| `TreasuryState` | `["treasury"]` | multisig, vault (PDA below), desks_owned, sweep_budget_cap_bp (1000), sweep_payback_cap_lamports (4.2 SOL), exit_discount_bp (1000), exit_hub_leg_bp (5000), floor_staleness_bp (500), hub_float_cap_bp (200), total_exits, total_sweeps, **lp_pending_lamports** (§A5 5% LP-build leg, drawn down by phase-2 `build_lp`) |
+| `Vault` (treasury custody) | `["vault"]` | program-signed PDA that holds treasury-side token positions (LP, §A6.2); no data account (derived only) |
 | `OtcPayConfig` | `["otc_pay"]` | §A4.1: enabled, otc_per_sol, rate_ts, premium_bp (20_000, fixed), pol_account (vault-owned $OTC ATA = POL reserve), total_otc_collected. Created by `init_otc_payments` after M1; optional |
 
 **Singletons created at M1 (`initialize_config`, one tx):** `Config`, `BurnState`,
@@ -579,14 +544,11 @@ the OTC program config on-chain and proposes updates.
 | 4b | `init_otc_pot` | authority (one-time), Config, otc_vault, OtcPotState | args: `keeper` pubkey; creates `OtcPotState` + records its vault-owned $OTC token account (§A5) |
 | 4c | `record_otc_buy` | keeper (must be `OtcPotState.authority`), Config, OtcPotState, otc_mint, keeper $OTC ATA, otc_vault, Pot | args: `otc_bought`, `lamports_spent`, `buy_tx`; requires `!Config.paused`; `TransferChecked`-deposits `otc_bought` into `otc_vault` in this tx (enforced, not attested), then reimburses the keeper `lamports_spent` from the pot, capped at `otc_pending_lamports` (`OtcBuyExceedsPending`); updates the lifetime avg buy rate |
 | 5 | `claim_yield` | claimer, desk NFT, DeskTier, Config, OtcPotState, otc_mint, otc_vault, claimer $OTC ATA, Token program, Pot | **lazy revocation**: re-verify desk ownership on-chain NOW; if caller ≠ owner → void tier (voided = true, no refund) and revert; `owed = ⌊(acc − stamp) × w / 10¹²⌋` for every round since the stamp; reverts `NoOtcPurchased` until the first `record_otc_buy`; pays `otc_due = ⌊owed × total_otc_bought_units / total_lamports_spent⌋` in $OTC from `otc_vault`; stamp := acc; `NothingToClaim` when `owed` or `otc_due` rounds to zero |
-| 5b | `claim_accrual` | wallet, StakerAccrual, Config, Pot | pay the wallet's consignor credits (`owed_lamports`) in one tx; `AccrualEmpty` when zero |
-| 6 | `register_treasury_inflow` / `register_consigned_inflow` | treasury multisig, Config, Epoch, Pot (+ ConsignedDesk, consignor StakerAccrual) | record source B/C/D/F (or E) inflows into the open round; for consigned-desk (E) proceeds, credit `consignor_share_bp` to the consignor's StakerAccrual, remainder → round inflow |
+| 6 | `register_treasury_inflow` | treasury multisig, Config, Epoch, Pot | record source B/C/D/F inflows into the open round |
 | 7 | `record_burn` | keeper, Config, BurnState, Pot | requires `!Config.paused`; after the keeper buys HUB and burns it: mark burn executed, decrement burn-pending |
 | 8 | `void_tier` (internal path in 3/5) | — | ownership change discovered at claim/upgrade voids the tier |
 | 9 | `update_config` | authority (multisig), Config | only whitelisted fields (incl. `min_pot_threshold_lamports`, must be > 0); rate changes apply to rounds finalized afterwards |
 | 10 | `pause` / `unpause` | authority | halts activate/upgrade/claim and every keeper reimbursement draw that pays protocol-custodied funds out to an EOA (`record_burn`, `record_otc_buy`, `draw_creator_fee_leg`) on anomaly — the only fast stop against a compromised keeper key, since those three authorities aren't independently rotatable. Inbound deposits, permissionless internal bookkeeping (`clear_creator_fees`), and attestation-only instructions stay open so a legitimate keeper can settle in-flight recovery even while paused |
-| 11 | `consign_desk` | owner, desk NFT, treasury vault, ConsignedDesk, Config | verify owner holds the desk asset (Core/DAS); `consignment_enabled` must be true; transfer NFT to vault; record consignor + epoch |
-| 12 | `unconsign_desk` | consignor, desk NFT, treasury vault, ConsignedDesk, Config | only after the current epoch finalizes (no double-count); return NFT; set `active = false`; accrued consignor share (if any) stays claimable |
 | 13 | `build_lp` | treasury multisig, Config, treasury LP vault, AMM pool accounts | `lp_enabled` must be true; deposit paired liquidity per §A6.2 (HUB/SOL top-ups, or bookkeeping-only intent recording); LP tokens custodied in the treasury PDA vault; withdraw path can never sell HUB |
 | 14 | `init_otc_payments` | authority, Config, TreasuryState, Vault, pol_account, OtcPayConfig | §A4.1; `pol_account` must be an SPL token account with mint = `Config.otc_mint`, owner = vault PDA; creates `OtcPayConfig` disabled/unpriced with `premium_bp = OTC_PREMIUM_BP` |
 | 15 | `set_otc_rate` | authority, Config, OtcPayConfig | args `otc_per_sol`, `enabled`; stamps `rate_ts = now`; `enabled` with rate 0 rejected. The premium is not an argument |
@@ -605,11 +567,10 @@ Program-level invariants to assert everywhere: `inflow_lamports ==
 distributed + burn_pending + rolled_forward`; pot lamports ≥ liability; DeskTier
 weight lookup only for `voided == false`.
 
-**Desk-pot desk-yield claim** (sources B + E): the treasury claims OTC desk-pot
-rounds for its owned **and consigned** desks using the OTC protocol's own claim
-instruction — hubconnect does not wrap it; the keeper just performs it with
-treasury keys and then `register_treasury_inflow` (consigned proceeds apply the
-consignor share split). Consigned desks are claimed but never sold (§A6.1).
+**Desk-pot desk-yield claim** (source B): the treasury claims OTC desk-pot
+rounds for its owned desks using the OTC protocol's own claim instruction —
+hubconnect does not wrap it; the keeper just performs it with treasury keys
+and then `register_treasury_inflow`.
 
 ### B4. Keeper services (off-chain, TypeScript)
 
@@ -622,16 +583,15 @@ consignor share split). Consigned desks are claimed but never sold (§A6.1).
 2. **Sweeper** — watches Magic Eden listings + reads each listed desk's vault
    stock on-chain (non-empty required); applies §A6 formula (resolve OTC-side
    constants from config first); proposes sweeps within budget/payback caps;
-   executes via treasury multisig; claims desk-pot rounds for owned and
-   consigned desks and registers inflow. **Harvest mechanics (source B/E):**
-   per desk, for each of the 13 slots with a non-zero `["vault", asset_id]`
-   stock ATA balance, call OTC `claim(index)` (slots 10–12 with `config_ext` +
-   `vault_ext`) to the treasury's stock ATA (custom `[owner, tokenProgram, mint]`
-   ATA order; Token-2022 for all but OTC), sell each stock for SOL via Jupiter
-   with slippage caps, then `register_treasury_inflow` (or
-   `register_consigned_inflow` for E) with the net SOL. OTC claimed from desks
-   (slot 10) is sold like any other rotation stock — it is not added to the
-   treasury float (§A3.1).
+   executes via treasury multisig; claims desk-pot rounds for owned desks and
+   registers inflow. **Harvest mechanics (source B):** per desk, for each of
+   the 13 slots with a non-zero `["vault", asset_id]` stock ATA balance, call
+   OTC `claim(index)` (slots 10–12 with `config_ext` + `vault_ext`) to the
+   treasury's stock ATA (custom `[owner, tokenProgram, mint]` ATA order;
+   Token-2022 for all but OTC), sell each stock for SOL via Jupiter with
+   slippage caps, then `register_treasury_inflow` with the net SOL. OTC
+   claimed from desks (slot 10) is sold like any other rotation stock — it is
+   not added to the treasury float (§A3.1).
 3. **Treasury (exit)** — claims all accrued yield, lists at 90% of verified
    floor, escrow enforces 50% HUB burn + 50% SOL → pot in the same tx; floor
    staleness guard 5%.
@@ -690,10 +650,6 @@ keeper-anyone with a small reward? — start permissioned, open later).
   record_burn is idempotent across restarts (kill and resume).
 - Sweeper: stub ME + vault reads; verify it never sweeps above payback cap,
   never sweeps empty-vault desks, and resolves OTC constants from config.
-- Consignment: consign → treasury claims a round → consignor-share credit
-  (at 0% and at 50% config) → unconsign after finalize returns the desk;
-  treasury exit of a consigned desk is rejected; double-claim of one consigned
-  desk rejected; unconsign before finalize reverts.
 - LP: `build_lp` rejected while `lp_enabled = false`; LP tokens land in the
   treasury PDA vault; fee harvest registers pot inflow (source F) exactly once;
   HUB/OTC build rejected before the phase-2 gate; LP withdraw path can never
@@ -851,7 +807,7 @@ standalone shell for app.otchub.dev until the domains are consolidated;
 | Open round: inflow + dust carry vs `min_pot_threshold`, % to threshold, READY flag | Epoch + Config (no countdown — rounds have no clock) |
 | Last closed round: how long it took, credited, per-tier payout | previous Epoch |
 | Activated cohort: desks by tier, Σw | DeskTier accounts (index/scan) |
-| Treasury: desks owned / consigned, exit history, burns executed, HUB float vs ≤2% cap | TreasuryState, BurnState, published treasury wallet |
+| Treasury: desks owned, exit history, burns executed, HUB float vs ≤2% cap | TreasuryState, BurnState, published treasury wallet |
 | $HUB burned, **burn % of circulating**, circulating / locked supply (§A7 definitions) | Mint account (`supply`), treasury + vault ATAs, BurnState (ledger cross-check) |
 | Raw desk-pot take D (trailing 7d and latest day) | OtcSnapshot per_desk history (already ingested) |
 
@@ -883,7 +839,7 @@ that yield compresses as adoption grows, while still beating raw desk take.
 
 ### C6. Treasury transparency panel
 
-Sweep/consignment/exit ledger (every tx linked), burn history (HUB burned to
+Sweep/exit ledger (every tx linked), burn history (HUB burned to
 date, last burn tx), LP depth + harvested fees (source F), and the treasury HUB
 float balance against its ≤2% cap — all read from on-chain accounts, no
 hand-maintained numbers. Collapsible evidence sub-sections per the dashboard's
@@ -939,8 +895,6 @@ treasury ATA is the only locked holder.
 | SWEEP_PAYBACK_CAP | ≤60 desk-days at D=0.07 (≈4.2 SOL/desk) |
 | UNCLAIMED_YIELD_WARN | 0.02 SOL (claim-before-list UI flag) |
 | FLOOR_STALENESS_GUARD | 5% |
-| CONSIGNMENT_ENABLED | true (config-gated) |
-| CONSIGNOR_SHARE | 0% of consigned desk yield (parameterized; see A9.5) |
 | UPGRADE_TIMELOCK | 48h, multisig-held upgrade authority (not immutable) |
 | LP_TARGET_SOL_DEPTH ($HUB/SOL) | 100–200 SOL-side — conditional top-up ceiling only; curve graduation already seeds the pool |
 | HUB_OTC_LP_SEED | 25–50 SOL-eq per side, phase-2 gated (SOL pool at target + ≥24h stable) |
@@ -983,7 +937,7 @@ re-initialized under the same id) — do not reference it anywhere.
 | `Pot` | `["pot"]` | `HHKCcd2WYff9BieUyC6QM9sWAacXmhFkrUFxYguBsSsp` | system-owned, holds pot lamports |
 | `BurnState` | `["burn"]` | `FAABfc8eYsBe95hzws7pCj7U67zA7aQ28BnffADjekfz` | initialized (121 B) |
 | `TreasuryState` | `["treasury"]` | `7ePonUQ85jb4PHsUHaLFGYK4UCFRD1WEh1P7Wrv8pJH3` | initialized (126 B) |
-| `Vault` | `["vault"]` | `3kokfoqWuPhfHEbrPiPaQa6ADtmTtcavh8BdGv1M2NgQ` | derived only (no account until first consignment) |
+| `Vault` | `["vault"]` | `3kokfoqWuPhfHEbrPiPaQa6ADtmTtcavh8BdGv1M2NgQ` | derived only (no account until first treasury-side token deposit, e.g. LP §A6.2) |
 | `Epoch[0]` | `["epoch", 0u64]` | `3mSdteiDJxagm38mxmDc2e2q4KCwV61k9CMKMXU8cSwv` | initialized (106 B) |
 
 **Devnet `Config` values (M1 + `devnet-config-reuse.ts`):** authority = ops_wallet
@@ -992,9 +946,9 @@ re-initialized under the same id) — do not reference it anywhere.
 `desk_collection` `25Qj1haczTkNNhmVdMdZmegn6kSj9WTwkhckgMUTQeMU` (mock Core
 collection); `otc_program`, `otc_desk_pot`, `otc_mint` = harness placeholders
 (replaced on mainnet by the §A2 resolution script); step fee 0.5 SOL,
-`min_pot_threshold_lamports` 0.1 SOL, burn 1000 bp, ops 1000 bp, consignment
-enabled, consignor share 0 bp, LP disabled (target 100 SOL), not paused. Current
-state at verification: round 3 open, Σw 38,500 bp (three activated tiers).
+`min_pot_threshold_lamports` 0.1 SOL, burn 1000 bp, ops 1000 bp, LP disabled
+(target 100 SOL), not paused. Current state at verification: round 3 open, Σw
+38,500 bp (three activated tiers).
 
 *Community tooling. Not affiliated with the OTC protocol. Verify everything
 on-chain. DYOR.*

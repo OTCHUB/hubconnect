@@ -6,7 +6,6 @@ import { Connection, PublicKey } from "@solana/web3.js";
 import idl from "../idl/hub.json";
 import type { Hub } from "../idl/hub";
 import {
-  accrualPda,
   burnPda,
   configPda,
   epochPda,
@@ -15,11 +14,12 @@ import {
   potPda,
   tierPda,
   treasuryPda,
-  consignPda,
   vaultPda,
   otcPayPda,
   tokenomicsPda,
   airdropClaimPda,
+  rewardRoundPda,
+  rewardClaimPda,
 } from "./pda";
 import {
   ACC_SCALE,
@@ -74,8 +74,6 @@ export type ConfigView = {
   /** §A5 5% — earmarked at finalize into `TreasuryState.lpPendingLamports` (phase-2 LP build). */
   lpPctBp: number;
   opsPctBp: number;
-  consignmentEnabled: boolean;
-  consignorShareBp: number;
   lpEnabled: boolean;
   /** §A6.2 phase-2 LP target (lamport-equivalent value) — mirrors `Config.lp_target_sol_lamports`. */
   lpTargetSolLamports: number;
@@ -120,14 +118,6 @@ export type DeskTierView = {
   /** Lifetime SOL this desk has been paid by `claim_yield` (reset on re-activation). */
   totalClaimedLamports: number;
   voided: boolean;
-};
-
-export type StakerAccrualView = {
-  wallet: string;
-  /** Consignor-share credits claimable via `claim_accrual`. */
-  owedLamports: number;
-  /** Lifetime SOL paid out to this wallet by `claim_accrual`. */
-  totalClaimedLamports: number;
 };
 
 /** §A4.1 `OtcPayConfig` — `null` from `fetchOtcPay` means the path was never initialized. */
@@ -192,9 +182,13 @@ export type CreatorFeeView = {
 export type TokenomicsView = {
   maxSupplyUnits: bigint;
   airdropPerDeskUnits: bigint;
-  /** Desk assets in the snapshot (0 until `set_airdrop_root`). */
+  /** Cumulative desk assets covered by the snapshot so far (0 until `set_airdrop_root`); capped
+   * on-chain at `AIRDROP_DESK_CAP` and never decreases once claims have started. */
   snapshotDeskCount: number;
   snapshotTs: number;
+  /** Number of `set_airdrop_root` rounds published so far (0 = none, 1 = genesis, ≥2 = later
+   * rounds that grew `snapshotDeskCount` to onboard desks minted after an earlier round). */
+  snapshotRound: number;
   airdropUnits: bigint;
   airdropBp: number;
   treasuryLockBp: number;
@@ -208,11 +202,46 @@ export type TokenomicsView = {
   airdropClaimedUnits: bigint;
   airdropClaims: number;
   airdropOpen: boolean;
+  /** Vault-owned $HUB token account holding the immutable 2% (yield-reserve) genesis floor — no
+   * instruction ever debits it. The treasury multisig's own float ATA is separate and accumulates
+   * additional $HUB on top over time (source C claims). */
+  treasuryLockVault: string;
+  /** `maxSupplyUnits × YIELD_RESERVE_BP / BPS`, recorded once at `init_tokenomics` — compare
+   * against `treasuryLockVault`'s live balance to confirm the floor is intact. */
+  treasuryLockUnits: bigint;
+  /** §A6.3 bridge — lifetime $HUB deposited into `treasuryLockVault` by `fund_treasury_reward`,
+   * on top of the immutable `treasuryLockUnits` floor (OTC-launcher holder rewards, swapped). */
+  rewardDepositedUnits: bigint;
+  /** Lifetime $HUB paid out to active desk holders via `distribute_treasury_reward`. */
+  rewardDistributedUnits: bigint;
+  /** Deposited but not yet snapshotted into a `RewardRound` by `open_reward_round`. */
+  rewardPendingUnits: bigint;
+  /** Number of `RewardRound`s opened so far (next round's index). */
+  rewardRoundCount: number;
 };
 
 export type AirdropClaimView = {
   asset: string;
   claimant: string;
+  amountUnits: bigint;
+  claimedTs: number;
+};
+
+/** One `fund_treasury_reward` snapshot — `amountUnits` split across active desks' Σw. */
+export type RewardRoundView = {
+  index: number;
+  amountUnits: bigint;
+  totalWeightBp: bigint;
+  distributedUnits: bigint;
+  claims: number;
+  openedTs: number;
+};
+
+/** One desk's payout receipt for a given reward round (exists ⇒ already paid). */
+export type RewardClaimView = {
+  round: number;
+  asset: string;
+  owner: string;
   amountUnits: bigint;
   claimedTs: number;
 };
@@ -235,7 +264,6 @@ export type ProtocolState = {
   burn: { totalHubBurned: number; burnPendingLamports: number };
   treasury: {
     desksOwned: number;
-    desksConsigned: number;
     totalExits: number;
     totalSweeps: number;
     lpHubDepositedUnits: bigint;
@@ -294,8 +322,6 @@ export function toConfigView(
     burnPctBp: c.burnPctBp,
     lpPctBp: c.lpPctBp,
     opsPctBp: c.opsPctBp,
-    consignmentEnabled: c.consignmentEnabled,
-    consignorShareBp: c.consignorShareBp,
     lpEnabled: c.lpEnabled,
     lpTargetSolLamports: n(c.lpTargetSolLamports),
     lpPhase2OpenTs: n(c.lpPhase2OpenTs),
@@ -339,16 +365,6 @@ export function toDeskTierView(
     stampAccPerWeight: big(t.stampAccPerWeight),
     totalClaimedLamports: n(t.totalClaimedLamports),
     voided: t.voided,
-  };
-}
-
-export function toStakerAccrualView(
-  a: Awaited<ReturnType<HubProgram["account"]["stakerAccrual"]["fetch"]>>,
-): StakerAccrualView {
-  return {
-    wallet: a.wallet.toBase58(),
-    owedLamports: n(a.owedLamports),
-    totalClaimedLamports: n(a.totalClaimedLamports),
   };
 }
 
@@ -396,7 +412,6 @@ export async function fetchProtocolState(program: HubProgram): Promise<ProtocolS
     creatorFee: creatorFee ? toCreatorFeeView(creatorFee) : null,
     treasury: {
       desksOwned: tres.desksOwned,
-      desksConsigned: tres.desksConsigned,
       totalExits: tres.totalExits,
       totalSweeps: tres.totalSweeps,
       lpHubDepositedUnits,
@@ -416,32 +431,10 @@ export async function fetchDeskTier(
   return t ? toDeskTierView(t) : null;
 }
 
-export async function fetchConsignment(program: HubProgram, asset: PublicKey) {
-  const [key] = consignPda(program.programId, asset);
-  const c = await program.account.consignedDesk.fetchNullable(key);
-  return c
-    ? {
-        assetId: c.assetId.toBase58(),
-        consignor: c.consignor.toBase58(),
-        consignedEpoch: n(c.consignedEpoch),
-        active: c.active,
-      }
-    : null;
-}
-
 export async function fetchEpoch(program: HubProgram, index: number): Promise<EpochView | null> {
   const [key] = epochPda(program.programId, index);
   const e = await program.account.epoch.fetchNullable(key);
   return e ? toEpochView(e) : null;
-}
-
-export async function fetchStakerAccrual(
-  program: HubProgram,
-  wallet: PublicKey,
-): Promise<StakerAccrualView | null> {
-  const [key] = accrualPda(program.programId, wallet);
-  const a = await program.account.stakerAccrual.fetchNullable(key);
-  return a ? toStakerAccrualView(a) : null;
 }
 
 export function toOtcPayView(
@@ -544,6 +537,7 @@ export function toTokenomicsView(
     airdropPerDeskUnits: big(t.airdropPerDeskUnits),
     snapshotDeskCount: t.snapshotDeskCount,
     snapshotTs: n(t.snapshotTs),
+    snapshotRound: t.snapshotRound,
     airdropUnits: big(t.airdropUnits),
     airdropBp: t.airdropBp,
     treasuryLockBp: t.treasuryLockBp,
@@ -555,6 +549,12 @@ export function toTokenomicsView(
     airdropClaimedUnits: big(t.airdropClaimedUnits),
     airdropClaims: t.airdropClaims,
     airdropOpen: t.airdropOpen,
+    treasuryLockVault: t.treasuryLockVault.toBase58(),
+    treasuryLockUnits: big(t.treasuryLockUnits),
+    rewardDepositedUnits: big(t.rewardDepositedUnits),
+    rewardDistributedUnits: big(t.rewardDistributedUnits),
+    rewardPendingUnits: big(t.rewardPendingUnits),
+    rewardRoundCount: t.rewardRoundCount,
   };
 }
 
@@ -579,6 +579,56 @@ export async function fetchAirdropClaim(
         claimedTs: n(c.claimedTs),
       }
     : null;
+}
+
+export function toRewardRoundView(
+  r: Awaited<ReturnType<HubProgram["account"]["rewardRound"]["fetch"]>>,
+): RewardRoundView {
+  return {
+    index: r.index,
+    amountUnits: big(r.amountUnits),
+    totalWeightBp: big(r.totalWeightBp),
+    distributedUnits: big(r.distributedUnits),
+    claims: r.claims,
+    openedTs: n(r.openedTs),
+  };
+}
+
+/** `null` ⇒ this round index has not been opened yet (`open_reward_round`). */
+export async function fetchRewardRound(
+  program: HubProgram,
+  index: number,
+): Promise<RewardRoundView | null> {
+  const [key] = rewardRoundPda(program.programId, index);
+  const r = await program.account.rewardRound.fetchNullable(key);
+  return r ? toRewardRoundView(r) : null;
+}
+
+/** `null` ⇒ this desk has not yet been paid its share of `round`. */
+export async function fetchRewardClaim(
+  program: HubProgram,
+  round: number,
+  asset: PublicKey,
+): Promise<RewardClaimView | null> {
+  const [key] = rewardClaimPda(program.programId, round, asset);
+  const c = await program.account.rewardClaim.fetchNullable(key);
+  return c
+    ? {
+        round: c.round,
+        asset: c.asset.toBase58(),
+        owner: c.owner.toBase58(),
+        amountUnits: big(c.amountUnits),
+        claimedTs: n(c.claimedTs),
+      }
+    : null;
+}
+
+/** Tier-weighted share of an open `RewardRound` a desk would receive — mirrors the on-chain
+ * `reward_share` floor-division exactly. */
+export function rewardShareUnits(round: RewardRoundView, tier: number): bigint {
+  const w = TIER_WEIGHTS_BP[tier - 1] ?? 0;
+  if (!w || round.totalWeightBp <= 0n) return 0n;
+  return (round.amountUnits * BigInt(w)) / round.totalWeightBp;
 }
 
 /** True when `activate_tier_otc` / `upgrade_tier_otc` would pass the program's payable gate. */

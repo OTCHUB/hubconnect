@@ -105,7 +105,6 @@ pub struct InflowRegistered {
     pub epoch: u64,
     pub source: u8,
     pub lamports: u64,
-    pub consignor_share: u64,
 }
 
 #[event]
@@ -113,26 +112,6 @@ pub struct BurnRecorded {
     pub hub_burned: u64,
     pub lamports_spent: u64,
     pub burn_pending_after: u64,
-}
-
-#[event]
-pub struct DeskConsigned {
-    pub asset: Pubkey,
-    pub consignor: Pubkey,
-    pub epoch: u64,
-}
-
-#[event]
-pub struct DeskUnconsigned {
-    pub asset: Pubkey,
-    pub consignor: Pubkey,
-    pub epoch: u64,
-}
-
-#[event]
-pub struct AccrualClaimed {
-    pub wallet: Pubkey,
-    pub lamports: u64,
 }
 
 #[event]
@@ -202,11 +181,13 @@ pub struct CreatorFeeOpsRecorded {
     pub total_ops_sol_after: u64,
 }
 
-/// §A7.1 — snapshot published (or re-published before any claim) / claims toggled.
+/// §A7.1 — snapshot published (round 1) or extended (round ≥2 — desk_count grew to onboard
+/// newly-minted desks) / claims toggled.
 #[event]
 pub struct AirdropRootSet {
     pub root: [u8; 32],
     pub desk_count: u32,
+    pub round: u32,
     pub airdrop_units: u64,
     pub airdrop_bp: u16,
     pub public_bp: u16,
@@ -214,11 +195,53 @@ pub struct AirdropRootSet {
     pub ts: i64,
 }
 
+/// User-initiated pull via `claim_airdrop`.
 #[event]
 pub struct AirdropClaimed {
     pub asset: Pubkey,
     pub claimant: Pubkey,
     pub amount_units: u64,
     pub total_claimed_units: u64,
+    pub claims: u32,
+}
+
+/// Authority-initiated push via `distribute_airdrop` — same `AirdropClaim` PDA guard as
+/// `AirdropClaimed`, so a desk can only ever appear in one of the two events, never both.
+#[event]
+pub struct AirdropDistributed {
+    pub asset: Pubkey,
+    pub owner: Pubkey,
+    pub amount_units: u64,
+    pub total_claimed_units: u64,
+    pub claims: u32,
+}
+
+/// §A6.3 bridge — treasury deposits $HUB (swapped off-chain from the OTC launcher's
+/// holders-in-stock reward leg) into `treasury_lock_vault`, earmarked for the next
+/// `open_reward_round`.
+#[event]
+pub struct TreasuryRewardFunded {
+    pub hub_amount: u64,
+    pub pending_after: u64,
+    pub total_deposited: u64,
+}
+
+/// Permissionless snapshot: `amount_units` split across the active desks' Σw at this moment.
+#[event]
+pub struct TreasuryRewardRoundOpened {
+    pub round: u32,
+    pub amount_units: u64,
+    pub total_weight_bp: u64,
+    pub ts: i64,
+}
+
+/// Authority-pushed payout of one active desk's tier-weighted share of an open reward round.
+#[event]
+pub struct TreasuryRewardDistributed {
+    pub round: u32,
+    pub asset: Pubkey,
+    pub owner: Pubkey,
+    pub amount_units: u64,
+    pub round_distributed_units: u64,
     pub claims: u32,
 }

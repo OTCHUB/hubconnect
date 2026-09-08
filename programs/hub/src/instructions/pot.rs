@@ -165,8 +165,6 @@ mod tests {
             burn_pct_bp: BURN_PCT_BP,
             lp_pct_bp: LP_PCT_BP,
             ops_pct_bp: OPS_PCT_BP,
-            consignment_enabled: true,
-            consignor_share_bp: 0,
             lp_enabled: false,
             lp_target_sol_lamports: 0,
             lp_phase2_open_ts: 0,

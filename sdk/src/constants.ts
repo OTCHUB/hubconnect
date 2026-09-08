@@ -42,8 +42,6 @@ export const EXIT_HUB_LEG_BP = 5_000;
 export const SWEEP_BUDGET_CAP_BP = 1_000;
 export const SWEEP_PAYBACK_CAP_LAMPORTS = 4_200_000_000;
 export const FLOOR_STALENESS_BP = 500;
-export const CONSIGNMENT_ENABLED = true;
-export const CONSIGNOR_SHARE_BP = 0;
 export const LP_ENABLED = false;
 export const LP_TARGET_SOL_LAMPORTS = 100 * LAMPORTS_PER_SOL;
 export const TREASURY_HUB_FLOAT_CAP_BP = 200;
@@ -128,11 +126,11 @@ export function supplyBreakdown(
 export const AIRDROP_PER_DESK = 10_000;
 export const AIRDROP_PER_DESK_UNITS = BigInt(AIRDROP_PER_DESK) * 10n ** BigInt(HUB_DECIMALS);
 /**
- * Launch policy cap, not a program constant: `apply_snapshot(desk_count)` accepts whatever
- * `desk_count` the snapshot script passes in, so the cap is enforced by only including the
- * first 2,500 desks activated on otcdesks.cash (by activation order) in the Merkle tree passed
- * to `publish_airdrop_root`. Kept here so the preview math and UI agree with that policy before
- * the real snapshot is taken.
+ * Mirrors the on-chain `AIRDROP_DESK_CAP` constant: `set_airdrop_root` rejects any `desk_count`
+ * above this. Multiple snapshot rounds are supported — the team may run an early round with
+ * fewer than 2,500 desks and distribute first, then raise `desk_count` in a later round (never
+ * lower it once claims have started) to onboard desks minted since, up to this cap. Kept here
+ * too so the preview math and UI agree with the program before a snapshot is even published.
  */
 export const AIRDROP_DESK_CAP = 2_500;
 /** Yield reserve: 2% of supply backing the OTC-launcher reward basket ($OTC, CRCLx, OpenAI, Anthropic). */

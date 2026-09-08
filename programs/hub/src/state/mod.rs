@@ -29,8 +29,6 @@ pub struct Config {
     /// $HUB/$OTC LP (phase-2 `build_lp`). Remainder after burn + lp is the 90% $OTC leg.
     pub lp_pct_bp: u16,
     pub ops_pct_bp: u16,
-    pub consignment_enabled: bool,
-    pub consignor_share_bp: u16,
     pub lp_enabled: bool,
     pub lp_target_sol_lamports: u64,
     /// §A6.2 phase-2 gate: HUB/OTC LP opens only after this timestamp (0 = closed).
@@ -94,28 +92,6 @@ pub struct DeskTier {
     /// Lifetime SOL this desk has been paid by `claim_yield` (reset on re-activation).
     pub total_claimed_lamports: u64,
     pub voided: bool,
-    pub bump: u8,
-}
-
-#[account]
-#[derive(InitSpace)]
-pub struct ConsignedDesk {
-    pub asset_id: Pubkey,
-    pub consignor: Pubkey,
-    pub consigned_epoch: u64,
-    pub active: bool,
-    pub bump: u8,
-}
-
-/// Per-wallet consignor ledger (`["accrual", wallet]`): consignor-share credits still owed,
-/// plus the lifetime total paid out by `claim_accrual`. Created by the treasury on the first
-/// consigned inflow for that wallet.
-#[account]
-#[derive(InitSpace)]
-pub struct StakerAccrual {
-    pub wallet: Pubkey,
-    pub owed_lamports: u64,
-    pub total_claimed_lamports: u64,
     pub bump: u8,
 }
 
@@ -199,10 +175,9 @@ pub struct CreatorFeeState {
 #[derive(InitSpace)]
 pub struct TreasuryState {
     pub multisig: Pubkey,
-    /// Program-signed custody PDA (`["vault"]`) that owns consigned desks.
+    /// Program-signed custody PDA (`["vault"]`) for treasury-side token positions (LP, §A6.2).
     pub vault: Pubkey,
     pub desks_owned: u32,
-    pub desks_consigned: u32,
     pub sweep_budget_cap_bp: u16,
     pub sweep_payback_cap_lamports: u64,
     pub exit_discount_bp: u16,
@@ -250,9 +225,14 @@ pub struct OtcPayConfig {
 pub struct TokenomicsConfig {
     pub max_supply_units: u64,
     pub airdrop_per_desk_units: u64,
-    /// Desk assets counted at the airdrop snapshot (0 until `set_airdrop_root`).
+    /// Cumulative desk assets covered by the snapshot across every round so far (0 until the
+    /// first `set_airdrop_root`; never decreases once claims have started — see `snapshot_round`).
     pub snapshot_desk_count: u32,
     pub snapshot_ts: i64,
+    /// Number of times `set_airdrop_root` has published a changed root/desk_count. 0 = no
+    /// snapshot yet; 1 = the genesis round; ≥2 = later rounds onboarding desks minted since —
+    /// e.g. "distribute the first 1,800 desks now, run round 2 once the remaining ~700 mint."
+    pub snapshot_round: u32,
     /// `snapshot_desk_count × airdrop_per_desk_units` — exact; `airdrop_bp` is the floored share.
     pub airdrop_units: u64,
     pub airdrop_bp: u16,
@@ -267,6 +247,29 @@ pub struct TokenomicsConfig {
     pub airdrop_claimed_units: u64,
     pub airdrop_claims: u32,
     pub airdrop_open: bool,
+    /// Vault-owned $HUB token account holding the genesis 2% (`YIELD_RESERVE_BP`) floor. No
+    /// instruction in this program ever debits it — recorded here for on-chain provenance /
+    /// dashboard display, not as a spendable balance. The treasury multisig's own float ATA is
+    /// the separate, ordinary account that accumulates additional $HUB on top over time
+    /// (source C claims, capped by `TREASURY_HUB_FLOAT_CAP_BP`) — this vault only ever holds the
+    /// fixed initial floor.
+    pub treasury_lock_vault: Pubkey,
+    /// `HUB_MAX_SUPPLY_UNITS × YIELD_RESERVE_BP / BPS_DENOMINATOR`, recorded once at
+    /// `init_tokenomics` for auditability (compare against `treasury_lock_vault`'s live balance).
+    pub treasury_lock_units: u64,
+    /// Lifetime $HUB deposited into `treasury_lock_vault` by `fund_treasury_reward`, on top of
+    /// the immutable `treasury_lock_units` floor — provenance only. `treasury_lock_vault`'s live
+    /// balance always equals `treasury_lock_units + (reward_deposited_units -
+    /// reward_distributed_units)`, since both the deposit (`TransferChecked` in) and every payout
+    /// (`TransferChecked` out, capped per-round at `RewardRound.amount_units`) are enforced.
+    pub reward_deposited_units: u64,
+    /// Lifetime $HUB paid out of `treasury_lock_vault` to active desk holders via
+    /// `distribute_treasury_reward`.
+    pub reward_distributed_units: u64,
+    /// Deposited via `fund_treasury_reward` but not yet snapshotted into a `RewardRound`.
+    pub reward_pending_units: u64,
+    /// Number of `RewardRound`s opened so far (next round's PDA index).
+    pub reward_round_count: u32,
     pub bump: u8,
 }
 
@@ -276,6 +279,36 @@ pub struct TokenomicsConfig {
 pub struct AirdropClaim {
     pub asset: Pubkey,
     pub claimant: Pubkey,
+    pub amount_units: u64,
+    pub claimed_ts: i64,
+    pub bump: u8,
+}
+
+/// `["reward_round", index]` — one `fund_treasury_reward` snapshot: `amount_units` split across
+/// the active desks' Σw (`Config.total_weight_bp`) at the moment `open_reward_round` was called.
+/// Each active desk may be paid its `amount_units × weight_bp(tier) / total_weight_bp` share
+/// exactly once per round (see `RewardClaim`); `distributed_units` is capped at `amount_units`
+/// on-chain, so the vault can never be over-drawn even if Σw drifts upward mid-round.
+#[account]
+#[derive(InitSpace)]
+pub struct RewardRound {
+    pub index: u32,
+    pub amount_units: u64,
+    pub total_weight_bp: u64,
+    pub distributed_units: u64,
+    pub claims: u32,
+    pub opened_ts: i64,
+    pub bump: u8,
+}
+
+/// `["reward_claim", round_index, asset]` — one payout per desk asset per reward round;
+/// existence is the double-payout guard (mirrors `AirdropClaim`).
+#[account]
+#[derive(InitSpace)]
+pub struct RewardClaim {
+    pub round: u32,
+    pub asset: Pubkey,
+    pub owner: Pubkey,
     pub amount_units: u64,
     pub claimed_ts: i64,
     pub bump: u8,
@@ -293,8 +326,6 @@ pub enum ConfigField {
     BurnPctBp,
     LpPctBp,
     OpsPctBp,
-    ConsignmentEnabled,
-    ConsignorShareBp,
     LpEnabled,
     LpTargetSolLamports,
     LpPhase2OpenTs,

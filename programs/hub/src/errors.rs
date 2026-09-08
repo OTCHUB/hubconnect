@@ -30,16 +30,10 @@ pub enum HubError {
     EpochNotCurrent,
     #[msg("Amount must be greater than zero")]
     ZeroAmount,
-    #[msg("Desk is already consigned")]
-    AlreadyConsigned,
     #[msg("Burn spend exceeds burn-pending")]
     BurnExceedsPending,
-    #[msg("Accrual has nothing owed")]
-    AccrualEmpty,
     #[msg("LP position for this pair already exists (one per pair)")]
     LpPositionExists,
-    #[msg("Consigned desks are not eligible for treasury exits")]
-    ConsignedNotExitable,
     #[msg("Tier has been voided by an ownership change; re-activate")]
     TierVoided,
     #[msg("Caller does not own the desk asset")]
@@ -58,14 +52,6 @@ pub enum HubError {
     PotBelowLiability,
     #[msg("Inflow accounting invariant violated")]
     InvariantViolated,
-    #[msg("Consignment is disabled")]
-    ConsignmentDisabled,
-    #[msg("Desk is consigned and cannot be sold or transferred by treasury")]
-    DeskConsigned,
-    #[msg("Consignment is not active")]
-    ConsignmentInactive,
-    #[msg("Cannot unconsign until the current epoch is finalized")]
-    UnconsignBeforeFinalize,
     #[msg("LP building is disabled")]
     LpDisabled,
     #[msg("HUB/OTC LP is gated until phase-2 conditions hold")]
@@ -106,4 +92,12 @@ pub enum HubError {
     CreatorFeeLegExceedsPending,
     #[msg("build_lp requires AMM CPI accounts in remaining_accounts")]
     LpAccountsMissing,
+    #[msg("Airdrop snapshot desk count exceeds the 2,500-desk cap")]
+    AirdropCapExceeded,
+    #[msg("No treasury reward pending; call fund_treasury_reward first")]
+    NoRewardPending,
+    #[msg("Reward round payout would exceed the round's snapshotted amount")]
+    RewardRoundExceeded,
+    #[msg("Desk is not an active tier holder")]
+    DeskNotActive,
 }
