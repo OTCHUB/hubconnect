@@ -1,6 +1,7 @@
 pub mod admin;
 pub mod creator_fee;
 pub mod epochs;
+pub mod hub_pot;
 pub mod mpl_core;
 pub mod otc_pay;
 pub mod otc_pot;
@@ -13,6 +14,7 @@ pub mod treasury;
 pub use admin::*;
 pub use creator_fee::*;
 pub use epochs::*;
+pub use hub_pot::*;
 pub use otc_pay::*;
 pub use otc_pot::*;
 pub use tiers::*;

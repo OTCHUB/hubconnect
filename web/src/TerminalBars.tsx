@@ -12,7 +12,7 @@ export function TerminalTopBar({
   live?: boolean;
 }) {
   return (
-    <div className="fixed inset-x-0 top-0 z-50 flex items-center justify-between gap-2 border-b border-green-500/20 bg-black px-3 py-1.5 font-mono text-[10px] text-green-500/60 sm:text-[11px]">
+    <div className="fixed inset-x-0 top-0 z-40 flex items-center justify-between gap-2 border-b border-green-500/20 bg-black px-3 py-1.5 font-mono text-[10px] text-green-500/60 sm:text-[11px]">
       <span className="truncate">TTY1 :: {label}</span>
       {live && (
         <span className="flex shrink-0 items-center gap-1.5 text-emerald-400">
@@ -26,11 +26,11 @@ export function TerminalTopBar({
 
 export function TerminalBottomBar({ children }: { children: ReactNode }) {
   return (
-    <div className="fixed inset-x-0 bottom-0 z-50 border-t border-green-500/20 bg-black px-3 py-1.5 text-center font-mono text-[10px] text-green-500/40 sm:text-[11px]">
+    <div className="fixed inset-x-0 bottom-0 z-40 border-t border-green-500/20 bg-black px-3 py-1.5 text-center font-mono text-[10px] text-green-500/40 sm:text-[11px]">
       {children}
       {" · "}
       <a
-        href="https://github.com/nodecattel/hubconnect"
+        href="https://github.com/OTCHUB/hubconnect"
         target="_blank"
         rel="noopener noreferrer"
         className="underline hover:text-green-500/70"

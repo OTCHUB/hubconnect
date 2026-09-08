@@ -314,6 +314,73 @@ pub struct RewardClaim {
     pub bump: u8,
 }
 
+/// §A5.1 `["hub_pot"]` — MemeStock basket ($OTC, CRCLx, OpenAI, Anthropic) bookkeeping.
+/// Created once via `init_hub_pot`. Funded by the treasury's converted source-B (13-stock
+/// treasury-desk) yield via `fund_hub_pot`; independent of `TokenomicsConfig`'s single-asset
+/// $HUB reward path (§A6.3/§A7.1 bridge) — different funding source, different vaults.
+#[account]
+#[derive(InitSpace)]
+pub struct HubPotConfig {
+    pub otc_mint: Pubkey,
+    pub crclx_mint: Pubkey,
+    pub openai_mint: Pubkey,
+    pub anthropic_mint: Pubkey,
+    /// Vault-owned (`["vault"]` PDA) token accounts, one per bucket mint above.
+    pub otc_vault: Pubkey,
+    pub crclx_vault: Pubkey,
+    pub openai_vault: Pubkey,
+    pub anthropic_vault: Pubkey,
+    /// Earmarked since the last `open_hub_pot_round`, awaiting the next snapshot.
+    pub otc_pending_units: u64,
+    pub crclx_pending_units: u64,
+    pub openai_pending_units: u64,
+    pub anthropic_pending_units: u64,
+    /// Lifetime totals, for dashboard display — never decreases.
+    pub otc_deposited_units: u64,
+    pub crclx_deposited_units: u64,
+    pub openai_deposited_units: u64,
+    pub anthropic_deposited_units: u64,
+    pub round_count: u32,
+    pub bump: u8,
+}
+
+/// `["hub_pot_round", index]` — one `fund_hub_pot` snapshot: all 4 bucket pending balances
+/// split across the active desks' Σw (`Config.total_weight_bp`) at the moment
+/// `open_hub_pot_round` was called. Mirrors `RewardRound`, ×4 mints.
+#[account]
+#[derive(InitSpace)]
+pub struct HubPotRound {
+    pub index: u32,
+    pub otc_units: u64,
+    pub crclx_units: u64,
+    pub openai_units: u64,
+    pub anthropic_units: u64,
+    pub total_weight_bp: u64,
+    pub otc_distributed_units: u64,
+    pub crclx_distributed_units: u64,
+    pub openai_distributed_units: u64,
+    pub anthropic_distributed_units: u64,
+    pub claims: u32,
+    pub opened_ts: i64,
+    pub bump: u8,
+}
+
+/// `["hub_pot_claim", round_index, asset]` — one payout per desk asset per HUB Pot round;
+/// existence is the double-payout guard (mirrors `RewardClaim`).
+#[account]
+#[derive(InitSpace)]
+pub struct HubPotClaim {
+    pub round: u32,
+    pub asset: Pubkey,
+    pub owner: Pubkey,
+    pub otc_units: u64,
+    pub crclx_units: u64,
+    pub openai_units: u64,
+    pub anthropic_units: u64,
+    pub claimed_ts: i64,
+    pub bump: u8,
+}
+
 /// Fields `update_config` may touch (§B3 #9). Rate changes apply to future epochs.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ConfigField {

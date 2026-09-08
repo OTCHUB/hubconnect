@@ -284,4 +284,58 @@ pub mod hub {
     ) -> Result<()> {
         instructions::tokenomics::distribute_treasury_reward(ctx, round_index)
     }
+
+    /// §A5.1 #33 — authority creates the HUB Pot MemeStock basket bookkeeping (one-time,
+    /// post-init); records the 4 basket mints (resolved at call time, never hardcoded) + their
+    /// vault-owned token accounts.
+    pub fn init_hub_pot(
+        ctx: Context<InitHubPot>,
+        otc_mint: Pubkey,
+        crclx_mint: Pubkey,
+        openai_mint: Pubkey,
+        anthropic_mint: Pubkey,
+    ) -> Result<()> {
+        instructions::hub_pot::init_hub_pot(ctx, otc_mint, crclx_mint, openai_mint, anthropic_mint)
+    }
+
+    /// §A5.1 #34 — treasury deposits the 4 already-converted basket amounts (swapped off-chain
+    /// from source-B's 13-stock treasury-desk claim) in one instruction — four enforced
+    /// `TransferChecked` deposits, not merely attested.
+    pub fn fund_hub_pot(
+        ctx: Context<FundHubPot>,
+        otc_amount: u64,
+        crclx_amount: u64,
+        openai_amount: u64,
+        anthropic_amount: u64,
+    ) -> Result<()> {
+        instructions::hub_pot::fund_hub_pot(ctx, otc_amount, crclx_amount, openai_amount, anthropic_amount)
+    }
+
+    /// §A5.1 #35 — permissionless: snapshots all 4 pending bucket balances across the live Σw
+    /// of active desks into a new `HubPotRound`.
+    pub fn open_hub_pot_round(ctx: Context<OpenHubPotRound>) -> Result<()> {
+        instructions::hub_pot::open_hub_pot_round(ctx)
+    }
+
+    /// §A5.1 #36 — authority pushes one active desk's tier-weighted share of all 4 open
+    /// `HubPotRound` buckets straight to its current owner in a single transaction (4
+    /// `transfer_checked` CPIs); each bucket independently capped so it can never pay out more
+    /// than that bucket's snapshotted amount.
+    pub fn distribute_hub_pot_reward(
+        ctx: Context<DistributeHubPotReward>,
+        round_index: u32,
+    ) -> Result<()> {
+        instructions::hub_pot::distribute_hub_pot_reward(ctx, round_index)
+    }
+
+    /// §A5.1 #37 — a desk's current owner pulls its own tier-weighted share of all 4 open
+    /// `HubPotRound` buckets ("M.I.M ETF" — $OTC/CRCLx/OpenAI/Anthropic), self-signed; shares the
+    /// same `HubPotClaim` PDA as `distribute_hub_pot_reward` so a desk can only ever be paid once
+    /// per round regardless of which path is used (mirrors `claim_airdrop`/`distribute_airdrop`).
+    pub fn claim_hub_pot_reward(
+        ctx: Context<ClaimHubPotReward>,
+        round_index: u32,
+    ) -> Result<()> {
+        instructions::hub_pot::claim_hub_pot_reward(ctx, round_index)
+    }
 }

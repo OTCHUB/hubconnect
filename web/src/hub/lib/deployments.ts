@@ -4,8 +4,12 @@ import {
   MPL_CORE_PROGRAM_ID,
   burnPda,
   configPda,
+  creatorFeePda,
+  hubPotPda,
   otcPayPda,
+  otcPotPda,
   potPda,
+  tokenomicsPda,
   treasuryPda,
   vaultPda,
   type ConfigView,
@@ -123,6 +127,30 @@ const PDA_ROWS: [string, string, string, PdaFn][] = [
     "OTC PAY PDA",
     "$OTC step-fee rate/premium + POL reserve pointer (§A4.1).",
     otcPayPda,
+  ],
+  [
+    "tokenomics",
+    "TOKENOMICS PDA",
+    "Supply allocation plan, airdrop root, and treasury reward round cursor (§A7.1).",
+    tokenomicsPda,
+  ],
+  [
+    "otc-pot",
+    "OTC POT PDA",
+    "§A5 90% leg — $OTC yield-vault bookkeeping + lifetime average buy rate.",
+    otcPotPda,
+  ],
+  [
+    "creator-fee",
+    "CREATOR-FEE PDA",
+    "§A6.3 second flywheel — pending $OTC from the OTC launcher's holder-fee leg.",
+    creatorFeePda,
+  ],
+  [
+    "hub-pot",
+    "HUB POT PDA (M.I.M ETF)",
+    "§A5.1 MemeStock basket ($OTC / CRCLx / OpenAI / Anthropic) bookkeeping.",
+    hubPotPda,
   ],
 ];
 

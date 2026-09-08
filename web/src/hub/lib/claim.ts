@@ -70,7 +70,7 @@ export async function buildClaimYieldIx(
 function groupBatches<T>(items: T[], preambleLen: number): T[][] {
   const groups: T[][] = [];
   const firstBatch = Math.max(1, MAX_IXS_PER_TX - preambleLen);
-  for (let i = 0; i < items.length; ) {
+  for (let i = 0; i < items.length;) {
     const batch = groups.length === 0 ? firstBatch : MAX_IXS_PER_TX;
     groups.push(items.slice(i, i + batch));
     i += batch;

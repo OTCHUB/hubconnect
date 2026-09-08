@@ -183,6 +183,13 @@ pub const SEED_AIRDROP: &[u8] = b"airdrop";
 pub const SEED_REWARD_ROUND: &[u8] = b"reward_round";
 /// `["reward_claim", round_index, asset]` — one payout per desk asset per reward round.
 pub const SEED_REWARD_CLAIM: &[u8] = b"reward_claim";
+/// §A5.1 MemeStock basket bookkeeping — the treasury's converted source-B (13-stock) desk yield.
+pub const SEED_HUB_POT: &[u8] = b"hub_pot";
+/// `["hub_pot_round", index]` — one `fund_hub_pot` snapshot (all 4 buckets), split across
+/// active desks, mirrors `SEED_REWARD_ROUND`.
+pub const SEED_HUB_POT_ROUND: &[u8] = b"hub_pot_round";
+/// `["hub_pot_claim", round_index, asset]` — one payout per desk asset per HUB Pot round.
+pub const SEED_HUB_POT_CLAIM: &[u8] = b"hub_pot_claim";
 
 /// Classic SPL Token program ($OTC is a pump.fun mint, 6 decimals, Token-v1).
 pub const TOKEN_PROGRAM_ID: Pubkey = pubkey!("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
@@ -204,4 +211,4 @@ pub const CORE_IX_TRANSFER_V1: u8 = 14;
 
 #[constant]
 pub const SEEDS_DOC: &str =
-    "config|epoch+u64|tier+asset|pot|burn|otc_pot|creator_fee|treasury|vault|otc_pay|tokenomics|airdrop+asset|reward_round+u32|reward_claim+u32+asset";
+    "config|epoch+u64|tier+asset|pot|burn|otc_pot|creator_fee|treasury|vault|otc_pay|tokenomics|airdrop+asset|reward_round+u32|reward_claim+u32+asset|hub_pot|hub_pot_round+u32|hub_pot_claim+u32+asset";

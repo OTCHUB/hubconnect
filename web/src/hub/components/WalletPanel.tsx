@@ -5,6 +5,7 @@ import { shortKey } from "../lib/format";
 import { useWallet } from "../WalletProvider";
 import { ActivatePanel } from "./ActivatePanel";
 import { ClaimPanel } from "./ClaimPanel";
+import { HubPotPanel } from "./HubPotPanel";
 import { SwapPanel } from "./SwapPanel";
 import { Panel } from "./ui/Panel";
 import { WalletConnect } from "./WalletConnect";
@@ -45,6 +46,7 @@ export function WalletPanel({ state, walletAddress }: Props) {
           <WalletConnect onConnected={connect} />
         </Panel>
         <SwapPanel state={state} address={null} />
+        <HubPotPanel />
       </div>
     );
   }
@@ -94,6 +96,7 @@ export function WalletPanel({ state, walletAddress }: Props) {
         desks={portfolio.data?.desks ?? []}
         onChanged={() => void portfolio.refetch()}
       />
+      <HubPotPanel desks={portfolio.data?.desks ?? []} address={address} />
     </div>
   );
 }

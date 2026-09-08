@@ -635,6 +635,255 @@ export type Hub = {
       ]
     },
     {
+      "name": "claimHubPotReward",
+      "docs": [
+        "§A5.1 #37 — a desk's current owner pulls its own tier-weighted share of all 4 open",
+        "`HubPotRound` buckets (\"M.I.M ETF\" — $OTC/CRCLx/OpenAI/Anthropic), self-signed; shares the",
+        "same `HubPotClaim` PDA as `distribute_hub_pot_reward` so a desk can only ever be paid once",
+        "per round regardless of which path is used (mirrors `claim_airdrop`/`distribute_airdrop`)."
+      ],
+      "discriminator": [
+        210,
+        240,
+        177,
+        9,
+        52,
+        69,
+        147,
+        63
+      ],
+      "accounts": [
+        {
+          "name": "claimant",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "deskAsset"
+        },
+        {
+          "name": "deskTier",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  105,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "deskAsset"
+              }
+            ]
+          }
+        },
+        {
+          "name": "hubPot",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  104,
+                  117,
+                  98,
+                  95,
+                  112,
+                  111,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "round",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  104,
+                  117,
+                  98,
+                  95,
+                  112,
+                  111,
+                  116,
+                  95,
+                  114,
+                  111,
+                  117,
+                  110,
+                  100
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "roundIndex"
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasuryState",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "otcMint"
+        },
+        {
+          "name": "crclxMint"
+        },
+        {
+          "name": "openaiMint"
+        },
+        {
+          "name": "anthropicMint"
+        },
+        {
+          "name": "otcVault",
+          "writable": true
+        },
+        {
+          "name": "crclxVault",
+          "writable": true
+        },
+        {
+          "name": "openaiVault",
+          "writable": true
+        },
+        {
+          "name": "anthropicVault",
+          "writable": true
+        },
+        {
+          "name": "claimantOtc",
+          "writable": true
+        },
+        {
+          "name": "claimantCrclx",
+          "writable": true
+        },
+        {
+          "name": "claimantOpenai",
+          "writable": true
+        },
+        {
+          "name": "claimantAnthropic",
+          "writable": true
+        },
+        {
+          "name": "tokenProgram"
+        },
+        {
+          "name": "claim",
+          "docs": [
+            "Same seeds as `DistributeHubPotReward::claim` — pull and push share one PDA per",
+            "(round, desk asset), so a desk can only ever be paid once regardless of which path is used."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  104,
+                  117,
+                  98,
+                  95,
+                  112,
+                  111,
+                  116,
+                  95,
+                  99,
+                  108,
+                  97,
+                  105,
+                  109
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "roundIndex"
+              },
+              {
+                "kind": "account",
+                "path": "deskAsset"
+              }
+            ]
+          }
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "roundIndex",
+          "type": "u32"
+        }
+      ]
+    },
+    {
       "name": "claimYield",
       "docs": [
         "§B3 #5 (lazy revocation → #8 void_tier). One tx settles every closed round."
@@ -1047,6 +1296,263 @@ export type Hub = {
               ]
             }
           }
+        }
+      ]
+    },
+    {
+      "name": "distributeHubPotReward",
+      "docs": [
+        "§A5.1 #36 — authority pushes one active desk's tier-weighted share of all 4 open",
+        "`HubPotRound` buckets straight to its current owner in a single transaction (4",
+        "`transfer_checked` CPIs); each bucket independently capped so it can never pay out more",
+        "than that bucket's snapshotted amount."
+      ],
+      "discriminator": [
+        45,
+        241,
+        217,
+        255,
+        166,
+        70,
+        119,
+        55
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "deskAsset",
+          "docs": [
+            "`distribute_treasury_reward`'s \"pay whoever holds the desk right now\" policy."
+          ]
+        },
+        {
+          "name": "deskTier",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  105,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "deskAsset"
+              }
+            ]
+          }
+        },
+        {
+          "name": "hubPot",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  104,
+                  117,
+                  98,
+                  95,
+                  112,
+                  111,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "round",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  104,
+                  117,
+                  98,
+                  95,
+                  112,
+                  111,
+                  116,
+                  95,
+                  114,
+                  111,
+                  117,
+                  110,
+                  100
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "roundIndex"
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasuryState",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "otcMint"
+        },
+        {
+          "name": "crclxMint"
+        },
+        {
+          "name": "openaiMint"
+        },
+        {
+          "name": "anthropicMint"
+        },
+        {
+          "name": "otcVault",
+          "writable": true
+        },
+        {
+          "name": "crclxVault",
+          "writable": true
+        },
+        {
+          "name": "openaiVault",
+          "writable": true
+        },
+        {
+          "name": "anthropicVault",
+          "writable": true
+        },
+        {
+          "name": "ownerOtc",
+          "docs": [
+            "on-chain owner in the handler, not against a signer."
+          ],
+          "writable": true
+        },
+        {
+          "name": "ownerCrclx",
+          "writable": true
+        },
+        {
+          "name": "ownerOpenai",
+          "writable": true
+        },
+        {
+          "name": "ownerAnthropic",
+          "writable": true
+        },
+        {
+          "name": "tokenProgram"
+        },
+        {
+          "name": "claim",
+          "docs": [
+            "One payout per desk asset per round."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  104,
+                  117,
+                  98,
+                  95,
+                  112,
+                  111,
+                  116,
+                  95,
+                  99,
+                  108,
+                  97,
+                  105,
+                  109
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "roundIndex"
+              },
+              {
+                "kind": "account",
+                "path": "deskAsset"
+              }
+            ]
+          }
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "roundIndex",
+          "type": "u32"
         }
       ]
     },
@@ -1538,6 +2044,137 @@ export type Hub = {
       ]
     },
     {
+      "name": "fundHubPot",
+      "docs": [
+        "§A5.1 #34 — treasury deposits the 4 already-converted basket amounts (swapped off-chain",
+        "from source-B's 13-stock treasury-desk claim) in one instruction — four enforced",
+        "`TransferChecked` deposits, not merely attested."
+      ],
+      "discriminator": [
+        180,
+        102,
+        46,
+        137,
+        225,
+        48,
+        88,
+        77
+      ],
+      "accounts": [
+        {
+          "name": "treasury",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "hubPot",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  104,
+                  117,
+                  98,
+                  95,
+                  112,
+                  111,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "otcMint"
+        },
+        {
+          "name": "crclxMint"
+        },
+        {
+          "name": "openaiMint"
+        },
+        {
+          "name": "anthropicMint"
+        },
+        {
+          "name": "treasuryOtc",
+          "writable": true
+        },
+        {
+          "name": "treasuryCrclx",
+          "writable": true
+        },
+        {
+          "name": "treasuryOpenai",
+          "writable": true
+        },
+        {
+          "name": "treasuryAnthropic",
+          "writable": true
+        },
+        {
+          "name": "otcVault",
+          "writable": true
+        },
+        {
+          "name": "crclxVault",
+          "writable": true
+        },
+        {
+          "name": "openaiVault",
+          "writable": true
+        },
+        {
+          "name": "anthropicVault",
+          "writable": true
+        },
+        {
+          "name": "tokenProgram"
+        }
+      ],
+      "args": [
+        {
+          "name": "otcAmount",
+          "type": "u64"
+        },
+        {
+          "name": "crclxAmount",
+          "type": "u64"
+        },
+        {
+          "name": "openaiAmount",
+          "type": "u64"
+        },
+        {
+          "name": "anthropicAmount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
       "name": "fundTreasuryReward",
       "docs": [
         "§A6.3/§A7.1 bridge #30 — treasury deposits $HUB (swapped off-chain from the OTC launcher's",
@@ -1708,6 +2345,143 @@ export type Hub = {
         {
           "name": "clearThresholdUnits",
           "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "initHubPot",
+      "docs": [
+        "§A5.1 #33 — authority creates the HUB Pot MemeStock basket bookkeeping (one-time,",
+        "post-init); records the 4 basket mints (resolved at call time, never hardcoded) + their",
+        "vault-owned token accounts."
+      ],
+      "discriminator": [
+        32,
+        247,
+        252,
+        50,
+        58,
+        40,
+        189,
+        252
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasuryState",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "otcVault"
+        },
+        {
+          "name": "crclxVault"
+        },
+        {
+          "name": "openaiVault"
+        },
+        {
+          "name": "anthropicVault"
+        },
+        {
+          "name": "hubPot",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  104,
+                  117,
+                  98,
+                  95,
+                  112,
+                  111,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "otcMint",
+          "type": "pubkey"
+        },
+        {
+          "name": "crclxMint",
+          "type": "pubkey"
+        },
+        {
+          "name": "openaiMint",
+          "type": "pubkey"
+        },
+        {
+          "name": "anthropicMint",
+          "type": "pubkey"
         }
       ]
     },
@@ -2175,6 +2949,107 @@ export type Hub = {
           }
         }
       ]
+    },
+    {
+      "name": "openHubPotRound",
+      "docs": [
+        "§A5.1 #35 — permissionless: snapshots all 4 pending bucket balances across the live Σw",
+        "of active desks into a new `HubPotRound`."
+      ],
+      "discriminator": [
+        65,
+        162,
+        128,
+        220,
+        209,
+        242,
+        112,
+        42
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "docs": [
+            "Permissionless: deterministic snapshot, like `open_reward_round`."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "hubPot",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  104,
+                  117,
+                  98,
+                  95,
+                  112,
+                  111,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "round",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  104,
+                  117,
+                  98,
+                  95,
+                  112,
+                  111,
+                  116,
+                  95,
+                  114,
+                  111,
+                  117,
+                  110,
+                  100
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "hubPot.roundCount",
+                "account": "hubPotConfig"
+              }
+            ]
+          }
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
     },
     {
       "name": "openRewardRound",
@@ -3576,6 +4451,45 @@ export type Hub = {
       ]
     },
     {
+      "name": "hubPotClaim",
+      "discriminator": [
+        135,
+        227,
+        41,
+        78,
+        222,
+        214,
+        96,
+        221
+      ]
+    },
+    {
+      "name": "hubPotConfig",
+      "discriminator": [
+        88,
+        211,
+        114,
+        180,
+        153,
+        101,
+        120,
+        25
+      ]
+    },
+    {
+      "name": "hubPotRound",
+      "discriminator": [
+        242,
+        7,
+        76,
+        135,
+        86,
+        165,
+        160,
+        106
+      ]
+    },
+    {
       "name": "otcPayConfig",
       "discriminator": [
         255,
@@ -3796,6 +4710,58 @@ export type Hub = {
         249,
         145,
         107
+      ]
+    },
+    {
+      "name": "hubPotFunded",
+      "discriminator": [
+        245,
+        123,
+        128,
+        44,
+        207,
+        139,
+        160,
+        0
+      ]
+    },
+    {
+      "name": "hubPotRewardClaimed",
+      "discriminator": [
+        213,
+        201,
+        142,
+        136,
+        203,
+        178,
+        127,
+        157
+      ]
+    },
+    {
+      "name": "hubPotRewardDistributed",
+      "discriminator": [
+        76,
+        84,
+        9,
+        31,
+        125,
+        174,
+        104,
+        41
+      ]
+    },
+    {
+      "name": "hubPotRoundOpened",
+      "discriminator": [
+        86,
+        161,
+        117,
+        46,
+        8,
+        53,
+        16,
+        4
       ]
     },
     {
@@ -4213,6 +5179,16 @@ export type Hub = {
       "code": 6048,
       "name": "deskNotActive",
       "msg": "Desk is not an active tier holder"
+    },
+    {
+      "code": 6049,
+      "name": "noHubPotPending",
+      "msg": "No HUB Pot bucket has a pending balance; call fund_hub_pot first"
+    },
+    {
+      "code": 6050,
+      "name": "hubPotRoundExceeded",
+      "msg": "HUB Pot round payout would exceed a bucket's snapshotted amount"
     }
   ],
   "types": [
@@ -5144,6 +6120,383 @@ export type Hub = {
           {
             "name": "accPerWeight",
             "type": "u128"
+          }
+        ]
+      }
+    },
+    {
+      "name": "hubPotClaim",
+      "docs": [
+        "`[\"hub_pot_claim\", round_index, asset]` — one payout per desk asset per HUB Pot round;",
+        "existence is the double-payout guard (mirrors `RewardClaim`)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "round",
+            "type": "u32"
+          },
+          {
+            "name": "asset",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "otcUnits",
+            "type": "u64"
+          },
+          {
+            "name": "crclxUnits",
+            "type": "u64"
+          },
+          {
+            "name": "openaiUnits",
+            "type": "u64"
+          },
+          {
+            "name": "anthropicUnits",
+            "type": "u64"
+          },
+          {
+            "name": "claimedTs",
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "hubPotConfig",
+      "docs": [
+        "§A5.1 `[\"hub_pot\"]` — MemeStock basket ($OTC, CRCLx, OpenAI, Anthropic) bookkeeping.",
+        "Created once via `init_hub_pot`. Funded by the treasury's converted source-B (13-stock",
+        "treasury-desk) yield via `fund_hub_pot`; independent of `TokenomicsConfig`'s single-asset",
+        "$HUB reward path (§A6.3/§A7.1 bridge) — different funding source, different vaults."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "otcMint",
+            "type": "pubkey"
+          },
+          {
+            "name": "crclxMint",
+            "type": "pubkey"
+          },
+          {
+            "name": "openaiMint",
+            "type": "pubkey"
+          },
+          {
+            "name": "anthropicMint",
+            "type": "pubkey"
+          },
+          {
+            "name": "otcVault",
+            "docs": [
+              "Vault-owned (`[\"vault\"]` PDA) token accounts, one per bucket mint above."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "crclxVault",
+            "type": "pubkey"
+          },
+          {
+            "name": "openaiVault",
+            "type": "pubkey"
+          },
+          {
+            "name": "anthropicVault",
+            "type": "pubkey"
+          },
+          {
+            "name": "otcPendingUnits",
+            "docs": [
+              "Earmarked since the last `open_hub_pot_round`, awaiting the next snapshot."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "crclxPendingUnits",
+            "type": "u64"
+          },
+          {
+            "name": "openaiPendingUnits",
+            "type": "u64"
+          },
+          {
+            "name": "anthropicPendingUnits",
+            "type": "u64"
+          },
+          {
+            "name": "otcDepositedUnits",
+            "docs": [
+              "Lifetime totals, for dashboard display — never decreases."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "crclxDepositedUnits",
+            "type": "u64"
+          },
+          {
+            "name": "openaiDepositedUnits",
+            "type": "u64"
+          },
+          {
+            "name": "anthropicDepositedUnits",
+            "type": "u64"
+          },
+          {
+            "name": "roundCount",
+            "type": "u32"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "hubPotFunded",
+      "docs": [
+        "§A5.1 — treasury deposits converted source-B (13-stock) yield into the 4 HUB Pot buckets."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "otcAmount",
+            "type": "u64"
+          },
+          {
+            "name": "crclxAmount",
+            "type": "u64"
+          },
+          {
+            "name": "openaiAmount",
+            "type": "u64"
+          },
+          {
+            "name": "anthropicAmount",
+            "type": "u64"
+          },
+          {
+            "name": "otcPendingAfter",
+            "type": "u64"
+          },
+          {
+            "name": "crclxPendingAfter",
+            "type": "u64"
+          },
+          {
+            "name": "openaiPendingAfter",
+            "type": "u64"
+          },
+          {
+            "name": "anthropicPendingAfter",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "hubPotRewardClaimed",
+      "docs": [
+        "User-initiated pull via `claim_hub_pot_reward` — same `HubPotClaim` PDA guard as",
+        "`HubPotRewardDistributed`, so a desk can only ever appear in one of the two events per round."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "round",
+            "type": "u32"
+          },
+          {
+            "name": "asset",
+            "type": "pubkey"
+          },
+          {
+            "name": "claimant",
+            "type": "pubkey"
+          },
+          {
+            "name": "otcUnits",
+            "type": "u64"
+          },
+          {
+            "name": "crclxUnits",
+            "type": "u64"
+          },
+          {
+            "name": "openaiUnits",
+            "type": "u64"
+          },
+          {
+            "name": "anthropicUnits",
+            "type": "u64"
+          },
+          {
+            "name": "claims",
+            "type": "u32"
+          }
+        ]
+      }
+    },
+    {
+      "name": "hubPotRewardDistributed",
+      "docs": [
+        "Authority-pushed payout of one active desk's tier-weighted share of all 4 HUB Pot buckets."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "round",
+            "type": "u32"
+          },
+          {
+            "name": "asset",
+            "type": "pubkey"
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "otcUnits",
+            "type": "u64"
+          },
+          {
+            "name": "crclxUnits",
+            "type": "u64"
+          },
+          {
+            "name": "openaiUnits",
+            "type": "u64"
+          },
+          {
+            "name": "anthropicUnits",
+            "type": "u64"
+          },
+          {
+            "name": "claims",
+            "type": "u32"
+          }
+        ]
+      }
+    },
+    {
+      "name": "hubPotRound",
+      "docs": [
+        "`[\"hub_pot_round\", index]` — one `fund_hub_pot` snapshot: all 4 bucket pending balances",
+        "split across the active desks' Σw (`Config.total_weight_bp`) at the moment",
+        "`open_hub_pot_round` was called. Mirrors `RewardRound`, ×4 mints."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "index",
+            "type": "u32"
+          },
+          {
+            "name": "otcUnits",
+            "type": "u64"
+          },
+          {
+            "name": "crclxUnits",
+            "type": "u64"
+          },
+          {
+            "name": "openaiUnits",
+            "type": "u64"
+          },
+          {
+            "name": "anthropicUnits",
+            "type": "u64"
+          },
+          {
+            "name": "totalWeightBp",
+            "type": "u64"
+          },
+          {
+            "name": "otcDistributedUnits",
+            "type": "u64"
+          },
+          {
+            "name": "crclxDistributedUnits",
+            "type": "u64"
+          },
+          {
+            "name": "openaiDistributedUnits",
+            "type": "u64"
+          },
+          {
+            "name": "anthropicDistributedUnits",
+            "type": "u64"
+          },
+          {
+            "name": "claims",
+            "type": "u32"
+          },
+          {
+            "name": "openedTs",
+            "type": "i64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "hubPotRoundOpened",
+      "docs": [
+        "Permissionless snapshot: each bucket's pending balance split across the active desks' Σw."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "round",
+            "type": "u32"
+          },
+          {
+            "name": "otcUnits",
+            "type": "u64"
+          },
+          {
+            "name": "crclxUnits",
+            "type": "u64"
+          },
+          {
+            "name": "openaiUnits",
+            "type": "u64"
+          },
+          {
+            "name": "anthropicUnits",
+            "type": "u64"
+          },
+          {
+            "name": "totalWeightBp",
+            "type": "u64"
+          },
+          {
+            "name": "ts",
+            "type": "i64"
           }
         ]
       }
@@ -6086,7 +7439,7 @@ export type Hub = {
     {
       "name": "seedsDoc",
       "type": "string",
-      "value": "\"config|epoch+u64|tier+asset|pot|burn|otc_pot|creator_fee|treasury|vault|otc_pay|tokenomics|airdrop+asset|reward_round+u32|reward_claim+u32+asset\""
+      "value": "\"config|epoch+u64|tier+asset|pot|burn|otc_pot|creator_fee|treasury|vault|otc_pay|tokenomics|airdrop+asset|reward_round+u32|reward_claim+u32+asset|hub_pot|hub_pot_round+u32|hub_pot_claim+u32+asset\""
     }
   ]
 };

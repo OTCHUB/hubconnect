@@ -3,11 +3,7 @@ import { tokenomicsPda, type ProtocolState } from "@hub-sdk";
 import { useHub } from "../HubProvider";
 import { useTokenomics } from "../hooks/useTokenomics";
 import { fmtBpPct, fmtHub, fmtNum, fmtTokens, fmtUtc } from "../lib/format";
-import {
-  MAX_DESK_SUPPLY,
-  NEXT_DESK_SUPPLY_MILESTONE,
-  deskMilestoneProgressPct,
-} from "../lib/yield";
+import { TREASURY_DESK_TARGET, treasuryDeskProgressPct } from "../lib/yield";
 import { AddressLink } from "./ui/AddressLink";
 import { PieChart, type PieSlice } from "./ui/PieChart";
 import { CollapsibleCard, Flag, Panel, Row, Stat } from "./ui/Panel";
@@ -36,9 +32,10 @@ export function TokenomicsPanel({ state }: { state: ProtocolState }) {
     );
   }
   const { onChain, collection, deskCount, deskCountSource, plan, dexscreener } = q.data!;
-  // Desk-collection growth (the "supply milestone" progress below) is always the live on-chain
-  // count — a separate thing from `deskCount`, which sizes the tokenomics split itself and is
-  // pinned to the fixed launch-policy target pre-snapshot (see useTokenomics.ts).
+  // Live on-chain collection size — a separate thing from `deskCount`, which sizes the
+  // tokenomics split itself and is pinned to the fixed launch-policy target pre-snapshot (see
+  // useTokenomics.ts). The "treasury desk milestone" stat below tracks treasury-owned desks
+  // (state.treasury.desksOwned, target 20), not this collection-wide figure.
   const liveDeskCount = collection?.currentSize ?? 0;
   const slices: PieSlice[] = plan.slices.map((s) => ({
     id: s.id,
@@ -81,9 +78,9 @@ export function TokenomicsPanel({ state }: { state: ProtocolState }) {
             }
           />
           <Stat
-            label="supply milestone"
-            value={`${deskMilestoneProgressPct(liveDeskCount)}%`}
-            sub={`${fmtNum(liveDeskCount)} → ${fmtNum(NEXT_DESK_SUPPLY_MILESTONE)} next · ${fmtNum(MAX_DESK_SUPPLY)} max`}
+            label="treasury desk milestone"
+            value={`${treasuryDeskProgressPct(state.treasury.desksOwned)}%`}
+            sub={`${fmtNum(state.treasury.desksOwned)} → ${fmtNum(TREASURY_DESK_TARGET)} treasury-owned desks`}
           />
           <Stat
             label="airdrop pool"
@@ -177,10 +174,7 @@ export function TokenomicsPanel({ state }: { state: ProtocolState }) {
           k="floor"
           v={onChain ? `${fmtHub(onChain.treasuryLockUnits, d)} · 2% of max supply` : "—"}
         />
-        <Row
-          k="vault"
-          v={onChain ? <AddressLink address={onChain.treasuryLockVault} /> : "—"}
-        />
+        <Row k="vault" v={onChain ? <AddressLink address={onChain.treasuryLockVault} /> : "—"} />
         <Row
           k="mechanism"
           v="the genesis floor is never debited; OTC-launcher holder rewards deposited on top via fund_treasury_reward are redistributed to active desk holders by tier weight"

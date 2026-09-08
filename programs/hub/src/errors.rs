@@ -100,4 +100,8 @@ pub enum HubError {
     RewardRoundExceeded,
     #[msg("Desk is not an active tier holder")]
     DeskNotActive,
+    #[msg("No HUB Pot bucket has a pending balance; call fund_hub_pot first")]
+    NoHubPotPending,
+    #[msg("HUB Pot round payout would exceed a bucket's snapshotted amount")]
+    HubPotRoundExceeded,
 }

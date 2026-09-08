@@ -128,8 +128,8 @@ export function TreasuryPortfolio({ state }: { state: ProtocolState }) {
             </div>
           )}
           <div className="mt-2 text-[10px] text-green-700">
-            Desks bought on Magic Eden by the multisig. Per-day is an estimate from the last
-            closed round's cadence.
+            Desks bought on Magic Eden by the multisig. Per-day is an estimate from the last closed
+            round's cadence.
           </div>
         </>
       )}

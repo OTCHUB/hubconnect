@@ -129,10 +129,10 @@ export function MechanicsPanel({ state }: { state: ProtocolState }) {
       <CollapsibleCard title="2. HOW DAILY REWARDS ARE PAID">
         <ul className="space-y-1">
           <li className={li}>
-            Protocol Revenue comes from six sources: desk activation fees, earnings from the
-            treasury's own desks, the treasury's OTC trading profits, half of every discounted
-            treasury desk sale, earnings from desks donated to the treasury, and trading fees from
-            the $HUB liquidity pool.
+            Protocol Revenue comes from five sources: desk activation fees, earnings from the
+            treasury's own desks (bought via market sweeps — never donated or consigned for free),
+            the treasury's OTC trading profits, half of every discounted treasury desk sale, and
+            trading fees from the $HUB liquidity pool.
           </li>
           <li className={li}>
             Revenue collects continuously until it crosses the reward-round trigger (

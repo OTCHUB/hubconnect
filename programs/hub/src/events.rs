@@ -245,3 +245,55 @@ pub struct TreasuryRewardDistributed {
     pub round_distributed_units: u64,
     pub claims: u32,
 }
+
+/// §A5.1 — treasury deposits converted source-B (13-stock) yield into the 4 HUB Pot buckets.
+#[event]
+pub struct HubPotFunded {
+    pub otc_amount: u64,
+    pub crclx_amount: u64,
+    pub openai_amount: u64,
+    pub anthropic_amount: u64,
+    pub otc_pending_after: u64,
+    pub crclx_pending_after: u64,
+    pub openai_pending_after: u64,
+    pub anthropic_pending_after: u64,
+}
+
+/// Permissionless snapshot: each bucket's pending balance split across the active desks' Σw.
+#[event]
+pub struct HubPotRoundOpened {
+    pub round: u32,
+    pub otc_units: u64,
+    pub crclx_units: u64,
+    pub openai_units: u64,
+    pub anthropic_units: u64,
+    pub total_weight_bp: u64,
+    pub ts: i64,
+}
+
+/// Authority-pushed payout of one active desk's tier-weighted share of all 4 HUB Pot buckets.
+#[event]
+pub struct HubPotRewardDistributed {
+    pub round: u32,
+    pub asset: Pubkey,
+    pub owner: Pubkey,
+    pub otc_units: u64,
+    pub crclx_units: u64,
+    pub openai_units: u64,
+    pub anthropic_units: u64,
+    pub claims: u32,
+}
+
+/// User-initiated pull via `claim_hub_pot_reward` — same `HubPotClaim` PDA guard as
+/// `HubPotRewardDistributed`, so a desk can only ever appear in one of the two events per round.
+#[event]
+pub struct HubPotRewardClaimed {
+    pub round: u32,
+    pub asset: Pubkey,
+    pub claimant: Pubkey,
+    pub otc_units: u64,
+    pub crclx_units: u64,
+    pub openai_units: u64,
+    pub anthropic_units: u64,
+    pub claims: u32,
+}

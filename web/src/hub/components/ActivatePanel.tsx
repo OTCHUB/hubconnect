@@ -179,7 +179,7 @@ export function ActivatePanel({ address, state, desks, onChanged }: Props) {
           <div className="mt-2 text-[10px] uppercase tracking-widest text-green-600">
             target tier {fromTier ? `(current T${fromTier})` : "(fresh activation)"}
           </div>
-          <div className="mt-1 grid grid-cols-4 gap-1">
+          <div className="mt-1 grid grid-cols-2 gap-1 sm:grid-cols-4">
             {TIERS.map((t) => (
               <button
                 key={t}

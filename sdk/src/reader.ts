@@ -20,6 +20,9 @@ import {
   airdropClaimPda,
   rewardRoundPda,
   rewardClaimPda,
+  hubPotPda,
+  hubPotRoundPda,
+  hubPotClaimPda,
 } from "./pda";
 import {
   ACC_SCALE,
@@ -243,6 +246,55 @@ export type RewardClaimView = {
   asset: string;
   owner: string;
   amountUnits: bigint;
+  claimedTs: number;
+};
+
+/** §A5.1 `HubPotConfig` — `null` from `fetchHubPot` means `init_hub_pot` was never called. */
+export type HubPotView = {
+  otcMint: string;
+  crclxMint: string;
+  openaiMint: string;
+  anthropicMint: string;
+  otcVault: string;
+  crclxVault: string;
+  openaiVault: string;
+  anthropicVault: string;
+  otcPendingUnits: bigint;
+  crclxPendingUnits: bigint;
+  openaiPendingUnits: bigint;
+  anthropicPendingUnits: bigint;
+  otcDepositedUnits: bigint;
+  crclxDepositedUnits: bigint;
+  openaiDepositedUnits: bigint;
+  anthropicDepositedUnits: bigint;
+  roundCount: number;
+};
+
+/** One `fund_hub_pot` snapshot — each bucket's units split across active desks' Σw. */
+export type HubPotRoundView = {
+  index: number;
+  otcUnits: bigint;
+  crclxUnits: bigint;
+  openaiUnits: bigint;
+  anthropicUnits: bigint;
+  totalWeightBp: bigint;
+  otcDistributedUnits: bigint;
+  crclxDistributedUnits: bigint;
+  openaiDistributedUnits: bigint;
+  anthropicDistributedUnits: bigint;
+  claims: number;
+  openedTs: number;
+};
+
+/** One desk's basket payout receipt for a given HUB Pot round (exists ⇒ already paid). */
+export type HubPotClaimView = {
+  round: number;
+  asset: string;
+  owner: string;
+  otcUnits: bigint;
+  crclxUnits: bigint;
+  openaiUnits: bigint;
+  anthropicUnits: bigint;
   claimedTs: number;
 };
 
@@ -629,6 +681,105 @@ export function rewardShareUnits(round: RewardRoundView, tier: number): bigint {
   const w = TIER_WEIGHTS_BP[tier - 1] ?? 0;
   if (!w || round.totalWeightBp <= 0n) return 0n;
   return (round.amountUnits * BigInt(w)) / round.totalWeightBp;
+}
+
+export function toHubPotView(
+  p: Awaited<ReturnType<HubProgram["account"]["hubPotConfig"]["fetch"]>>,
+): HubPotView {
+  return {
+    otcMint: p.otcMint.toBase58(),
+    crclxMint: p.crclxMint.toBase58(),
+    openaiMint: p.openaiMint.toBase58(),
+    anthropicMint: p.anthropicMint.toBase58(),
+    otcVault: p.otcVault.toBase58(),
+    crclxVault: p.crclxVault.toBase58(),
+    openaiVault: p.openaiVault.toBase58(),
+    anthropicVault: p.anthropicVault.toBase58(),
+    otcPendingUnits: big(p.otcPendingUnits),
+    crclxPendingUnits: big(p.crclxPendingUnits),
+    openaiPendingUnits: big(p.openaiPendingUnits),
+    anthropicPendingUnits: big(p.anthropicPendingUnits),
+    otcDepositedUnits: big(p.otcDepositedUnits),
+    crclxDepositedUnits: big(p.crclxDepositedUnits),
+    openaiDepositedUnits: big(p.openaiDepositedUnits),
+    anthropicDepositedUnits: big(p.anthropicDepositedUnits),
+    roundCount: p.roundCount,
+  };
+}
+
+/** `null` ⇒ `init_hub_pot` has not been called yet. */
+export async function fetchHubPot(program: HubProgram): Promise<HubPotView | null> {
+  const [key] = hubPotPda(program.programId);
+  const p = await program.account.hubPotConfig.fetchNullable(key);
+  return p ? toHubPotView(p) : null;
+}
+
+export function toHubPotRoundView(
+  r: Awaited<ReturnType<HubProgram["account"]["hubPotRound"]["fetch"]>>,
+): HubPotRoundView {
+  return {
+    index: r.index,
+    otcUnits: big(r.otcUnits),
+    crclxUnits: big(r.crclxUnits),
+    openaiUnits: big(r.openaiUnits),
+    anthropicUnits: big(r.anthropicUnits),
+    totalWeightBp: big(r.totalWeightBp),
+    otcDistributedUnits: big(r.otcDistributedUnits),
+    crclxDistributedUnits: big(r.crclxDistributedUnits),
+    openaiDistributedUnits: big(r.openaiDistributedUnits),
+    anthropicDistributedUnits: big(r.anthropicDistributedUnits),
+    claims: r.claims,
+    openedTs: n(r.openedTs),
+  };
+}
+
+/** `null` ⇒ this round index has not been opened yet (`open_hub_pot_round`). */
+export async function fetchHubPotRound(
+  program: HubProgram,
+  index: number,
+): Promise<HubPotRoundView | null> {
+  const [key] = hubPotRoundPda(program.programId, index);
+  const r = await program.account.hubPotRound.fetchNullable(key);
+  return r ? toHubPotRoundView(r) : null;
+}
+
+/** `null` ⇒ this desk has not yet been paid its basket share of `round`. */
+export async function fetchHubPotClaim(
+  program: HubProgram,
+  round: number,
+  asset: PublicKey,
+): Promise<HubPotClaimView | null> {
+  const [key] = hubPotClaimPda(program.programId, round, asset);
+  const c = await program.account.hubPotClaim.fetchNullable(key);
+  return c
+    ? {
+        round: c.round,
+        asset: c.asset.toBase58(),
+        owner: c.owner.toBase58(),
+        otcUnits: big(c.otcUnits),
+        crclxUnits: big(c.crclxUnits),
+        openaiUnits: big(c.openaiUnits),
+        anthropicUnits: big(c.anthropicUnits),
+        claimedTs: n(c.claimedTs),
+      }
+    : null;
+}
+
+/** Tier-weighted share of all 4 open `HubPotRound` buckets a desk would receive — mirrors the
+ * on-chain `reward_share` floor-division exactly, applied independently per bucket. */
+export function hubPotShareUnits(
+  round: HubPotRoundView,
+  tier: number,
+): { otc: bigint; crclx: bigint; openai: bigint; anthropic: bigint } {
+  const w = TIER_WEIGHTS_BP[tier - 1] ?? 0;
+  if (!w || round.totalWeightBp <= 0n) return { otc: 0n, crclx: 0n, openai: 0n, anthropic: 0n };
+  const wBig = BigInt(w);
+  return {
+    otc: (round.otcUnits * wBig) / round.totalWeightBp,
+    crclx: (round.crclxUnits * wBig) / round.totalWeightBp,
+    openai: (round.openaiUnits * wBig) / round.totalWeightBp,
+    anthropic: (round.anthropicUnits * wBig) / round.totalWeightBp,
+  };
 }
 
 /** True when `activate_tier_otc` / `upgrade_tier_otc` would pass the program's payable gate. */

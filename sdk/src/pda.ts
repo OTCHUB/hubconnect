@@ -21,6 +21,9 @@ export const SEEDS = {
   airdrop: Buffer.from("airdrop"),
   rewardRound: Buffer.from("reward_round"),
   rewardClaim: Buffer.from("reward_claim"),
+  hubPot: Buffer.from("hub_pot"),
+  hubPotRound: Buffer.from("hub_pot_round"),
+  hubPotClaim: Buffer.from("hub_pot_claim"),
 } as const;
 
 const u64le = (n: BN | number | bigint) => new BN(n.toString()).toArrayLike(Buffer, "le", 8);
@@ -69,6 +72,21 @@ export function rewardRoundPda(programId: PublicKey, index: BN | number | bigint
 export function rewardClaimPda(programId: PublicKey, round: BN | number | bigint, asset: PublicKey) {
   return PublicKey.findProgramAddressSync(
     [SEEDS.rewardClaim, u32le(round), asset.toBuffer()],
+    programId,
+  );
+}
+/** §A5.1 MemeStock basket ($OTC, CRCLx, OpenAI, Anthropic) bookkeeping. */
+export function hubPotPda(programId: PublicKey) {
+  return PublicKey.findProgramAddressSync([SEEDS.hubPot], programId);
+}
+/** One `fund_hub_pot` snapshot (all 4 buckets), split across active desks. */
+export function hubPotRoundPda(programId: PublicKey, index: BN | number | bigint) {
+  return PublicKey.findProgramAddressSync([SEEDS.hubPotRound, u32le(index)], programId);
+}
+/** One payout receipt per desk asset per HUB Pot round (exists ⇒ already paid this round). */
+export function hubPotClaimPda(programId: PublicKey, round: BN | number | bigint, asset: PublicKey) {
+  return PublicKey.findProgramAddressSync(
+    [SEEDS.hubPotClaim, u32le(round), asset.toBuffer()],
     programId,
   );
 }

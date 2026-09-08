@@ -121,9 +121,10 @@ export function deskMilestoneProgressPct(deskCount: number): number {
 }
 
 /**
- * Launch target for treasury-owned desks (sweeps + donations), not a program constant — bumped
- * by hand as the treasury's desk stack grows. Used only for the progress display; the actual
- * count is always read live from `TreasuryState.desks_owned`.
+ * Launch target for treasury-owned desks (bought via market sweeps — desks are never donated or
+ * consigned for free), not a program constant — bumped by hand as the treasury's desk stack
+ * grows. Used only for the progress display; the actual count is always read live from
+ * `TreasuryState.desks_owned`.
  */
 export const TREASURY_DESK_TARGET = 20;
 

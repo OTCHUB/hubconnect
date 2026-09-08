@@ -172,8 +172,8 @@ export function ClaimPanel({ address, state, desks, onClaimed }: Props) {
       <TxLogView logs={logs} />
       <div className="mt-2 text-[10px] text-green-700">
         pending = ⌊(acc − stamp) × w / 10¹²⌋ lamport-equivalent, paid in $OTC from the keeper-fed
-        vault at the pot's lifetime average buy rate. Each tx is simulated unsigned first; a
-        failing sim is dropped with no fee spent.
+        vault at the pot's lifetime average buy rate. Each tx is simulated unsigned first; a failing
+        sim is dropped with no fee spent.
       </div>
     </Panel>
   );

@@ -134,7 +134,7 @@ export function DeploymentsPage() {
             reading <span className="text-green-400">{active}</span>.
           </span>
           <a
-            href="https://github.com/nodecattel/hubconnect"
+            href="https://github.com/OTCHUB/hubconnect"
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-1 whitespace-nowrap border border-green-500/50 px-2 py-1 text-[10px] tracking-widest text-green-400 hover:bg-green-500/10"
