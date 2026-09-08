@@ -10,11 +10,11 @@ import { yieldBoostPctOverBase } from "../lib/yield";
 import {
   ACTIVATION_DIAGRAM,
   BUYBACK_LP_DIAGRAM,
-  CYCLE_DIAGRAM,
   FEE_FLOW_DIAGRAM,
   TREASURY_DIAGRAM,
 } from "../lib/mechanicsDiagrams";
 import { CollapsibleCard, Panel, Row } from "./ui/Panel";
+import { FlywheelDiagram } from "./ui/FlywheelDiagram";
 
 const p = "text-xs leading-relaxed text-green-400/90";
 const li = "ml-4 list-disc text-xs leading-relaxed text-green-400/90";
@@ -55,7 +55,7 @@ export function MechanicsPanel({ state }: { state: ProtocolState }) {
           <Row k="reward round trigger" v={fmtSol(config.minPotThresholdLamports)} />
           <Row k="referral share" v={fmtBp(config.consignorShareBp)} />
         </div>
-        <MermaidBlock source={CYCLE_DIAGRAM} title="the $HUB cycle: buy → activate → earn → burn" />
+        <FlywheelDiagram />
       </Panel>
 
       <CollapsibleCard title="1. ACTIVATE YOUR DESK" defaultOpen>
