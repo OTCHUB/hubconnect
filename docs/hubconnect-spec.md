@@ -523,7 +523,10 @@ hubconnect/
 ├── keeper/                    # off-chain services (TypeScript)
 │   ├── keeper/                # buyback-burn executor
 │   ├── sweeper/               # desk sweep + vault verification
-│   └── treasury/              # exit listing + multisig tx builder
+│   ├── treasury/              # exit listing + multisig tx builder
+│   ├── lp/                    # LP depth monitor + fee harvest
+│   ├── creator-fee/           # §A6.3 flywheel: clear + per-leg swap orchestration
+│   └── shared/                # gas-float watermarks shared across keepers
 ├── sdk/                       # typed client SDK (activation, claims, read APIs)
 │   ├── idl/                   # hub.json / hub.ts copied from target/ (scripts/copy-idl.mjs)
 │   └── src/constants.ts       # mirror of programs/hub/src/constants.rs + HUB_PROGRAM_ID
@@ -944,6 +947,7 @@ treasury ATA is the only locked holder.
 | LP_CUSTODY | Phase 1 ($HUB/SOL): LP tokens in treasury PDA vault, HODL both legs. Phase 2 ($HUB/OTC): `lock_cp_liquidity`-**burned** LP mint (no custody, no rug), permanent `LockedLiquidity` fee-claim right retained by the treasury PDA. Both legs' fees → pot (source F) |
 | CREATOR_FEE_DESK_POT_BP / BURN_BP / LP_BP / STACK_BP / OPS_BP | 8000 / 500 / 500 / 500 / 500 — §A6.3 second flywheel split of the treasury's launcher holder-leg $OTC claim; desk-pot leg is a direct swap-free injection, the other four each swap off-chain before landing |
 | CREATOR_FEE_CLEAR_THRESHOLD | 1,000 $OTC default (6 decimals assumed), authority-adjustable at `init_creator_fee_state` — mirrors `MIN_POT_THRESHOLD`'s no-clock, size-gated clearing |
+| KEEPER_HARD_MIN / DRIP_TRIGGER / TARGET_CEILING (SOL gas float) | 0.02 / 0.05 / 0.3 SOL — off-chain-only watermarks (`keeper/shared/src/gas.ts`), no program instruction; below hard-min a keeper refuses to start a cycle, below drip-trigger it requests a manual multisig top-up from `ops_wallet` back to the ceiling. Separate from the `record_creator_fee_ops` pass-through SOL, which never idles in the keeper's balance |
 | RAYDIUM_CP_SWAP_PROGRAM_ID | `CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C` (mainnet + devnet, same address) — Phase-2 HUB/OTC pool venue |
 | RAYDIUM_LOCK_CP_SWAP_PROGRAM_ID | `LockrWmn6K5twhz3y9w1dQERbmgSaRkfnTeTKbpofwE` — dedicated CP-Swap liquidity-locking program (`lock_cp_liquidity`: burns the LP mint, issues a permanent fee-claim `LockedLiquidity` record) |
 | RPC_DEVNET | Helius devnet RPC (`devnet.helius-rpc.com`, same API key); OTC-side accounts mocked by the test harness |
