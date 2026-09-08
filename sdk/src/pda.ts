@@ -15,6 +15,7 @@ export const SEEDS = {
   pot: Buffer.from("pot"),
   burn: Buffer.from("burn"),
   otcPot: Buffer.from("otc_pot"),
+  creatorFee: Buffer.from("creator_fee"),
   treasury: Buffer.from("treasury"),
   vault: Buffer.from("vault"),
   otcPay: Buffer.from("otc_pay"),
@@ -39,6 +40,10 @@ export function otcPotPda(programId: PublicKey) {
 }
 export function treasuryPda(programId: PublicKey) {
   return PublicKey.findProgramAddressSync([SEEDS.treasury], programId);
+}
+/** §A6.3 creator-fee flywheel bookkeeping: pending $OTC + per-leg earmarks. */
+export function creatorFeePda(programId: PublicKey) {
+  return PublicKey.findProgramAddressSync([SEEDS.creatorFee], programId);
 }
 export function vaultPda(programId: PublicKey) {
   return PublicKey.findProgramAddressSync([SEEDS.vault], programId);

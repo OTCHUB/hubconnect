@@ -50,6 +50,26 @@ export const OTC_PREMIUM_BP = 20_000;
 /** `activate_tier_otc` / `upgrade_tier_otc` reject an `otc_per_sol` older than this. */
 export const OTC_RATE_MAX_AGE_SECS = 86_400;
 
+/**
+ * §A6.3 second flywheel — the treasury's pro-rata claim on the OTC launcher's 70%
+ * holders-in-stock leg (already $OTC, since the treasury holds 2% of $HUB supply). Re-split
+ * 80/5/5/5/5 every time the pending balance clears the threshold: 80% is a direct, swap-free
+ * injection into the $OTC yield pot (raises everyone's lifetime average buy rate); the other
+ * four 5% legs each need an off-chain swap the keeper attests back on-chain.
+ */
+export const CREATOR_FEE_DESK_POT_BP = 8_000;
+export const CREATOR_FEE_BURN_BP = 500;
+export const CREATOR_FEE_LP_BP = 500;
+export const CREATOR_FEE_STACK_BP = 500;
+export const CREATOR_FEE_OPS_BP = 500;
+/** Default clearing threshold: 1,000 $OTC (assumes 6 decimals; authority-adjustable at init). */
+export const CREATOR_FEE_CLEAR_THRESHOLD_UNITS = 1_000 * 10 ** 6;
+
+/** §A6.2 phase-2 lock+burn AMM — Raydium CP-Swap (mainnet + devnet, same address). */
+export const RAYDIUM_CP_SWAP_PROGRAM_ID = "CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C";
+/** Raydium's dedicated CP-Swap liquidity-locking program (burn LP mint, permanent fee claim). */
+export const RAYDIUM_LOCK_CP_SWAP_PROGRAM_ID = "LockrWmn6K5twhz3y9w1dQERbmgSaRkfnTeTKbpofwE";
+
 export const MPL_CORE_PROGRAM_ID = "CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d";
 export const HUB_PROGRAM_ID = "5tCDEazUAkRjrkasup1uWcYo3t1C2ht76LmQva5rewQv";
 export const TOKEN_PROGRAM_ID = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";

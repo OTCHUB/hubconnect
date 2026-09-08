@@ -11,6 +11,7 @@ import {
   configPda,
   epochPda,
   otcPotPda,
+  creatorFeePda,
   potPda,
   tierPda,
   treasuryPda,
@@ -155,6 +156,34 @@ export type OtcPotView = {
   totalOtcBoughtUnits: bigint;
 };
 
+/**
+ * §A6.3 second flywheel — `CreatorFeeState`. `null` from `fetchCreatorFee` means
+ * `init_creator_fee_state` was never called (the flywheel doesn't exist yet on this cluster).
+ */
+export type CreatorFeeView = {
+  /** Keeper trusted to call `draw_creator_fee_leg` / attest results. */
+  authority: string;
+  /** Vault-owned $OTC token account holding the claimed launcher holder-leg proceeds. */
+  creatorFeeVault: string;
+  clearThresholdUnits: bigint;
+  /** Received but not yet split by `clear_creator_fees`. */
+  pendingOtcUnits: bigint;
+  burnPendingOtc: bigint;
+  lpPendingOtc: bigint;
+  stackPendingOtc: bigint;
+  opsPendingOtc: bigint;
+  totalReceivedOtc: bigint;
+  /** Lifetime $OTC injected straight into the desk pot (the 80% leg, no swap). */
+  totalDeskPotOtc: bigint;
+  totalBurnOtc: bigint;
+  totalBurnHub: bigint;
+  totalLpOtc: bigint;
+  totalStackOtc: bigint;
+  totalStackHub: bigint;
+  totalOpsOtc: bigint;
+  totalOpsSolLamports: bigint;
+};
+
 /** §A7.1 `TokenomicsConfig` — `null` from `fetchTokenomics` means the plan was never recorded. */
 export type TokenomicsView = {
   maxSupplyUnits: bigint;
@@ -211,6 +240,8 @@ export type ProtocolState = {
   };
   /** `null` until the authority calls `init_otc_pot` (§A5 90% leg not provisioned yet). */
   otcPot: OtcPotView | null;
+  /** `null` until the authority calls `init_creator_fee_state` (§A6.3 flywheel not provisioned). */
+  creatorFee: CreatorFeeView | null;
   token: HubTokenState;
   supply: SupplyView;
 };
@@ -324,16 +355,18 @@ export async function fetchProtocolState(program: HubProgram): Promise<ProtocolS
   const [potKey] = potPda(id);
   const [burnKey] = burnPda(id);
   const [otcPotKey] = otcPotPda(id);
+  const [creatorFeeKey] = creatorFeePda(id);
   const [tresKey] = treasuryPda(id);
   const [vaultKey] = vaultPda(id);
   const connection = program.provider.connection;
 
-  const [cur, prev, potInfo, burn, otcPot, tres, token] = await Promise.all([
+  const [cur, prev, potInfo, burn, otcPot, creatorFee, tres, token] = await Promise.all([
     program.account.epoch.fetch(curKey),
     config.currentEpoch > 0 ? program.account.epoch.fetchNullable(prevKey) : Promise.resolve(null),
     connection.getAccountInfo(potKey),
     program.account.burnState.fetch(burnKey),
     program.account.otcPotState.fetchNullable(otcPotKey),
+    program.account.creatorFeeState.fetchNullable(creatorFeeKey),
     program.account.treasuryState.fetch(tresKey),
     fetchHubTokenState(connection, new PublicKey(config.hubMint), [
       new PublicKey(config.treasury),
@@ -354,6 +387,7 @@ export async function fetchProtocolState(program: HubProgram): Promise<ProtocolS
       burnPendingLamports: n(burn.burnPendingLamports),
     },
     otcPot: otcPot ? toOtcPotView(otcPot) : null,
+    creatorFee: creatorFee ? toCreatorFeeView(creatorFee) : null,
     treasury: {
       desksOwned: tres.desksOwned,
       desksConsigned: tres.desksConsigned,
@@ -450,6 +484,47 @@ export async function fetchOtcPot(program: HubProgram): Promise<OtcPotView | nul
 export function otcDueForLamports(owedLamports: number, pot: OtcPotView | null): bigint | null {
   if (!pot || pot.totalLamportsSpent <= 0 || owedLamports <= 0) return null;
   return (BigInt(Math.trunc(owedLamports)) * pot.totalOtcBoughtUnits) / BigInt(pot.totalLamportsSpent);
+}
+
+export function toCreatorFeeView(
+  s: Awaited<ReturnType<HubProgram["account"]["creatorFeeState"]["fetch"]>>,
+): CreatorFeeView {
+  return {
+    authority: s.authority.toBase58(),
+    creatorFeeVault: s.creatorFeeVault.toBase58(),
+    clearThresholdUnits: big(s.clearThresholdUnits),
+    pendingOtcUnits: big(s.pendingOtcUnits),
+    burnPendingOtc: big(s.burnPendingOtc),
+    lpPendingOtc: big(s.lpPendingOtc),
+    stackPendingOtc: big(s.stackPendingOtc),
+    opsPendingOtc: big(s.opsPendingOtc),
+    totalReceivedOtc: big(s.totalReceivedOtc),
+    totalDeskPotOtc: big(s.totalDeskPotOtc),
+    totalBurnOtc: big(s.totalBurnOtc),
+    totalBurnHub: big(s.totalBurnHub),
+    totalLpOtc: big(s.totalLpOtc),
+    totalStackOtc: big(s.totalStackOtc),
+    totalStackHub: big(s.totalStackHub),
+    totalOpsOtc: big(s.totalOpsOtc),
+    totalOpsSolLamports: big(s.totalOpsSolLamports),
+  };
+}
+
+/** `null` ⇒ `init_creator_fee_state` was never called on this cluster (flywheel not provisioned). */
+export async function fetchCreatorFee(program: HubProgram): Promise<CreatorFeeView | null> {
+  const [key] = creatorFeePda(program.programId);
+  const s = await program.account.creatorFeeState.fetchNullable(key);
+  return s ? toCreatorFeeView(s) : null;
+}
+
+/**
+ * Progress toward the next `clear_creator_fees` call, 0–1 (never > 1; the pending balance is
+ * fully split as soon as it clears the threshold, so it can't overshoot in steady state).
+ */
+export function creatorFeeClearProgress(view: CreatorFeeView | null): number {
+  if (!view || view.clearThresholdUnits <= 0n) return 0;
+  const ratio = Number(view.pendingOtcUnits) / Number(view.clearThresholdUnits);
+  return Math.max(0, Math.min(1, ratio));
 }
 
 export function toTokenomicsView(

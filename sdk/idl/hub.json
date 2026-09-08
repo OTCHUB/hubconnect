@@ -356,6 +356,113 @@
       ]
     },
     {
+      "name": "build_lp_otc_locked",
+      "docs": [
+        "§A6.2 phase-2 — Raydium CP-Swap `deposit` + `lock_cp_liquidity` for the HUB/OTC pair:",
+        "deposits, then burns the LP mint in the same tx while retaining a permanent fee claim."
+      ],
+      "discriminator": [
+        35,
+        217,
+        247,
+        129,
+        17,
+        193,
+        88,
+        230
+      ],
+      "accounts": [
+        {
+          "name": "treasury",
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "docs": [
+            "deposit/lock authority — `invoke_signed` below elevates it to a signer via its seeds."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "hub_amount",
+          "type": "u64"
+        },
+        {
+          "name": "otc_amount",
+          "type": "u64"
+        },
+        {
+          "name": "lp_token_amount",
+          "type": "u64"
+        },
+        {
+          "name": "deposit_account_count",
+          "type": "u8"
+        },
+        {
+          "name": "with_metadata",
+          "type": "bool"
+        }
+      ]
+    },
+    {
       "name": "claim_accrual",
       "docs": [
         "Pays a wallet-level StakerAccrual (consignor share credits)."
@@ -732,6 +839,123 @@
       "args": []
     },
     {
+      "name": "clear_creator_fees",
+      "docs": [
+        "§A6.3 #25 — permissionless: splits the pending balance 80/5/5/5/5 once it clears the",
+        "threshold; the 80% desk-pot leg is injected into `OtcPotState` in the same instruction."
+      ],
+      "discriminator": [
+        98,
+        193,
+        114,
+        81,
+        91,
+        60,
+        141,
+        246
+      ],
+      "accounts": [
+        {
+          "name": "creator_fee_state",
+          "docs": [
+            "Permissionless: the split is deterministic bp math, like `finalize_epoch`."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  114,
+                  101,
+                  97,
+                  116,
+                  111,
+                  114,
+                  95,
+                  102,
+                  101,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "otc_mint"
+        },
+        {
+          "name": "otc_pot",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  111,
+                  116,
+                  99,
+                  95,
+                  112,
+                  111,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "creator_fee_vault",
+          "writable": true
+        },
+        {
+          "name": "otc_vault",
+          "writable": true
+        },
+        {
+          "name": "pot",
+          "docs": [
+            "token accounts are owned by this PDA — same custody design as `otc_vault`)."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_program"
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "consign_desk",
       "docs": [
         "§B3 #11"
@@ -848,6 +1072,114 @@
         }
       ],
       "args": []
+    },
+    {
+      "name": "draw_creator_fee_leg",
+      "docs": [
+        "§A6.3 #26 — keeper draws a leg's earmarked $OTC to execute its off-chain swap."
+      ],
+      "discriminator": [
+        178,
+        119,
+        195,
+        44,
+        43,
+        159,
+        177,
+        69
+      ],
+      "accounts": [
+        {
+          "name": "keeper",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "creator_fee_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  114,
+                  101,
+                  97,
+                  116,
+                  111,
+                  114,
+                  95,
+                  102,
+                  101,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "otc_mint"
+        },
+        {
+          "name": "creator_fee_vault",
+          "writable": true
+        },
+        {
+          "name": "keeper_otc",
+          "writable": true
+        },
+        {
+          "name": "pot",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "token_program"
+        }
+      ],
+      "args": [
+        {
+          "name": "leg",
+          "type": {
+            "defined": {
+              "name": "CreatorFeeLeg"
+            }
+          }
+        },
+        {
+          "name": "otc_amount",
+          "type": "u64"
+        }
+      ]
     },
     {
       "name": "finalize_epoch",
@@ -1001,6 +1333,91 @@
       "args": [
         {
           "name": "epoch_index",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "init_creator_fee_state",
+      "docs": [
+        "§A6.3 #23 — authority creates the creator-fee flywheel bookkeeping (one-time, post-init)."
+      ],
+      "discriminator": [
+        104,
+        118,
+        233,
+        238,
+        35,
+        9,
+        16,
+        44
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "creator_fee_vault"
+        },
+        {
+          "name": "creator_fee_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  114,
+                  101,
+                  97,
+                  116,
+                  111,
+                  114,
+                  95,
+                  102,
+                  101,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "keeper",
+          "type": "pubkey"
+        },
+        {
+          "name": "clear_threshold_units",
           "type": "u64"
         }
       ]
@@ -1601,6 +2018,324 @@
         },
         {
           "name": "burn_tx",
+          "type": {
+            "array": [
+              "u8",
+              64
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "record_creator_fee",
+      "docs": [
+        "§A6.3 #24 — treasury deposits its claimed launcher holder-leg $OTC (enforced deposit)."
+      ],
+      "discriminator": [
+        201,
+        63,
+        201,
+        9,
+        42,
+        210,
+        100,
+        176
+      ],
+      "accounts": [
+        {
+          "name": "treasury",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "creator_fee_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  114,
+                  101,
+                  97,
+                  116,
+                  111,
+                  114,
+                  95,
+                  102,
+                  101,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "otc_mint"
+        },
+        {
+          "name": "treasury_otc",
+          "writable": true
+        },
+        {
+          "name": "creator_fee_vault",
+          "writable": true
+        },
+        {
+          "name": "token_program"
+        }
+      ],
+      "args": [
+        {
+          "name": "otc_received",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "record_creator_fee_burn_result",
+      "docs": [
+        "§A6.3 #27 — attests a burn executed off-chain from a drawn `Burn` leg."
+      ],
+      "discriminator": [
+        83,
+        158,
+        18,
+        235,
+        45,
+        168,
+        119,
+        143
+      ],
+      "accounts": [
+        {
+          "name": "keeper",
+          "signer": true
+        },
+        {
+          "name": "creator_fee_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  114,
+                  101,
+                  97,
+                  116,
+                  111,
+                  114,
+                  95,
+                  102,
+                  101,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "burn",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  114,
+                  110
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "otc_spent",
+          "type": "u64"
+        },
+        {
+          "name": "hub_burned",
+          "type": "u64"
+        },
+        {
+          "name": "burn_tx",
+          "type": {
+            "array": [
+              "u8",
+              64
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "record_creator_fee_ops",
+      "docs": [
+        "§A6.3 #29 — enforced: keeper's post-swap SOL lands in `ops_wallet` in the same tx."
+      ],
+      "discriminator": [
+        3,
+        64,
+        47,
+        36,
+        131,
+        31,
+        209,
+        122
+      ],
+      "accounts": [
+        {
+          "name": "keeper",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "creator_fee_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  114,
+                  101,
+                  97,
+                  116,
+                  111,
+                  114,
+                  95,
+                  102,
+                  101,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "ops_wallet",
+          "writable": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "otc_spent",
+          "type": "u64"
+        },
+        {
+          "name": "sol_amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "record_creator_fee_stack",
+      "docs": [
+        "§A6.3 #28 — attests $HUB stacked into the treasury float from a drawn `Stack` leg."
+      ],
+      "discriminator": [
+        44,
+        16,
+        251,
+        155,
+        60,
+        94,
+        33,
+        133
+      ],
+      "accounts": [
+        {
+          "name": "keeper",
+          "signer": true
+        },
+        {
+          "name": "creator_fee_state",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  114,
+                  101,
+                  97,
+                  116,
+                  111,
+                  114,
+                  95,
+                  102,
+                  101,
+                  101
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "otc_spent",
+          "type": "u64"
+        },
+        {
+          "name": "hub_amount",
+          "type": "u64"
+        },
+        {
+          "name": "stack_tx",
           "type": {
             "array": [
               "u8",
@@ -2706,6 +3441,19 @@
       ]
     },
     {
+      "name": "CreatorFeeState",
+      "discriminator": [
+        165,
+        45,
+        232,
+        107,
+        87,
+        2,
+        213,
+        109
+      ]
+    },
+    {
       "name": "DeskTier",
       "discriminator": [
         13,
@@ -2851,6 +3599,84 @@
       ]
     },
     {
+      "name": "CreatorFeeBurnRecorded",
+      "discriminator": [
+        215,
+        241,
+        90,
+        52,
+        32,
+        114,
+        204,
+        35
+      ]
+    },
+    {
+      "name": "CreatorFeeCleared",
+      "discriminator": [
+        235,
+        216,
+        61,
+        112,
+        189,
+        154,
+        84,
+        74
+      ]
+    },
+    {
+      "name": "CreatorFeeLegDrawn",
+      "discriminator": [
+        1,
+        71,
+        173,
+        141,
+        110,
+        73,
+        118,
+        130
+      ]
+    },
+    {
+      "name": "CreatorFeeOpsRecorded",
+      "discriminator": [
+        224,
+        217,
+        89,
+        26,
+        148,
+        10,
+        74,
+        170
+      ]
+    },
+    {
+      "name": "CreatorFeeReceived",
+      "discriminator": [
+        114,
+        154,
+        104,
+        196,
+        226,
+        142,
+        131,
+        75
+      ]
+    },
+    {
+      "name": "CreatorFeeStackRecorded",
+      "discriminator": [
+        156,
+        234,
+        129,
+        87,
+        48,
+        163,
+        237,
+        63
+      ]
+    },
+    {
       "name": "DeskConsigned",
       "discriminator": [
         169,
@@ -2913,6 +3739,19 @@
         107,
         97,
         177
+      ]
+    },
+    {
+      "name": "LpLocked",
+      "discriminator": [
+        231,
+        255,
+        40,
+        229,
+        17,
+        147,
+        106,
+        125
       ]
     },
     {
@@ -3252,6 +4091,21 @@
       "code": 6048,
       "name": "NoOtcPurchased",
       "msg": "No $OTC has been purchased yet; nothing claimable"
+    },
+    {
+      "code": 6049,
+      "name": "CreatorFeeBelowThreshold",
+      "msg": "Creator-fee pending balance is below the clearing threshold"
+    },
+    {
+      "code": 6050,
+      "name": "CreatorFeeLegExceedsPending",
+      "msg": "Creator-fee leg draw exceeds that leg's pending balance"
+    },
+    {
+      "code": 6051,
+      "name": "LpAccountsMissing",
+      "msg": "build_lp requires AMM CPI accounts in remaining_accounts"
     }
   ],
   "types": [
@@ -3732,6 +4586,304 @@
       }
     },
     {
+      "name": "CreatorFeeBurnRecorded",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "otc_spent",
+            "type": "u64"
+          },
+          {
+            "name": "hub_burned",
+            "type": "u64"
+          },
+          {
+            "name": "total_hub_burned_after",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CreatorFeeCleared",
+      "docs": [
+        "Pending balance split 80/5/5/5/5 into per-leg earmarks; the 80% desk-pot leg is injected",
+        "into `OtcPotState` in the same instruction (no swap needed — it's already $OTC)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "cleared_otc",
+            "type": "u64"
+          },
+          {
+            "name": "desk_pot_otc",
+            "type": "u64"
+          },
+          {
+            "name": "burn_otc",
+            "type": "u64"
+          },
+          {
+            "name": "lp_otc",
+            "type": "u64"
+          },
+          {
+            "name": "stack_otc",
+            "type": "u64"
+          },
+          {
+            "name": "ops_otc",
+            "type": "u64"
+          },
+          {
+            "name": "otc_pot_total_bought_units_after",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CreatorFeeLeg",
+      "docs": [
+        "Legs a keeper may draw for an off-chain swap. `DeskPot` is excluded — it's injected directly",
+        "by `clear_creator_fees`, no swap needed."
+      ],
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Burn"
+          },
+          {
+            "name": "Lp"
+          },
+          {
+            "name": "Stack"
+          },
+          {
+            "name": "Ops"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CreatorFeeLegDrawn",
+      "docs": [
+        "Keeper draws a leg's earmarked $OTC out of the vault to execute its off-chain swap."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "leg",
+            "type": "u8"
+          },
+          {
+            "name": "otc_amount",
+            "type": "u64"
+          },
+          {
+            "name": "pending_after",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CreatorFeeOpsRecorded",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "otc_spent",
+            "type": "u64"
+          },
+          {
+            "name": "sol_amount",
+            "type": "u64"
+          },
+          {
+            "name": "total_ops_sol_after",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CreatorFeeReceived",
+      "docs": [
+        "§A6.3 — treasury deposits its claimed launcher holder-leg $OTC into the creator-fee vault."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "otc_received",
+            "type": "u64"
+          },
+          {
+            "name": "pending_after",
+            "type": "u64"
+          },
+          {
+            "name": "total_received",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CreatorFeeStackRecorded",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "otc_spent",
+            "type": "u64"
+          },
+          {
+            "name": "hub_amount",
+            "type": "u64"
+          },
+          {
+            "name": "total_stack_hub_after",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CreatorFeeState",
+      "docs": [
+        "§A6.3 second flywheel — `[\"creator_fee\"]`. Created by the authority after `initialize_config`",
+        "(same no-migration pattern as `OtcPotState`). `creator_fee_vault` (mint = `Config.otc_mint`,",
+        "owner = `[\"pot\"]` PDA — same custody PDA as `otc_vault`) holds the treasury's pro-rata claim",
+        "on the OTC launcher's 70% holders-in-stock leg, deposited via `record_creator_fee`",
+        "(`TransferChecked`, enforced). Once `pending_otc_units ≥ clear_threshold_units`,",
+        "`clear_creator_fees` splits the whole pending balance 80/5/5/5/5 into five earmarks: the 80%",
+        "desk-pot leg is injected into `OtcPotState` in the same instruction (no swap — it's already",
+        "$OTC, so it only raises `total_otc_bought_units`, never `total_lamports_spent`, mechanically",
+        "lifting the lifetime average buy rate for every desk). The other four legs are drawn by the",
+        "keeper (`draw_creator_fee_leg`) for an off-chain swap, then attested back on-chain."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "authority",
+            "type": "pubkey"
+          },
+          {
+            "name": "creator_fee_vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "clear_threshold_units",
+            "type": "u64"
+          },
+          {
+            "name": "pending_otc_units",
+            "docs": [
+              "Received but not yet split by `clear_creator_fees`."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "burn_pending_otc",
+            "type": "u64"
+          },
+          {
+            "name": "lp_pending_otc",
+            "type": "u64"
+          },
+          {
+            "name": "stack_pending_otc",
+            "type": "u64"
+          },
+          {
+            "name": "ops_pending_otc",
+            "type": "u64"
+          },
+          {
+            "name": "total_received_otc",
+            "type": "u64"
+          },
+          {
+            "name": "total_desk_pot_otc",
+            "type": "u64"
+          },
+          {
+            "name": "total_burn_otc",
+            "type": "u64"
+          },
+          {
+            "name": "total_burn_hub",
+            "type": "u64"
+          },
+          {
+            "name": "total_lp_otc",
+            "type": "u64"
+          },
+          {
+            "name": "total_stack_otc",
+            "type": "u64"
+          },
+          {
+            "name": "total_stack_hub",
+            "type": "u64"
+          },
+          {
+            "name": "total_ops_otc",
+            "type": "u64"
+          },
+          {
+            "name": "total_ops_sol_lamports",
+            "type": "u64"
+          },
+          {
+            "name": "last_receive_tx",
+            "type": {
+              "array": [
+                "u8",
+                64
+              ]
+            }
+          },
+          {
+            "name": "last_burn_result_tx",
+            "docs": [
+              "Replay guard for `record_creator_fee_burn_result` (trust-attested like `record_burn`)."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                64
+              ]
+            }
+          },
+          {
+            "name": "last_stack_tx",
+            "docs": [
+              "Replay guard for `record_creator_fee_stack`."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                64
+              ]
+            }
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
       "name": "DeskConsigned",
       "type": {
         "kind": "struct",
@@ -4042,6 +5194,31 @@
     },
     {
       "name": "LpBuilt",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pair",
+            "type": "u8"
+          },
+          {
+            "name": "hub_amount",
+            "type": "u64"
+          },
+          {
+            "name": "quote_amount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "LpLocked",
+      "docs": [
+        "Raydium CP-Swap `lock_cp_liquidity` executed right after `build_lp(HubOtc)` deposits —",
+        "the LP mint is burned in the same CPI and a permanent fee-claim NFT is minted to the",
+        "treasury vault PDA, so the position can never be withdrawn but keeps earning swap fees."
+      ],
       "type": {
         "kind": "struct",
         "fields": [
@@ -4671,7 +5848,7 @@
     {
       "name": "SEEDS_DOC",
       "type": "string",
-      "value": "\"config|epoch+u64|tier+asset|consign+asset|accrual+wallet+u64|pot|burn|otc_pot|treasury|vault|otc_pay|tokenomics|airdrop+asset\""
+      "value": "\"config|epoch+u64|tier+asset|consign+asset|accrual+wallet+u64|pot|burn|otc_pot|creator_fee|treasury|vault|otc_pay|tokenomics|airdrop+asset\""
     }
   ]
 }

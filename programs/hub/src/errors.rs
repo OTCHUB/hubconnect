@@ -100,4 +100,10 @@ pub enum HubError {
     OtcBuyExceedsPending,
     #[msg("No $OTC has been purchased yet; nothing claimable")]
     NoOtcPurchased,
+    #[msg("Creator-fee pending balance is below the clearing threshold")]
+    CreatorFeeBelowThreshold,
+    #[msg("Creator-fee leg draw exceeds that leg's pending balance")]
+    CreatorFeeLegExceedsPending,
+    #[msg("build_lp requires AMM CPI accounts in remaining_accounts")]
+    LpAccountsMissing,
 }

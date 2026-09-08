@@ -156,6 +156,45 @@ pub struct OtcPotState {
     pub bump: u8,
 }
 
+/// §A6.3 second flywheel — `["creator_fee"]`. Created by the authority after `initialize_config`
+/// (same no-migration pattern as `OtcPotState`). `creator_fee_vault` (mint = `Config.otc_mint`,
+/// owner = `["pot"]` PDA — same custody PDA as `otc_vault`) holds the treasury's pro-rata claim
+/// on the OTC launcher's 70% holders-in-stock leg, deposited via `record_creator_fee`
+/// (`TransferChecked`, enforced). Once `pending_otc_units ≥ clear_threshold_units`,
+/// `clear_creator_fees` splits the whole pending balance 80/5/5/5/5 into five earmarks: the 80%
+/// desk-pot leg is injected into `OtcPotState` in the same instruction (no swap — it's already
+/// $OTC, so it only raises `total_otc_bought_units`, never `total_lamports_spent`, mechanically
+/// lifting the lifetime average buy rate for every desk). The other four legs are drawn by the
+/// keeper (`draw_creator_fee_leg`) for an off-chain swap, then attested back on-chain.
+#[account]
+#[derive(InitSpace)]
+pub struct CreatorFeeState {
+    pub authority: Pubkey,
+    pub creator_fee_vault: Pubkey,
+    pub clear_threshold_units: u64,
+    /// Received but not yet split by `clear_creator_fees`.
+    pub pending_otc_units: u64,
+    pub burn_pending_otc: u64,
+    pub lp_pending_otc: u64,
+    pub stack_pending_otc: u64,
+    pub ops_pending_otc: u64,
+    pub total_received_otc: u64,
+    pub total_desk_pot_otc: u64,
+    pub total_burn_otc: u64,
+    pub total_burn_hub: u64,
+    pub total_lp_otc: u64,
+    pub total_stack_otc: u64,
+    pub total_stack_hub: u64,
+    pub total_ops_otc: u64,
+    pub total_ops_sol_lamports: u64,
+    pub last_receive_tx: [u8; 64],
+    /// Replay guard for `record_creator_fee_burn_result` (trust-attested like `record_burn`).
+    pub last_burn_result_tx: [u8; 64],
+    /// Replay guard for `record_creator_fee_stack`.
+    pub last_stack_tx: [u8; 64],
+    pub bump: u8,
+}
+
 #[account]
 #[derive(InitSpace)]
 pub struct TreasuryState {

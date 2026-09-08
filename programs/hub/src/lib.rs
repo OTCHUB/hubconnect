@@ -191,4 +191,87 @@ pub mod hub {
     ) -> Result<()> {
         instructions::otc_pot::record_otc_buy(ctx, otc_bought, lamports_spent, buy_tx)
     }
+
+    /// §A6.2 phase-2 — Raydium CP-Swap `deposit` + `lock_cp_liquidity` for the HUB/OTC pair:
+    /// deposits, then burns the LP mint in the same tx while retaining a permanent fee claim.
+    pub fn build_lp_otc_locked(
+        ctx: Context<BuildLpOtcLocked>,
+        hub_amount: u64,
+        otc_amount: u64,
+        lp_token_amount: u64,
+        deposit_account_count: u8,
+        with_metadata: bool,
+    ) -> Result<()> {
+        instructions::treasury::build_lp_otc_locked(
+            ctx,
+            hub_amount,
+            otc_amount,
+            lp_token_amount,
+            deposit_account_count,
+            with_metadata,
+        )
+    }
+
+    /// §A6.3 #23 — authority creates the creator-fee flywheel bookkeeping (one-time, post-init).
+    pub fn init_creator_fee_state(
+        ctx: Context<InitCreatorFeeState>,
+        keeper: Pubkey,
+        clear_threshold_units: u64,
+    ) -> Result<()> {
+        instructions::creator_fee::init_creator_fee_state(ctx, keeper, clear_threshold_units)
+    }
+
+    /// §A6.3 #24 — treasury deposits its claimed launcher holder-leg $OTC (enforced deposit).
+    pub fn record_creator_fee(ctx: Context<RecordCreatorFee>, otc_received: u64) -> Result<()> {
+        instructions::creator_fee::record_creator_fee(ctx, otc_received)
+    }
+
+    /// §A6.3 #25 — permissionless: splits the pending balance 80/5/5/5/5 once it clears the
+    /// threshold; the 80% desk-pot leg is injected into `OtcPotState` in the same instruction.
+    pub fn clear_creator_fees(ctx: Context<ClearCreatorFees>) -> Result<()> {
+        instructions::creator_fee::clear_creator_fees(ctx)
+    }
+
+    /// §A6.3 #26 — keeper draws a leg's earmarked $OTC to execute its off-chain swap.
+    pub fn draw_creator_fee_leg(
+        ctx: Context<DrawCreatorFeeLeg>,
+        leg: CreatorFeeLeg,
+        otc_amount: u64,
+    ) -> Result<()> {
+        instructions::creator_fee::draw_creator_fee_leg(ctx, leg, otc_amount)
+    }
+
+    /// §A6.3 #27 — attests a burn executed off-chain from a drawn `Burn` leg.
+    pub fn record_creator_fee_burn_result(
+        ctx: Context<RecordCreatorFeeBurnResult>,
+        otc_spent: u64,
+        hub_burned: u64,
+        burn_tx: [u8; 64],
+    ) -> Result<()> {
+        instructions::creator_fee::record_creator_fee_burn_result(
+            ctx,
+            otc_spent,
+            hub_burned,
+            burn_tx,
+        )
+    }
+
+    /// §A6.3 #28 — attests $HUB stacked into the treasury float from a drawn `Stack` leg.
+    pub fn record_creator_fee_stack(
+        ctx: Context<RecordCreatorFeeStack>,
+        otc_spent: u64,
+        hub_amount: u64,
+        stack_tx: [u8; 64],
+    ) -> Result<()> {
+        instructions::creator_fee::record_creator_fee_stack(ctx, otc_spent, hub_amount, stack_tx)
+    }
+
+    /// §A6.3 #29 — enforced: keeper's post-swap SOL lands in `ops_wallet` in the same tx.
+    pub fn record_creator_fee_ops(
+        ctx: Context<RecordCreatorFeeOps>,
+        otc_spent: u64,
+        sol_amount: u64,
+    ) -> Result<()> {
+        instructions::creator_fee::record_creator_fee_ops(ctx, otc_spent, sol_amount)
+    }
 }

@@ -142,6 +142,66 @@ pub struct LpBuilt {
     pub quote_amount: u64,
 }
 
+/// Raydium CP-Swap `lock_cp_liquidity` executed right after `build_lp(HubOtc)` deposits —
+/// the LP mint is burned in the same CPI and a permanent fee-claim NFT is minted to the
+/// treasury vault PDA, so the position can never be withdrawn but keeps earning swap fees.
+#[event]
+pub struct LpLocked {
+    pub pair: u8,
+    pub hub_amount: u64,
+    pub quote_amount: u64,
+}
+
+/// §A6.3 — treasury deposits its claimed launcher holder-leg $OTC into the creator-fee vault.
+#[event]
+pub struct CreatorFeeReceived {
+    pub otc_received: u64,
+    pub pending_after: u64,
+    pub total_received: u64,
+}
+
+/// Pending balance split 80/5/5/5/5 into per-leg earmarks; the 80% desk-pot leg is injected
+/// into `OtcPotState` in the same instruction (no swap needed — it's already $OTC).
+#[event]
+pub struct CreatorFeeCleared {
+    pub cleared_otc: u64,
+    pub desk_pot_otc: u64,
+    pub burn_otc: u64,
+    pub lp_otc: u64,
+    pub stack_otc: u64,
+    pub ops_otc: u64,
+    pub otc_pot_total_bought_units_after: u64,
+}
+
+/// Keeper draws a leg's earmarked $OTC out of the vault to execute its off-chain swap.
+#[event]
+pub struct CreatorFeeLegDrawn {
+    pub leg: u8,
+    pub otc_amount: u64,
+    pub pending_after: u64,
+}
+
+#[event]
+pub struct CreatorFeeBurnRecorded {
+    pub otc_spent: u64,
+    pub hub_burned: u64,
+    pub total_hub_burned_after: u64,
+}
+
+#[event]
+pub struct CreatorFeeStackRecorded {
+    pub otc_spent: u64,
+    pub hub_amount: u64,
+    pub total_stack_hub_after: u64,
+}
+
+#[event]
+pub struct CreatorFeeOpsRecorded {
+    pub otc_spent: u64,
+    pub sol_amount: u64,
+    pub total_ops_sol_after: u64,
+}
+
 /// §A7.1 — snapshot published (or re-published before any claim) / claims toggled.
 #[event]
 pub struct AirdropRootSet {

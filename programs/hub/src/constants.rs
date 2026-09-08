@@ -76,6 +76,38 @@ pub const OTC_PREMIUM_BP: u16 = 20_000;
 /// `activate_tier_otc` / `upgrade_tier_otc` reject a rate older than this (seconds).
 pub const OTC_RATE_MAX_AGE_SECS: i64 = 86_400;
 
+/// §A6.3 second flywheel — the treasury's pro-rata claim on the OTC launcher's 70%
+/// holders-in-stock leg (it holds 2% of $HUB supply per §A7.1), already denominated in $OTC.
+/// Re-split 80/5/5/5/5 every time the batch clears: 80% is a direct, swap-free injection into
+/// `OtcPotState` (raises the lifetime average buy rate for every desk); the other four 5% legs
+/// each require an off-chain swap the keeper performs before attesting the result on-chain.
+pub const CREATOR_FEE_DESK_POT_BP: u16 = 8_000;
+pub const CREATOR_FEE_BURN_BP: u16 = 500;
+/// LP leg: half swapped $OTC→$HUB, half kept as $OTC, both deposited into the HUB/OTC pool.
+pub const CREATOR_FEE_LP_BP: u16 = 500;
+pub const CREATOR_FEE_STACK_BP: u16 = 500;
+pub const CREATOR_FEE_OPS_BP: u16 = 500;
+/// Default clearing threshold: 1,000 $OTC (assumes the pump.fun-standard 6 decimals; the
+/// authority may retune via `init_creator_fee_state`'s arg — this is only the launch default).
+pub const CREATOR_FEE_CLEAR_THRESHOLD_UNITS: u64 = 1_000 * 1_000_000;
+
+/// §A6.2 phase-2 lock+burn — Raydium CP-Swap (mainnet + devnet, same address). `deposit`
+/// CPI accounts/order per Raydium's published IDL; `remaining_accounts` on `build_lp` are
+/// passed through verbatim as the CPI's account list (client assembles them in IDL order),
+/// mirroring the "adapter-specific, lands once the launch AMM is known" note this instruction
+/// already carried — verify on devnet before mainnet, same discipline as every other external
+/// program this contract touches.
+pub const RAYDIUM_CP_SWAP_PROGRAM_ID: Pubkey = pubkey!("CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C");
+/// Raydium's dedicated CP-Swap liquidity-locking program: burns the LP mint outright and mints
+/// back a permanent fee-claim NFT to the caller — the "lock + burn, fees keep accruing, no rug"
+/// primitive this flywheel's LP leg relies on.
+pub const RAYDIUM_LOCK_CP_SWAP_PROGRAM_ID: Pubkey =
+    pubkey!("LockrWmn6K5twhz3y9w1dQERbmgSaRkfnTeTKbpofwE");
+/// Anchor sighash discriminators (`sha256("global:<ix>")[..8]`), verified independently —
+/// not read from a vendored IDL, so no crate dependency is added for this integration.
+pub const RAYDIUM_IX_DEPOSIT: [u8; 8] = [242, 35, 198, 137, 82, 225, 242, 182];
+pub const RAYDIUM_IX_LOCK_CP_LIQUIDITY: [u8; 8] = [216, 157, 29, 78, 38, 51, 31, 26];
+
 /// §A7.1 supply plan. $HUB is minted once: 1,000,000,000 × 10⁶ base units (§A3.1 / §A7).
 pub const HUB_DECIMALS: u8 = 6;
 pub const HUB_UNIT: u64 = 1_000_000;
@@ -111,6 +143,8 @@ pub const SEED_POT: &[u8] = b"pot";
 pub const SEED_BURN: &[u8] = b"burn";
 /// $OTC yield-vault bookkeeping (§A5): otc_pending_lamports budget + lifetime avg buy rate.
 pub const SEED_OTC_POT: &[u8] = b"otc_pot";
+/// §A6.3 creator-fee flywheel bookkeeping: pending $OTC + per-leg earmarks.
+pub const SEED_CREATOR_FEE: &[u8] = b"creator_fee";
 pub const SEED_TREASURY: &[u8] = b"treasury";
 /// Program-signed custody PDA that owns consigned desk assets (§A6.1).
 pub const SEED_VAULT: &[u8] = b"vault";
@@ -140,4 +174,4 @@ pub const CORE_IX_TRANSFER_V1: u8 = 14;
 
 #[constant]
 pub const SEEDS_DOC: &str =
-    "config|epoch+u64|tier+asset|consign+asset|accrual+wallet+u64|pot|burn|otc_pot|treasury|vault|otc_pay|tokenomics|airdrop+asset";
+    "config|epoch+u64|tier+asset|consign+asset|accrual+wallet+u64|pot|burn|otc_pot|creator_fee|treasury|vault|otc_pay|tokenomics|airdrop+asset";

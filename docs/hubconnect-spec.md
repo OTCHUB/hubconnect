@@ -344,12 +344,90 @@ hand-seed day-one liquidity. The LP program then deepens beyond the curve:
 - **Funding**: ops surplus (the 10% ops share beyond running costs) + explicit
   treasury allocations; harvested **swap fees → pot (source F)**, compounding
   staker yield.
-- **Guardrails**: LP tokens custodied by the treasury PDA vault; HODL both legs
-  — the treasury never sells HUB out of LP; one position per pair; every
-  deposit/withdrawal announced; depth + collected fees published daily.
-- **No LP authority to hold**: graduation-created AMM pools are protocol-owned
-  (pump-style) — there is no withdrawable LP authority for the treasury or
-  anyone to pull, which is itself a trust signal worth publishing.
+- **Guardrails — phase 1 ($HUB/SOL)**: graduation-created AMM pool is
+  protocol-owned (pump-style) — there is no withdrawable LP authority for the
+  treasury or anyone to pull, which is itself a trust signal worth publishing.
+  Any top-up position stays custodied in the treasury PDA vault; one position
+  per pair; every deposit/withdrawal announced; depth + collected fees
+  published daily.
+- **Guardrails — phase 2 ($HUB/OTC, lock + burn, no rug)**: rather than custody
+  the LP token, `build_lp_otc_locked` deposits into the Raydium CP-Swap
+  HUB/OTC pool and, in the **same transaction**, calls Raydium's
+  `lock_cp_liquidity` CPI — this **burns the LP mint outright** (principal can
+  never be withdrawn by anyone, ever) while creating a `LockedLiquidity`
+  record that lets the treasury PDA keep claiming the pool's trading fees
+  forever (source F). Net effect: permanent, un-ruggable depth that still
+  compounds staker yield through harvested fees. HODL both legs — the
+  treasury never sells HUB out of LP; one locked position per pair; every
+  deposit + lock announced on-chain.
+- **No LP authority to hold**: neither phase leaves the treasury (or anyone)
+  a live LP-withdraw path — phase 1 because graduation never mints one,
+  phase 2 because the lock instruction burns it in the same tx it's created.
+
+### A6.3 Creator fee flywheel — the treasury's launcher holder-leg claim
+
+A **second**, independent $OTC stream feeds the same desk-pot: the treasury
+holds 2% of $HUB supply (§A7.1) and, as a $HUB holder, claims its pro-rata
+share of the OTC launcher's own 70% holders-in-stock leg (§A1/A6.1) — an
+inflow that arrives **already denominated in $OTC**, no swap required to
+receive it. That claim is re-split 80/5/5/5/5 every time it clears a
+threshold, funding the desk pot directly plus four smaller protocol legs:
+
+```text
+received (100% $OTC, from the launcher's holders-in-stock leg)
+ ├─ 80% → OtcPotState (direct injection, NO SWAP)      — raises everyone's lifetime avg buy rate
+ ├─  5% → swap OTC→HUB, BURN                            — buyback-burn sink #2 (§A7)
+ ├─  5% → 50% swap OTC→HUB / 50% kept as OTC            — deposited + LOCKED into the HUB/OTC pool (§A6.2 phase-2)
+ ├─  5% → swap OTC→HUB, held in treasury                — HUB float (§A7.1 cap still applies)
+ └─  5% → swap OTC→SOL, held in ops reserve             — funds sweep/mint/LP protocol ops (§A6)
+```
+
+- **`CreatorFeeState`** (`["creator_fee"]`) tracks `pending_otc_units` (received,
+  not yet split), `clear_threshold_units` (default 1,000 $OTC,
+  `update_config`-style authority-adjustable), and lifetime totals per leg
+  (`total_received_otc`, `total_desk_pot_otc`, `total_burn_otc/hub`,
+  `total_lp_otc`, `total_stack_otc/hub`, `total_ops_otc`,
+  `total_ops_sol_lamports`) — the same "pending vs. lifetime" pattern as
+  `OtcPotState` and `TreasuryState.lp_pending_lamports`.
+- **`record_creator_fee`**: the treasury deposits its claimed $OTC into
+  `creator_fee_vault` — an enforced `TransferChecked`, not a mere attestation
+  (mirrors `record_otc_buy`'s deposit enforcement).
+- **`clear_creator_fees`** (permissionless, deterministic bp math like
+  `finalize_epoch`): once `pending_otc_units ≥ clear_threshold_units`, splits
+  the *whole* pending balance in one instruction. The 80% desk-pot leg moves
+  immediately — a program-signed vault-to-vault $OTC transfer straight into
+  `OtcPotState.otc_vault`, bumping `total_otc_bought_units` **without**
+  touching `total_lamports_spent` (no swap, no cost basis added) so it
+  mechanically lowers every desk's lifetime average buy rate. The other four
+  5% legs become per-leg pending earmarks (`burn/lp/stack/ops_pending_otc`);
+  **the desk-pot leg is derived as the remainder** of the four (floor-rounded)
+  minor legs, so it absorbs all rounding dust and the split always balances
+  exactly to the cleared amount.
+- **`draw_creator_fee_leg`** (keeper-only): pulls a leg's earmark out of
+  `creator_fee_vault` (enforced `TransferChecked`, capped at that leg's
+  pending balance) so the keeper can execute the off-chain swap. Then one of
+  three attestation instructions records the result, mirroring `record_burn`'s
+  trust + idempotency-tx-hash model (this program can no more cheaply verify
+  an external swap than it can verify an external burn):
+  - **`record_creator_fee_burn_result`** — swap done, $HUB burned; bumps
+    `BurnState.total_hub_burned` (same ledger as the §A5/A7 buyback-burn sink)
+    and `CreatorFeeState.total_burn_hub`.
+  - **`record_creator_fee_stack`** — swap done, $HUB landed in the treasury's
+    float (plain wallet transfer, outside program custody); bumps
+    `total_stack_hub`.
+  - **`record_creator_fee_ops`** — enforced (not attested): the keeper's
+    post-swap SOL transfer to `Config.ops_wallet` happens in the *same*
+    instruction as the ledger bump, refilling the reserve the sweeper's
+    arbitrage logic (§A6) never drains.
+  - The LP leg has no separate attestation — it's drawn like the others, then
+    the keeper feeds its OTC (and the HUB half after a swap) into
+    `build_lp_otc_locked` (§A6.2 phase-2), which deposits and locks in one tx.
+- **Why 80/5/5/5/5 and not something else**: 80% is deliberately the
+  dominant leg — it's the only one that's swap-free, so it's the cheapest and
+  fastest to execute, and it compounds the exact mechanic every staker already
+  benefits from (§A5's lifetime average buy rate). The remaining 20% is spread
+  evenly across the protocol's three other sinks (burn, LP, treasury stack)
+  plus an ops-SOL top-up, rather than concentrating risk in any one lever.
 
 ### A7. Buyback-burn sinks
 
@@ -466,6 +544,7 @@ IDL account and singleton PDAs are listed in **Appendix — Deployment addresses
 |---|---|---|
 | `Config` | `["config"]` | authority, pot PDA, ops_wallet, treasury, **OTC-side refs** (otc_program, otc_desk_pot, desk_collection, hub_mint, otc_mint — runtime-set, §A2), tier_weights_bp[4], step_fee_lamports (flat, §A4), **tier_hub_cost_units[4]** (cumulative $HUB burn table, §A4), min_pot_threshold_lamports (0.1 SOL), burn_pct_bp (500), **lp_pct_bp (500)** — §A5 90/5/5 split, remainder is the $OTC-vault leg, ops_pct_bp (1000, step-fee split only), consignment_enabled, consignor_share_bp, lp_enabled, lp_target_sol_lamports, lp_phase2_open_ts, paused, current_epoch, genesis_ts, total_weight_bp, pot_liability_lamports, **acc_per_weight (u128, lifetime, lamport-equivalent)**, **dust_scaled (u128)**, bumps |
 | `OtcPotState` | `["otc_pot"]` | authority (keeper trusted for `record_otc_buy`), otc_vault (vault-owned $OTC token account `claim_yield` pays from), otc_pending_lamports (pot liability awaiting a buy), total_lamports_spent, total_otc_bought_units (⇒ lifetime avg buy rate), last_buy_tx, bump — §A5 90% leg, created once via `init_otc_pot` |
+| `CreatorFeeState` | `["creator_fee"]` | authority (keeper), creator_fee_vault (vault-owned $OTC token account), clear_threshold_units (default 1,000 $OTC), pending_otc_units, burn/lp/stack/ops_pending_otc (per-leg earmarks awaiting a keeper draw), total_received_otc, total_desk_pot_otc, total_burn_otc/hub, total_lp_otc, total_stack_otc/hub, total_ops_otc, total_ops_sol_lamports, last_burn_result_tx / last_stack_tx (idempotency), bump — §A6.3 second flywheel, created once via `init_creator_fee_state` |
 | `Epoch` (one round) | `["epoch", epoch_index u64]` | index, start_ts, finalized_ts, inflow_lamports, distributed_lamports (credited), burn_pending_lamports, rolled_forward_lamports (floor remainder), total_weight_bp (Σw at close), per_weight_scaled, acc_per_weight_after, finalized |
 | `DeskTier` | `["tier", asset_id]` | asset_id, owner_at_activation, tier 1–4, activated_epoch, **stamp_acc_per_weight**, total_claimed_lamports, voided |
 | `ConsignedDesk` | `["consign", asset_id]` | asset_id, consignor, consigned_epoch, active |
@@ -505,11 +584,19 @@ the OTC program config on-chain and proposes updates.
 | 10 | `pause` / `unpause` | authority | halts activate/claim on anomaly |
 | 11 | `consign_desk` | owner, desk NFT, treasury vault, ConsignedDesk, Config | verify owner holds the desk asset (Core/DAS); `consignment_enabled` must be true; transfer NFT to vault; record consignor + epoch |
 | 12 | `unconsign_desk` | consignor, desk NFT, treasury vault, ConsignedDesk, Config | only after the current epoch finalizes (no double-count); return NFT; set `active = false`; accrued consignor share (if any) stays claimable |
-| 13 | `build_lp` | treasury multisig, Config, treasury LP vault, AMM pool accounts | `lp_enabled` must be true; deposit paired liquidity per §A6.2 (HUB/SOL first, HUB/OTC only after phase-2 gate); LP tokens custodied in the treasury PDA vault; withdraw path can never sell HUB |
+| 13 | `build_lp` | treasury multisig, Config, treasury LP vault, AMM pool accounts | `lp_enabled` must be true; deposit paired liquidity per §A6.2 (HUB/SOL top-ups, or bookkeeping-only intent recording); LP tokens custodied in the treasury PDA vault; withdraw path can never sell HUB |
 | 14 | `init_otc_payments` | authority, Config, TreasuryState, Vault, pol_account, OtcPayConfig | §A4.1; `pol_account` must be an SPL token account with mint = `Config.otc_mint`, owner = vault PDA; creates `OtcPayConfig` disabled/unpriced with `premium_bp = OTC_PREMIUM_BP` |
 | 15 | `set_otc_rate` | authority, Config, OtcPayConfig | args `otc_per_sol`, `enabled`; stamps `rate_ts = now`; `enabled` with rate 0 rejected. The premium is not an argument |
 | 16 | `activate_tier_otc` | payer, desk NFT, Config, OtcPayConfig, otc_mint, payer $OTC ATA, pol_account, hub_mint, payer $HUB ATA, Token program, DeskTier | args: `target_tier`; same gates/state as #2; requires `enabled`, rate fresh (≤ 24h); `TransferChecked` of `otc_fee(step_fee(0, target_tier))` payer → POL reserve; `BurnChecked` the full $HUB cost of `target_tier`; no pot/ops/inflow booking; `total_otc_collected += fee` |
 | 17 | `upgrade_tier_otc` | payer, desk NFT, Config, OtcPayConfig, otc_mint, payer $OTC ATA, pol_account, hub_mint, payer $HUB ATA, Token program, DeskTier | args: `target_tier`; same gates/state as #3 (ownership change → void, no charge; `ClaimBeforeUpgrade`); fee `otc_fee(step_fee(from, target_tier))` → POL reserve; `BurnChecked` only the $HUB delta between `from` and `target_tier` |
+| 18 | `init_creator_fee_state` | authority (one-time), Config, creator_fee_vault, CreatorFeeState | args: `keeper` pubkey, `clear_threshold_units`; creates `CreatorFeeState` + records its vault-owned $OTC token account (§A6.3) |
+| 19 | `record_creator_fee` | treasury multisig, Config, CreatorFeeState, otc_mint, treasury $OTC source, creator_fee_vault, Token program | args: `otc_received`; `TransferChecked`-deposits the treasury's claimed launcher holder-leg $OTC into `creator_fee_vault` (enforced, not attested); bumps `pending_otc_units` + `total_received_otc` |
+| 20 | `clear_creator_fees` | permissionless, CreatorFeeState, Config, otc_mint, OtcPotState, creator_fee_vault, otc_vault, Pot (signer PDA), Token program | rejected (`CreatorFeeBelowThreshold`) until `pending_otc_units ≥ clear_threshold_units`; splits the whole pending balance 80/5/5/5/5; 80% desk-pot leg moves in this tx (program-signed vault-to-vault transfer into `otc_vault`, bumps `OtcPotState.total_otc_bought_units` only — no swap); other four legs become `*_pending_otc` earmarks; desk-pot leg = remainder of the four floor-divided minor legs (absorbs all rounding dust) |
+| 21 | `draw_creator_fee_leg` | keeper (must be `CreatorFeeState.authority`), Config, CreatorFeeState, otc_mint, creator_fee_vault, keeper $OTC ATA, Pot (signer PDA), Token program | args: `leg` (Burn/Lp/Stack/Ops — `DeskPot` excluded, no swap needed), `otc_amount`; `TransferChecked`-pays the keeper from `creator_fee_vault`, capped at that leg's pending balance (`CreatorFeeLegExceedsPending`) |
+| 22 | `record_creator_fee_burn_result` | keeper, CreatorFeeState, BurnState | args: `otc_spent`, `hub_burned`, `burn_tx`; attests an off-chain OTC→HUB swap + burn already executed from a drawn `Burn` leg; idempotency via `burn_tx` (`InvariantViolated` on repeat); bumps `BurnState.total_hub_burned` (same ledger as the §A7 sink) and `CreatorFeeState.total_burn_hub` |
+| 23 | `record_creator_fee_stack` | keeper, CreatorFeeState | args: `otc_spent`, `hub_amount`, `stack_tx`; attests an off-chain OTC→HUB swap whose $HUB landed in the treasury's float (plain wallet transfer, outside program custody); idempotency via `stack_tx`; bumps `total_stack_hub` |
+| 24 | `record_creator_fee_ops` | keeper, Config, CreatorFeeState, ops_wallet, System program | args: `otc_spent`, `sol_amount`; enforced (not attested) — transfers `sol_amount` lamports keeper → `Config.ops_wallet` in the same instruction as the ledger bump; bumps `total_ops_sol_lamports` |
+| 25 | `build_lp_otc_locked` | treasury multisig, Config, TreasuryState, treasury vault PDA, Raydium CP-Swap `deposit` accounts + locking-program `lock_cp_liquidity` accounts (remaining_accounts, split at `deposit_account_count`) | §A6.2 phase-2 only, gated on `lp_phase2_open_ts`; args: `hub_amount`, `otc_amount`, `lp_token_amount`, `deposit_account_count`, `with_metadata`; CPIs Raydium `deposit` then `lock_cp_liquidity` **in the same tx** — burns the LP mint, creates a `LockedLiquidity` record so the treasury PDA keeps claiming pool fees forever; bumps `TreasuryState.lp_hub_otc_active/lp_hub_deposited/lp_quote_deposited` |
 
 Program-level invariants to assert everywhere: `inflow_lamports ==
 distributed + burn_pending + rolled_forward`; pot lamports ≥ liability; DeskTier
@@ -549,7 +636,18 @@ consignor share split). Consigned desks are claimed but never sold (§A6.1).
    when below target and ops surplus allows, proposes `build_lp` via treasury
    multisig; harvests accumulated LP swap fees → `register_treasury_inflow`
    (source F); opens the $HUB/OTC position only after §A6.2 phase-2 conditions
-   hold; publishes depth + fees daily.
+   hold, via `build_lp_otc_locked` (deposit + `lock_cp_liquidity` in one tx —
+   §A6.2/§A6.3); publishes depth + fees daily.
+5. **Creator-fee keeper** (§A6.3) — claims the treasury's pro-rata launcher
+   holder-leg $OTC, calls `record_creator_fee` to deposit it, and
+   `clear_creator_fees` (permissionless) once `pending_otc_units` clears the
+   threshold. For each of the four swap legs: `draw_creator_fee_leg`, execute
+   the off-chain swap (Jupiter, slippage-capped, same pattern as the buyback
+   keeper), then attest the result — `record_creator_fee_burn_result` (Burn),
+   `record_creator_fee_stack` (Stack), `record_creator_fee_ops` (Ops, SOL sent
+   in the same instruction), or feed the Lp leg's OTC (+ swapped HUB half)
+   into `build_lp_otc_locked`. Idempotent via `burn_tx`/`stack_tx` hashes,
+   mirroring the buyback-burn keeper's journal.
 
 All keepers: run from secrets-managed keyers (never commit keys), structured
 logs, and a dry-run mode. Keepers are permissionless where possible (finalize is
@@ -786,7 +884,11 @@ Sweep/consignment/exit ledger (every tx linked), burn history (HUB burned to
 date, last burn tx), LP depth + harvested fees (source F), and the treasury HUB
 float balance against its ≤2% cap — all read from on-chain accounts, no
 hand-maintained numbers. Collapsible evidence sub-sections per the dashboard's
-existing DOS-aesthetic conventions.
+existing DOS-aesthetic conventions. A dedicated **Creator Fee Flywheel** panel
+(§A6.3) shows the `CreatorFeeState` pending-vs-threshold progress bar and the
+80/5/5/5/5 breakdown per leg (desk-pot injected, HUB burned, $OTC/HUB locked
+into the LP, HUB stacked, SOL added to ops), plus lifetime totals and the
+keeper/vault addresses.
 
 **C6.1 Verification info (listing readiness).** A `[ VERIFICATION INFO ]` card with
 copy buttons + Solscan links for everything a Dexscreener / CoinGecko / wallet
@@ -839,7 +941,11 @@ treasury ATA is the only locked holder.
 | UPGRADE_TIMELOCK | 48h, multisig-held upgrade authority (not immutable) |
 | LP_TARGET_SOL_DEPTH ($HUB/SOL) | 100–200 SOL-side — conditional top-up ceiling only; curve graduation already seeds the pool |
 | HUB_OTC_LP_SEED | 25–50 SOL-eq per side, phase-2 gated (SOL pool at target + ≥14d stable) |
-| LP_CUSTODY | LP tokens in treasury PDA vault · HODL both legs · fees → pot (source F) |
+| LP_CUSTODY | Phase 1 ($HUB/SOL): LP tokens in treasury PDA vault, HODL both legs. Phase 2 ($HUB/OTC): `lock_cp_liquidity`-**burned** LP mint (no custody, no rug), permanent `LockedLiquidity` fee-claim right retained by the treasury PDA. Both legs' fees → pot (source F) |
+| CREATOR_FEE_DESK_POT_BP / BURN_BP / LP_BP / STACK_BP / OPS_BP | 8000 / 500 / 500 / 500 / 500 — §A6.3 second flywheel split of the treasury's launcher holder-leg $OTC claim; desk-pot leg is a direct swap-free injection, the other four each swap off-chain before landing |
+| CREATOR_FEE_CLEAR_THRESHOLD | 1,000 $OTC default (6 decimals assumed), authority-adjustable at `init_creator_fee_state` — mirrors `MIN_POT_THRESHOLD`'s no-clock, size-gated clearing |
+| RAYDIUM_CP_SWAP_PROGRAM_ID | `CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C` (mainnet + devnet, same address) — Phase-2 HUB/OTC pool venue |
+| RAYDIUM_LOCK_CP_SWAP_PROGRAM_ID | `LockrWmn6K5twhz3y9w1dQERbmgSaRkfnTeTKbpofwE` — dedicated CP-Swap liquidity-locking program (`lock_cp_liquidity`: burns the LP mint, issues a permanent fee-claim `LockedLiquidity` record) |
 | RPC_DEVNET | Helius devnet RPC (`devnet.helius-rpc.com`, same API key); OTC-side accounts mocked by the test harness |
 | MPL_CORE_PROGRAM_ID | `CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d` (`sdk/src/constants.ts`) |
 | HUB_PROGRAM_ID | `5tCDEazUAkRjrkasup1uWcYo3t1C2ht76LmQva5rewQv` (devnet; mainnet TBD) |
