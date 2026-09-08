@@ -252,14 +252,14 @@ mod tests {
         }
     }
 
-    /// 1,000 desks × 10,000 = 10M $HUB = 1.00% → public 94.00%, team 0.
+    /// 1,000 desks × 10,000 = 10M $HUB = 1.00% → public 96.50% (treasury lock now 2.5%), team 0.
     #[test]
     fn split_follows_desk_count() {
         let mut t = plan();
         t.apply_snapshot(1_000).unwrap();
         assert_eq!(t.airdrop_units, 10_000_000 * HUB_UNIT);
         assert_eq!(t.airdrop_bp, 100);
-        assert_eq!(t.public_bp, 9_400);
+        assert_eq!(t.public_bp, 9_650);
         assert_eq!(
             t.airdrop_bp + t.treasury_lock_bp + t.team_bp + t.public_bp,
             10_000
@@ -273,17 +273,17 @@ mod tests {
         t.apply_snapshot(15).unwrap();
         assert_eq!(t.airdrop_units, 150_000 * HUB_UNIT);
         assert_eq!(t.airdrop_bp, 1);
-        assert_eq!(t.public_bp, 9_499);
+        assert_eq!(t.public_bp, 9_749);
         t.apply_snapshot(0).unwrap();
-        assert_eq!((t.airdrop_bp, t.public_bp), (0, 9_500));
+        assert_eq!((t.airdrop_bp, t.public_bp), (0, 9_750));
     }
 
-    /// 95,001 desks would need 950.01M $HUB — more than the 95% left after the treasury lock.
+    /// 97,501 desks would need 975.01M $HUB — more than the 97.5% left after the treasury lock.
     #[test]
     fn rejects_carve_outs_over_supply() {
         let mut t = plan();
-        assert!(t.apply_snapshot(95_001).is_err());
-        assert!(t.apply_snapshot(95_000).is_ok());
+        assert!(t.apply_snapshot(97_501).is_err());
+        assert!(t.apply_snapshot(97_500).is_ok());
         assert_eq!(t.public_bp, 0);
     }
 

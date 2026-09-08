@@ -311,6 +311,21 @@ hand-seed day-one liquidity. The LP program then deepens beyond the curve:
 
 No emissions, no minted staking rewards — supply is monotonic down after launch.
 
+**§A7.1 Launch supply allocation** (`TokenomicsConfig`, `init_tokenomics` — program
+`constants.rs` / SDK `constants.ts`, mirrored in the dashboard's Tokenomics tab):
+
+| Slice | Share | Notes |
+|---|---|---|
+| Yield reserve | 2.00% | Held by the treasury multisig, never sold — backs the OTC-launcher reward basket ($OTC, CRCLx, OpenAI, Anthropic) that funds desk-holder yield. |
+| LP reserve | 0.50% | Held by the treasury multisig, never sold — seeds/deepens $HUB's own liquidity position. |
+| Desk airdrop | ≤2.50% | 10,000 $HUB per desk asset activated on otcdesks.cash before the snapshot, capped at the first 2,500 activated desks (`AIRDROP_DESK_CAP`); paid via Merkle claim to the desk's current owner. Scales down with fewer desks — the shortfall simply stays public. |
+| Public / bonding curve | ≥95.00% | Everything not carved out above — bought up the OTC launcher's bonding curve. 0% team/dev allocation. |
+
+Yield reserve + LP reserve are recorded on-chain as a single `treasury_lock_bp` (2.5%,
+`YIELD_RESERVE_BP + LP_RESERVE_BP`); the dashboard splits it back into the two sub-shares
+for display using the fixed 200:50 launch ratio. At the full 2,500-desk airdrop cap the
+carve-outs total the full 5% treasury figure and public settles at exactly 95%.
+
 **Supply definitions (SDK `constants.ts` / `reader.ts`, dashboard §C3/§C6):**
 
 ```text

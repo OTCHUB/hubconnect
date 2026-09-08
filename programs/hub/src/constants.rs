@@ -65,9 +65,17 @@ pub const HUB_MAX_SUPPLY_UNITS: u64 = HUB_MAX_SUPPLY * HUB_UNIT;
 /// the snapshot. Total = desks × this; the share of supply follows from the desk count.
 pub const AIRDROP_PER_DESK: u64 = 10_000;
 pub const AIRDROP_PER_DESK_UNITS: u64 = AIRDROP_PER_DESK * HUB_UNIT;
-/// Treasury lock: 5% of MAX_SUPPLY held by the treasury multisig (never sold) so the launched
-/// coin's creator fees accrue to a protocol-held position.
-pub const TREASURY_LOCK_BP: u16 = 500;
+/// Yield reserve: 2% of MAX_SUPPLY held by the treasury multisig (never sold), backing the
+/// OTC-launcher reward basket ($OTC, CRCLx, OpenAI, Anthropic) that funds desk-holder yield.
+pub const YIELD_RESERVE_BP: u16 = 200;
+/// LP reserve: 0.5% of MAX_SUPPLY held by the treasury multisig (never sold) so the launched
+/// coin can seed/deepen its own liquidity position.
+pub const LP_RESERVE_BP: u16 = 50;
+/// Treasury lock: yield reserve + LP reserve = 2.5% of MAX_SUPPLY held by the treasury
+/// multisig (never sold). Combined with the desk airdrop (up to 2.5% at the 2,500-desk cap)
+/// this is the 5% total treasury allocation; the remaining ≥95% is public, bought up the OTC
+/// launch curve.
+pub const TREASURY_LOCK_BP: u16 = YIELD_RESERVE_BP + LP_RESERVE_BP;
 /// Dev / team allocation at launch: none. Everything not airdropped or treasury-locked is
 /// public — bought up the OTC launch curve.
 pub const TEAM_ALLOCATION_BP: u16 = 0;

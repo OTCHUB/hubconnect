@@ -14,7 +14,8 @@ import { CollapsibleCard, Flag, Panel, Row, Stat } from "./ui/Panel";
 
 const COLORS: Record<string, string> = {
   public: "#22c55e",
-  treasury: "#f59e0b",
+  yield: "#f59e0b",
+  lp: "#a855f7",
   airdrop: "#38bdf8",
   team: "#6b7280",
 };
@@ -58,7 +59,7 @@ export function TokenomicsPanel({ state }: { state: ProtocolState }) {
   return (
     <div className="space-y-2">
       <Panel title="TOKENOMICS" right={source}>
-        <div className="grid grid-cols-2 gap-2 md:grid-cols-3 lg:grid-cols-5">
+        <div className="grid grid-cols-2 gap-2 md:grid-cols-3 lg:grid-cols-6">
           <Stat
             label="max supply"
             value={fmtHub(plan.maxUnits, d, 0)}
@@ -86,9 +87,14 @@ export function TokenomicsPanel({ state }: { state: ProtocolState }) {
             sub={`${fmtTokens(plan.airdropPerDeskUnits, d)} $HUB × ${fmtNum(plan.airdropEligibleDeskCount)} of ${fmtNum(plan.airdropDeskCap)} capped desks`}
           />
           <Stat
-            label="treasury lock"
-            value={fmtHub(plan.treasuryLockUnits, d)}
-            sub="held for creator-fee collection · never sold"
+            label="yield reserve"
+            value={fmtHub(plan.yieldReserveUnits, d)}
+            sub="$OTC · CRCLx · OpenAI · Anthropic basket · never sold"
+          />
+          <Stat
+            label="LP reserve"
+            value={fmtHub(plan.lpUnits, d)}
+            sub="held to seed/deepen $HUB liquidity · never sold"
           />
         </div>
         <div className="mt-3">

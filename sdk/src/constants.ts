@@ -90,14 +90,19 @@ export const AIRDROP_PER_DESK_UNITS = BigInt(AIRDROP_PER_DESK) * 10n ** BigInt(H
  * the real snapshot is taken.
  */
 export const AIRDROP_DESK_CAP = 2_500;
-export const TREASURY_LOCK_BP = 500;
+/** Yield reserve: 2% of supply backing the OTC-launcher reward basket ($OTC, CRCLx, OpenAI, Anthropic). */
+export const YIELD_RESERVE_BP = 200;
+/** LP reserve: 0.5% of supply held to seed/deepen the launched coin's own liquidity. */
+export const LP_RESERVE_BP = 50;
+/** Treasury lock = yield reserve + LP reserve = 2.5%; + desk airdrop (≤2.5% at cap) = 5% total. */
+export const TREASURY_LOCK_BP = YIELD_RESERVE_BP + LP_RESERVE_BP;
 export const TEAM_ALLOCATION_BP = 0;
 /** Domain tag for airdrop Merkle leaves: `sha256(tag ‖ asset ‖ amount_le)`. */
 export const AIRDROP_LEAF_TAG = "hub-airdrop-v1";
 
 export type AllocationSlice = {
-  /** Stable id: `airdrop` · `treasury` · `team` · `public`. */
-  id: "airdrop" | "treasury" | "team" | "public";
+  /** Stable id: `airdrop` · `yield` · `lp` · `team` · `public`. */
+  id: "airdrop" | "yield" | "lp" | "team" | "public";
   label: string;
   units: bigint;
   /** Share of max supply in bp (floored, matches on-chain `*_bp`). */
@@ -116,7 +121,10 @@ export type TokenomicsPlan = {
   airdropCapped: boolean;
   slices: AllocationSlice[];
   airdropUnits: bigint;
+  /** Yield reserve + LP reserve (the on-chain `treasury_lock_bp` lock, 2.5% of supply). */
   treasuryLockUnits: bigint;
+  yieldReserveUnits: bigint;
+  lpUnits: bigint;
   teamUnits: bigint;
   publicUnits: bigint;
   /** True when airdrop + treasury + team would exceed max supply (the program rejects this). */
@@ -149,7 +157,14 @@ export function tokenomicsPlan(
   const airdropEligibleDeskCount = Math.min(clampedDeskCount, airdropDeskCap);
   const airdropCapped = clampedDeskCount > airdropDeskCap;
   const airdropUnits = BigInt(airdropEligibleDeskCount) * perDesk;
-  const treasuryLockUnits = (maxUnits * BigInt(treasuryLockBp)) / bps;
+  // The on-chain plan only records a single combined `treasury_lock_bp`; split it back into the
+  // yield-reserve / LP sub-shares using the fixed launch ratio (200:50) so the UI can show both
+  // even when `treasuryLockBp` came from `TokenomicsView` instead of the local constants.
+  const yieldReserveBp = Math.round((treasuryLockBp * YIELD_RESERVE_BP) / TREASURY_LOCK_BP);
+  const lpBp = treasuryLockBp - yieldReserveBp;
+  const yieldReserveUnits = (maxUnits * BigInt(yieldReserveBp)) / bps;
+  const lpUnits = (maxUnits * BigInt(lpBp)) / bps;
+  const treasuryLockUnits = yieldReserveUnits + lpUnits;
   const teamUnits = (maxUnits * BigInt(teamBp)) / bps;
   const carved = airdropUnits + treasuryLockUnits + teamUnits;
   const overAllocated = carved > maxUnits;
@@ -159,10 +174,16 @@ export function tokenomicsPlan(
   const slices: AllocationSlice[] = [
     { id: "public", label: "Public · OTC launch curve", units: publicUnits, bp: publicBp },
     {
-      id: "treasury",
-      label: "Treasury lock (creator fees)",
-      units: treasuryLockUnits,
-      bp: treasuryLockBp,
+      id: "yield",
+      label: "Yield reserve ($OTC · CRCLx · OpenAI · Anthropic basket)",
+      units: yieldReserveUnits,
+      bp: yieldReserveBp,
+    },
+    {
+      id: "lp",
+      label: "LP reserve (liquidity seed)",
+      units: lpUnits,
+      bp: lpBp,
     },
     {
       id: "airdrop",
@@ -182,6 +203,8 @@ export function tokenomicsPlan(
     slices,
     airdropUnits,
     treasuryLockUnits,
+    yieldReserveUnits,
+    lpUnits,
     teamUnits,
     publicUnits,
     overAllocated,
