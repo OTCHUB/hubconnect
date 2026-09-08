@@ -5,6 +5,7 @@ import { WalletConnect } from "./hub/components/WalletConnect";
 import { AddressLink } from "./hub/components/ui/AddressLink";
 import { CopyButton } from "./hub/components/ui/CopyButton";
 import { shortKey } from "./hub/lib/format";
+import { ThemeToggle } from "./components/ThemeToggle";
 
 // otchub header buttons: bordered, uppercase, green-500/50 outline, tinted when active.
 const linkCls = ({ isActive }: { isActive: boolean }) => {
@@ -150,6 +151,7 @@ export function Header() {
           >
             [RU_FOMO ↗]
           </a>
+          <ThemeToggle />
           <HeaderWallet />
         </div>
       </div>

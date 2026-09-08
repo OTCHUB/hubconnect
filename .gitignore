@@ -10,3 +10,4 @@ test-ledger
 !.env.example
 keeper/**/journal/
 *.log
+supabase/.temp/

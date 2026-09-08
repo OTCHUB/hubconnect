@@ -2,7 +2,16 @@ import { Link } from "react-router-dom";
 import { TIER_NAMES, TIER_WEIGHTS_BP, type ProtocolState } from "@hub-sdk";
 import { useHub } from "../HubProvider";
 import { useTreasuryPortfolio, type TreasuryDesk } from "../hooks/useTreasuryPortfolio";
-import { fmtHub, fmtNum, fmtSol, fmtTokens, fmtWeight, shortKey } from "../lib/format";
+import {
+  fmtHub,
+  fmtNum,
+  fmtSol,
+  fmtTokens,
+  fmtWeight,
+  lamportsToSol,
+  shortKey,
+  unitsToTokens,
+} from "../lib/format";
 import { magicEdenItemUrl } from "../lib/marketplace";
 import { AddressLink } from "./ui/AddressLink";
 import { HubEarningsChart } from "./HubEarningsChart";
@@ -17,9 +26,9 @@ function DeskRow({ desk }: { desk: TreasuryDesk }) {
     : "RAW";
   const tone = !t ? "text-green-700" : t.voided ? "text-red-400" : "text-cyan-300";
   return (
-    <div className="flex items-center gap-2 border-b border-green-500/10 px-2 py-1 text-xs last:border-0">
+    <div className="flex flex-wrap items-center gap-2 border-b border-green-500/10 px-2 py-1 text-xs last:border-0">
       <AddressLink address={desk.asset} />
-      <span className={`flex-1 ${tone}`}>{label}</span>
+      <span className={`min-w-[6rem] flex-1 ${tone}`}>{label}</span>
       <span className="w-24 text-right text-green-400">{fmtSol(desk.pendingLamports, 4)}</span>
       <a
         href={magicEdenItemUrl(desk.asset)}
@@ -73,7 +82,7 @@ export function TreasuryPortfolio({ state }: { state: ProtocolState }) {
         )}
         {d && (
           <>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
               <Stat label="SOL" value={fmtSol(d.solLamports)} sub="multisig wallet" />
               <Stat
                 label="$HUB"
@@ -86,7 +95,7 @@ export function TreasuryPortfolio({ state }: { state: ProtocolState }) {
                 sub={d.otcUnits === null ? "no token account" : "OTC (spl)"}
               />
             </div>
-            <div className="mt-2 grid grid-cols-3 gap-2">
+            <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
               <Stat
                 label="lifetime earnings"
                 value={
@@ -140,7 +149,10 @@ export function TreasuryPortfolio({ state }: { state: ProtocolState }) {
           </>
         )}
       </Panel>
-      <HubEarningsChart />
+      <HubEarningsChart
+        liveTvlSol={d ? lamportsToSol(d.solLamports) : null}
+        liveDistributedHub={d ? unitsToTokens(d.rewardDistributedUnits, dec) : null}
+      />
     </div>
   );
 }

@@ -1,11 +1,12 @@
 import { Link } from "react-router-dom";
 import { DeskLookupPanel } from "../components/DeskLookupPanel";
 import { Disclaimer } from "../components/Disclaimer";
+import { EarningPreview } from "../components/EarningPreview";
 import { EpochTracker } from "../components/EpochTracker";
+import { MainnetPreviewPanel } from "../components/MainnetPreviewPanel";
 import { MetricsStrip } from "../components/MetricsStrip";
 import { ProtocolGate } from "../components/ProtocolGate";
 import { WalletPanel } from "../components/WalletPanel";
-import { YieldTable } from "../components/YieldTable";
 import { Panel } from "../components/ui/Panel";
 import { FlywheelDiagram } from "../components/ui/FlywheelDiagram";
 
@@ -37,7 +38,7 @@ export function Dashboard({ rawDeskDailyLamports, walletAddress }: DashboardProp
               <FlywheelDiagram />
             </Panel>
             <EpochTracker state={state} />
-            <YieldTable state={state} rawDeskDailyLamports={rawDeskDailyLamports} />
+            <EarningPreview state={state} rawDeskDailyLamports={rawDeskDailyLamports} />
             <div className="flex justify-between text-[10px] text-green-700">
               <span>last read {new Date(fetchedAt).toLocaleTimeString()}</span>
               <span className="flex gap-3">
@@ -55,6 +56,7 @@ export function Dashboard({ rawDeskDailyLamports, walletAddress }: DashboardProp
             <Panel title="DESK LOOKUP">
               <DeskLookupPanel state={state} />
             </Panel>
+            <MainnetPreviewPanel />
           </>
         )}
       </ProtocolGate>

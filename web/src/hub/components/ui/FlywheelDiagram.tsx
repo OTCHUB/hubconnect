@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-type Tone = "green" | "cyan" | "amber" | "red" | "fuchsia";
+type Tone = "green" | "cyan" | "amber" | "red" | "fuchsia" | "violet";
 type EdgeKind = "instruction" | "keeper";
 
 interface DNode {
@@ -144,6 +144,20 @@ const NODES: DNode[] = [
       "clear_creator_fees is permissionless once its threshold clears; draw_creator_fee_leg reimburses the keeper that fronted the swap.",
     ],
   },
+  {
+    id: "mimetf",
+    label: "M.I.M ETF",
+    sub: "4-token basket",
+    tone: "violet",
+    angle: 320,
+    ring: false,
+    title: "Third flywheel — M.I.M ETF MemeStock basket",
+    body: [
+      'A fixed 4-token basket — $OTC, CRCLx, and on-chain "MemeStock" tickers branded OPENAI/ANTHROPIC (tokenized tickers native to the OTC Desks ecosystem, not shares or equity in the real companies) — funded entirely by the treasury\'s own 13-stock desk-pot yield.',
+      "Every round: the 4 native basket stocks pass straight through untouched, while the other 9 are swapped to SOL and split evenly 25/25/25/25 back into the basket.",
+      "claim_hub_pot_reward (self-serve pull, per desk or in bulk) or distribute_hub_pot_reward (authority push) then pays each active desk its tier-weighted share of all four buckets — on top of, and independent of, the SOL yield above.",
+    ],
+  },
 ];
 
 const EDGES: DEdge[] = [
@@ -156,6 +170,8 @@ const EDGES: DEdge[] = [
   { from: "split", to: "lp", kind: "instruction", tone: "fuchsia" },
   { from: "treasury", to: "pot", kind: "keeper", tone: "cyan" },
   { from: "creatorfee", to: "yield", kind: "keeper", tone: "amber" },
+  { from: "treasury", to: "mimetf", kind: "keeper", tone: "violet" },
+  { from: "mimetf", to: "yield", kind: "keeper", tone: "violet" },
 ];
 
 const TONE_HEX: Record<Tone, string> = {
@@ -164,6 +180,7 @@ const TONE_HEX: Record<Tone, string> = {
   amber: "#fbbf24",
   red: "#f87171",
   fuchsia: "#e879f9",
+  violet: "#a78bfa",
 };
 
 const TONE_BTN: Record<Tone, string> = {
@@ -172,6 +189,7 @@ const TONE_BTN: Record<Tone, string> = {
   amber: "border-amber-500 text-amber-300",
   red: "border-red-500 text-red-300",
   fuchsia: "border-fuchsia-500 text-fuchsia-300",
+  violet: "border-violet-500 text-violet-300",
 };
 
 const VB_W = 380;
@@ -323,7 +341,7 @@ export function FlywheelDiagram() {
         </ol>
 
         <div className="mt-3 text-[10px] uppercase tracking-widest text-green-600">
-          two more flywheels boost the pot, no dilution
+          burn/LP sinks + three more flywheels reinforce the loop, no dilution
         </div>
         <div className="mt-1 flex flex-wrap gap-1.5">
           {NODES.filter((n) => !n.ring).map((n) => {

@@ -26,7 +26,14 @@ import type { TxLog } from "../lib/swap";
 import { Panel } from "./ui/Panel";
 import { TxLogView } from "./ui/TxLogView";
 
-type Props = { address: string; state: ProtocolState; desks: OwnedDesk[]; onChanged?: () => void };
+type Props = {
+  address: string;
+  state: ProtocolState;
+  desks: OwnedDesk[];
+  onChanged?: () => void;
+  /** Preselect a desk (e.g. jumped here from a PORTFOLIO card's [HUB_ACTIVATE →]/[UPGRADE_TIER →]). */
+  selectedAsset?: string | null;
+};
 
 const btn = "border px-2.5 py-1 text-[12px] disabled:opacity-30";
 const TIERS = [1, 2, 3, 4] as const;
@@ -36,7 +43,7 @@ const OTC_DECIMALS = 6;
 const currentTier = (d: OwnedDesk) => (d.tier && !d.tier.voided ? d.tier.tier : 0);
 
 /** ACTIVATE_DESK — `activate_tier` / `upgrade_tier` paid in SOL, or the $OTC path at the premium. */
-export function ActivatePanel({ address, state, desks, onChanged }: Props) {
+export function ActivatePanel({ address, state, desks, onChanged, selectedAsset }: Props) {
   const { connection, program, resolveSigner } = useHub();
   const qc = useQueryClient();
   const otcPayQ = useOtcPay();
@@ -63,6 +70,11 @@ export function ActivatePanel({ address, state, desks, onChanged }: Props) {
   useEffect(() => {
     if (toTier <= fromTier) setToTier(Math.min(fromTier + 1, MAX_TIER));
   }, [fromTier, toTier]);
+
+  // PORTFOLIO card's [HUB_ACTIVATE →]/[UPGRADE_TIER →] jumps here with a desk already picked.
+  useEffect(() => {
+    if (selectedAsset) setAsset(selectedAsset);
+  }, [selectedAsset]);
 
   const quote: TierQuote | null =
     desk && toTier > fromTier && toTier <= MAX_TIER
@@ -258,7 +270,7 @@ export function ActivatePanel({ address, state, desks, onChanged }: Props) {
             </div>
           )}
 
-          <div className="mt-2 grid grid-cols-3 gap-1 text-[11px]">
+          <div className="mt-2 grid grid-cols-1 gap-1 text-[11px] sm:grid-cols-3">
             <div className="flex justify-between border border-green-500/20 px-2 py-1">
               <span className="text-green-600">SOL_BAL</span>
               <span className={solShort ? "text-amber-400" : "text-emerald-300"}>

@@ -21,11 +21,22 @@ create index if not exists hub_dashboard_cluster_created_at_idx
   on hub_dashboard (cluster, created_at);
 
 -- RLS: public SELECT for the anon key (charts are read-only, public dashboard data); INSERT only
--- via the service-role key from scripts/hub-snapshot-ingest.ts, which bypasses RLS entirely, so
--- no INSERT policy is needed (and none is granted to anon/authenticated).
+-- via the service-role key from scripts/hub-snapshot-ingest.ts. `service_role` bypasses RLS
+-- entirely, so no INSERT policy is needed — but it still needs the table-level GRANT below (RLS
+-- bypass isn't a privilege grant), or the insert fails with 403/42501 "permission denied".
 alter table hub_dashboard enable row level security;
 
 create policy "hub_dashboard_public_read" on hub_dashboard
   for select
   to anon, authenticated
   using (true);
+
+-- RLS policies alone are not sufficient: Postgres also requires the table-level privilege grant
+-- below, or `anon`/`authenticated` get a bare "permission denied for table hub_dashboard" (42501)
+-- before RLS is ever evaluated. Supabase-managed projects don't grant this on new tables by
+-- default unless `ALTER DEFAULT PRIVILEGES` was set up beforehand.
+grant select on hub_dashboard to anon, authenticated;
+
+-- Same story for the ingest script's writer: `service_role` bypasses RLS but still needs the
+-- table-level INSERT grant, or scripts/hub-snapshot-ingest.ts's insert fails with a 403.
+grant insert on hub_dashboard to service_role;

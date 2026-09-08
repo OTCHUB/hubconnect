@@ -72,7 +72,7 @@ export const RAYDIUM_CP_SWAP_PROGRAM_ID = "CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQ
 export const RAYDIUM_LOCK_CP_SWAP_PROGRAM_ID = "LockrWmn6K5twhz3y9w1dQERbmgSaRkfnTeTKbpofwE";
 
 export const MPL_CORE_PROGRAM_ID = "CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d";
-export const HUB_PROGRAM_ID = "3S2K4q9Kk9xkSSjqDb5jgp1cGC3mbqU2NfpCa3wJateL";
+export const HUB_PROGRAM_ID = "7c5oPs9GvX8vrC5jVFketNx1ZLuPs7HeH8Qc4XJx7b7i";
 export const TOKEN_PROGRAM_ID = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
 export const ASSOCIATED_TOKEN_PROGRAM_ID = "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL";
 export const TOKEN_METADATA_PROGRAM_ID = "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s";

@@ -43,8 +43,12 @@ const HUB_MAINNET: string | null = null;
 /** Anchor 1.x writes the IDL to a Program Metadata account — written at devnet deploy. */
 const HUB_IDL_DEVNET = "GSw7mRX3gsHEYsEvH8Gr8vWoDYkabT3PzAUsznqx7dxi";
 const OTC_PROGRAM_MAINNET = "AjMx5My4YUDHMiCtLpTAtgkiUJgrpJnQqd5AcQnddHQW";
-/** "OTC Desks" Core collection — read from the OTC Config (9b5V…REU4) on mainnet, 2026-09-07. */
-const OTC_DESKS_COLLECTION_MAINNET = "D7sLW9uKZG3G7bNbWfMHvKSgVhU9nXdv7huTfepF5Jrh";
+/** "OTC Desks" Core collection — read from the OTC Config (9b5V…REU4) on mainnet, 2026-09-07.
+ *  Exported for the explicit, clearly-labeled "Mainnet preview" lookup (MainnetPreviewPanel.tsx) —
+ *  the only place this is used outside this registry. Never wired into the connected wallet's
+ *  own portfolio/activation state, which always stays scoped to whatever cluster is actually
+ *  connected (HubProvider `cluster`/`connection`). */
+export const OTC_DESKS_COLLECTION_MAINNET = "D7sLW9uKZG3G7bNbWfMHvKSgVhU9nXdv7huTfepF5Jrh";
 /** Pump.fun bonding-curve program — same id on devnet and mainnet (pump-public-docs). */
 const PUMP_PROGRAM = "6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P";
 

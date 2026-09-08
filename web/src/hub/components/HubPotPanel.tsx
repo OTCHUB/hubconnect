@@ -148,6 +148,17 @@ export function HubPotPanel({ desks, address }: Props) {
       title="M.I.M ETF :: MEMESTOCK BASKET"
       right={`round ${fmtNum(pot.roundCount)} · pending fund`}
     >
+      <p className="mb-3 text-xs leading-relaxed text-green-400/90">
+        The <span className="text-green-300">M.I.M ETF</span> pays every activated desk a
+        tier-weighted share of a fixed 4-token basket — $OTC, CRCLx, and two on-chain "MemeStock"
+        tickers branded OPENAI and ANTHROPIC. These four are tokenized tickers native to the OTC
+        Desks ecosystem — <span className="text-amber-300">not</span> shares, equity, or any claim
+        on the real companies OpenAI or Anthropic. The basket is funded entirely by the treasury's
+        own 13-stock desk-pot yield and rebalanced every round: the 4 native basket stocks pass
+        straight through untouched, while the other 9 are swapped to SOL and split evenly
+        25/25/25/25 back into the 4 basket tokens — consolidating a diversified treasury yield into
+        one claimable basket, at zero cost to other holders.
+      </p>
       <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
         {BUCKET_KEYS.map((b) => (
           <Stat

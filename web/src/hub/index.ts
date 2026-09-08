@@ -50,7 +50,7 @@ export {
 } from "./lib/yield";
 export { DEPLOYMENTS, type Deployment } from "./lib/deployments";
 export type { Scenario } from "./lib/yield";
-export { ESTIMATE_LABEL } from "./components/YieldTable";
+export { ESTIMATE_LABEL } from "./components/EarningPreview";
 export { useHubHistory } from "./hooks/useHubHistory";
 export { fetchHubHistory, type HubHistoryPoint } from "./lib/supabaseHistory";
 export { HubEarningsChart } from "./components/HubEarningsChart";

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { tokenomicsPda, type ProtocolState } from "@hub-sdk";
 import { useHub } from "../HubProvider";
 import { useTokenomics } from "../hooks/useTokenomics";
-import { fmtBpPct, fmtHub, fmtNum, fmtTokens, fmtUtc } from "../lib/format";
+import { fmtBpPct, fmtHub, fmtNum, fmtTokens, fmtUtc, unitsToTokens } from "../lib/format";
 import { TREASURY_DESK_TARGET, treasuryDeskProgressPct } from "../lib/yield";
 import { AddressLink } from "./ui/AddressLink";
 import { HubSupplyChart } from "./HubSupplyChart";
@@ -38,6 +38,10 @@ export function TokenomicsPanel({ state }: { state: ProtocolState }) {
   // useTokenomics.ts). The "treasury desk milestone" stat below tracks treasury-owned desks
   // (state.treasury.desksOwned, target 20), not this collection-wide figure.
   const liveDeskCount = collection?.currentSize ?? 0;
+  // Distinct from `liveDeskCount` above: `null` here means "collection unreadable" so the chart
+  // never plots a misleading 0, whereas `liveDeskCount` (UI copy) treats that case as 0 desks.
+  const chartLiveDeskCount = collection ? collection.currentSize : null;
+  const chartLiveCirculatingHub = unitsToTokens(state.supply.circulatingUnits, d);
   const slices: PieSlice[] = plan.slices.map((s) => ({
     id: s.id,
     label: s.label,
@@ -119,7 +123,10 @@ export function TokenomicsPanel({ state }: { state: ProtocolState }) {
         </div>
       </Panel>
 
-      <HubSupplyChart />
+      <HubSupplyChart
+        liveDeskCount={chartLiveDeskCount}
+        liveCirculatingHub={chartLiveCirculatingHub}
+      />
 
       <Panel title="AIRDROP">
         <Row

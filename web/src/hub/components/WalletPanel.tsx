@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { ProtocolState } from "@hub-sdk";
 import { useWalletPortfolio } from "../hooks/useWalletPortfolio";
 import { shortKey } from "../lib/format";
@@ -24,8 +24,17 @@ export function WalletPanel({ state, walletAddress }: Props) {
   const wallet = useWallet();
   const address = walletAddress ?? wallet.address;
   const [open, setOpen] = useState(false);
+  const [selectedAsset, setSelectedAsset] = useState<string | null>(null);
+  const activateRef = useRef<HTMLDivElement>(null);
   // Same query key as WalletPortfolio → one fetch, shared by portfolio + claim rows.
   const portfolio = useWalletPortfolio(address, state);
+
+  // From a PORTFOLIO desk card's [HUB_ACTIVATE →]/[UPGRADE_TIER →]: preselect it below and scroll
+  // to it.
+  const jumpToActivate = (asset: string) => {
+    setSelectedAsset(asset);
+    activateRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
 
   const connect = (pk: string) => {
     wallet.connect(pk);
@@ -79,6 +88,7 @@ export function WalletPanel({ state, walletAddress }: Props) {
           address={address}
           state={state}
           onClear={walletAddress ? undefined : clear}
+          onActivate={jumpToActivate}
         />
       </Panel>
       <div className="grid gap-2 lg:grid-cols-2">
@@ -90,12 +100,15 @@ export function WalletPanel({ state, walletAddress }: Props) {
           onClaimed={() => void portfolio.refetch()}
         />
       </div>
-      <ActivatePanel
-        address={address}
-        state={state}
-        desks={portfolio.data?.desks ?? []}
-        onChanged={() => void portfolio.refetch()}
-      />
+      <div ref={activateRef}>
+        <ActivatePanel
+          address={address}
+          state={state}
+          desks={portfolio.data?.desks ?? []}
+          selectedAsset={selectedAsset}
+          onChanged={() => void portfolio.refetch()}
+        />
+      </div>
       <HubPotPanel desks={portfolio.data?.desks ?? []} address={address} />
     </div>
   );

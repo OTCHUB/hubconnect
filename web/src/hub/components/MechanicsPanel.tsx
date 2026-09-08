@@ -5,14 +5,17 @@ import {
   cumulativeFeeLamports,
   type ProtocolState,
 } from "@hub-sdk";
+import { useHub } from "../HubProvider";
 import { fmtBp, fmtSol, fmtUnits, fmtWeight } from "../lib/format";
 import { yieldBoostPctOverBase } from "../lib/yield";
 import {
   ACTIVATION_DIAGRAM,
   BUYBACK_LP_DIAGRAM,
+  ETF_FLOW_DIAGRAM,
   FEE_FLOW_DIAGRAM,
   TREASURY_DIAGRAM,
 } from "../lib/mechanicsDiagrams";
+import { AddressLink } from "./ui/AddressLink";
 import { CollapsibleCard, Panel, Row } from "./ui/Panel";
 import { FlywheelDiagram } from "./ui/FlywheelDiagram";
 
@@ -40,6 +43,7 @@ function MermaidBlock({ source, title }: { source: string; title?: string }) {
  * docs/hubconnect-spec.md §A4-A7 for that level of detail. */
 export function MechanicsPanel({ state }: { state: ProtocolState }) {
   const { config } = state;
+  const { programId, marketplaceCollectionUrl } = useHub();
   return (
     <div className="space-y-2">
       <Panel title="HOW $HUB WORKS">
@@ -49,6 +53,22 @@ export function MechanicsPanel({ state }: { state: ProtocolState }) {
           activity, never taken from other holders. A slice of that same revenue buys back and burns
           $HUB every round, permanently shrinking the supply that's left.
         </p>
+        <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[10px] text-green-600">
+          <span>
+            $HUB MINT :: <AddressLink address={config.hubMint} />
+          </span>
+          <span>
+            PROGRAM :: <AddressLink address={programId.toBase58()} />
+          </span>
+          <a
+            href={marketplaceCollectionUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="text-cyan-400 hover:text-cyan-200"
+          >
+            [MAGIC EDEN COLLECTION ↗]
+          </a>
+        </div>
         <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
           <Row k="burn rate / round" v={fmtBp(config.burnPctBp)} />
           <Row k="protocol fee" v={fmtBp(config.opsPctBp)} />
@@ -200,6 +220,37 @@ export function MechanicsPanel({ state }: { state: ProtocolState }) {
           </li>
         </ul>
         <MermaidBlock source={BUYBACK_LP_DIAGRAM} title="buyback & liquidity (technical detail)" />
+      </CollapsibleCard>
+
+      <CollapsibleCard title="5. M.I.M ETF — MEMESTOCK BASKET YIELD">
+        <ul className="space-y-1">
+          <li className={li}>
+            Alongside the SOL reward round above, every activated desk also earns a tier-weighted
+            share of the <span className="text-green-300">M.I.M ETF</span> — a fixed 4-token basket:
+            $OTC, CRCLx, and two on-chain "MemeStock" tickers branded OPENAI and ANTHROPIC. These
+            four are tokenized tickers native to the OTC Desks ecosystem —{" "}
+            <span className="text-amber-300">not</span> shares, equity, or any claim on the real
+            companies OpenAI or Anthropic.
+          </li>
+          <li className={li}>
+            The basket is funded entirely by the treasury's own 13-stock desk-pot yield (the same
+            treasury desks described in section 3), never taken from other holders. Each round, the
+            4 native basket stocks pass straight through untouched — no swap needed since they're
+            already the reward asset.
+          </li>
+          <li className={li}>
+            The other 9 treasury stocks are swapped to SOL and the proceeds split evenly 25/25/25/25
+            back into the 4 basket tokens — this rebalancing step is what consolidates a diversified
+            treasury yield into one claimable basket every round.
+          </li>
+          <li className={li}>
+            Value capture happens on claim: an active desk's tier weight determines its share of all
+            four buckets for a round, payable to whoever owns the desk at claim time — per desk, or
+            in bulk across every desk a wallet owns, in the same self-serve pull pattern as the SOL
+            reward claim.
+          </li>
+        </ul>
+        <MermaidBlock source={ETF_FLOW_DIAGRAM} title="M.I.M ETF basket flow (technical detail)" />
       </CollapsibleCard>
     </div>
   );

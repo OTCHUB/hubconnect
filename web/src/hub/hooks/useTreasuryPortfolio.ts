@@ -4,6 +4,7 @@ import {
   ataPda,
   fetchDeskTier,
   fetchOwnedDesks,
+  fetchTokenomics,
   pendingYieldLamports,
   vaultPda,
   type DeskTierView,
@@ -29,6 +30,10 @@ export type TreasuryPortfolio = {
   otcDecimals: number | null;
   hubUnits: bigint;
   desks: TreasuryDesk[];
+  /** Lifetime $HUB paid out to active desk holders network-wide (mirrors the `distributed_hub`
+   * column the ingest script writes — see scripts/hub-snapshot-ingest.ts), used as the live "NOW"
+   * point for `HubEarningsChart`. 0n if `TokenomicsConfig` hasn't been recorded yet. */
+  rewardDistributedUnits: bigint;
   /** Σ claimed + Σ pending across activated treasury desks — yield accrued to date. */
   lifetimeEarningsLamports: number;
   /** Σ pending (`claim_yield` would pay this now). */
@@ -59,10 +64,11 @@ export function useTreasuryPortfolio(state: ProtocolState | null) {
       const otcMint = new PublicKey(config.otcMint);
       const [otcAta] = ataPda(treasury, otcMint);
 
-      const [owned, solLamports, otc] = await Promise.all([
+      const [owned, solLamports, otc, tokenomics] = await Promise.all([
         fetchOwnedDesks(connection, treasury, collection),
         connection.getBalance(treasury, "confirmed"),
         connection.getTokenAccountBalance(otcAta, "confirmed").catch(() => null),
+        fetchTokenomics(program),
       ]);
       const all = owned.map((a) => ({ asset: a }));
       const tiers = await Promise.all(all.map((d) => fetchDeskTier(program, d.asset)));
@@ -97,6 +103,7 @@ export function useTreasuryPortfolio(state: ProtocolState | null) {
         otcDecimals: otc?.value.decimals ?? null,
         hubUnits,
         desks,
+        rewardDistributedUnits: tokenomics?.rewardDistributedUnits ?? 0n,
         lifetimeEarningsLamports: claimed + pending,
         earnToClaimLamports: pending,
         earningsPerDayLamports: perDay === null ? null : perRound * perDay,

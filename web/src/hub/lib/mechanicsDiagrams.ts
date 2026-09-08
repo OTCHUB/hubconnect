@@ -96,3 +96,34 @@ export const BUYBACK_LP_DIAGRAM = `flowchart TD
     end
     O --> S["Compounds staker yield\\n(source F feeds Epoch.inflow_lamports,\\nsame accumulator as diagram 2)"]
 `;
+
+// M.I.M ETF ("Magic Internet Money" ETF) — the on-chain/SDK name is HubPotConfig/HubPotRound;
+// M.I.M ETF / "MemeStock Basket" is purely the front-end label (docs/hubconnect-spec.md SS A5.1,
+// HubPotPanel.tsx). A secondary yield stream, entirely independent of the primary SOL desk-pot
+// round in FEE_FLOW_DIAGRAM above — funded from the same treasury desks described in
+// TREASURY_DIAGRAM, but paid out of its own 4-token basket rather than the SOL pot.
+export const ETF_FLOW_DIAGRAM = `flowchart TD
+    subgraph SRC["Treasury-owned desks — 13-stock desk-pot yield claimed every round"]
+        NATIVE["4 native basket stocks\\n$OTC · CRCLx · OPENAI · ANTHROPIC\\n(MemeStock tickers native to OTC Desks\\n- NOT equity/shares in the real companies)"]
+        EXTERNAL["9 external stocks\\nAAPLx · MSFTx · NVDAx · AMZNx · SPCXx\\nPOLYMARKET · KALSHI · NEURALINK · ANDURIL"]
+    end
+
+    subgraph SWAPPATH["Swap path - the 9 external stocks"]
+        EXTERNAL --> SWAP["Swap to SOL\\n(Jupiter, slippage-capped)"]
+        SWAP --> SPLIT["Equal Split (25% each)\\nacross the 4 basket buckets"]
+        SPLIT --> CONV["Swap each 25% share\\nSOL -> its bucket token"]
+    end
+
+    subgraph DIRECTPATH["Direct path - the 4 native stocks"]
+        NATIVE --> DIRECT["Pass straight through\\nbypasses the SOL swap entirely"]
+    end
+
+    CONV --> BASKET["fund_hub_pot\\n4x enforced TransferChecked into the\\nMemeStock Basket ($OTC/CRCLx/OPENAI/ANTHROPIC)"]
+    DIRECT --> BASKET
+    BASKET --> POT["HubPotConfig ['hub_pot']\\n4 vault-owned token accounts\\npending + lifetime totals per bucket"]
+    POT --> ROUND["open_hub_pot_round (permissionless)\\nsnapshots all 4 pending balances x Sigma w"]
+    ROUND --> DIST{"claim_hub_pot_reward (owner pulls)\\nor distribute_hub_pot_reward (authority pushes)"}
+    DIST --> PAY["Pays tier-weighted share of all 4 buckets\\n(T1 1.00x / T2 1.25x / T3 1.60x / T4 2.00x)\\nto the desk's current owner, one tx"]
+    PAY --> GUARD["HubPotClaim PDA per (round, desk)\\none-payout-per-desk-per-round guard, either path"]
+    GUARD -.->|"independent secondary stream -\\nnever touches the primary SOL desk-pot round"| ROUND
+`;

@@ -1,4 +1,4 @@
-import { ESTIMATE_LABEL } from "./YieldTable";
+import { ESTIMATE_LABEL } from "./EarningPreview";
 
 /** §C7 rules — always visible under the panel. */
 export function Disclaimer() {
