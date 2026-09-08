@@ -1009,22 +1009,24 @@ treasury ATA is the only locked holder.
 | RAYDIUM_LOCK_CP_SWAP_PROGRAM_ID | `LockrWmn6K5twhz3y9w1dQERbmgSaRkfnTeTKbpofwE` — dedicated CP-Swap liquidity-locking program (`lock_cp_liquidity`: burns the LP mint, issues a permanent fee-claim `LockedLiquidity` record) |
 | RPC_DEVNET | Helius devnet RPC (`devnet.helius-rpc.com`, same API key); OTC-side accounts mocked by the test harness |
 | MPL_CORE_PROGRAM_ID | `CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d` (`sdk/src/constants.ts`) |
-| HUB_PROGRAM_ID | `5tCDEazUAkRjrkasup1uWcYo3t1C2ht76LmQva5rewQv` (devnet; mainnet TBD) |
+| HUB_PROGRAM_ID | `7c5oPs9GvX8vrC5jVFketNx1ZLuPs7HeH8Qc4XJx7b7i` (devnet + mainnet-beta, same id) |
 | `f` (creator fee rate) | TBD at launch (checklist item 3) |
 
-## Appendix — Deployment addresses (verified on-chain 2026-09-07)
+## Appendix — Deployment addresses (mainnet-beta deployed + verified 2026-09-08)
 
 Source of truth for ids: `Anchor.toml`, `sdk/src/constants.ts`,
 `web/.env.production.local`, `web/src/hub/lib/deployments.ts`. The previous
 devnet program `DPEioLagahMiVy4xfSzeKLWjWho8GZhbvK85BgTkY8qW` was **closed** on
 2026-09-07 (Config layout change for the threshold-round model; PDAs cannot be
-re-initialized under the same id) — do not reference it anywhere.
+re-initialized under the same id) — do not reference it anywhere. Its
+successor, `5tCDEazUAkRjrkasup1uWcYo3t1C2ht76LmQva5rewQv`, was itself rotated
+to the current id below before the mainnet-beta deploy — do not reference it
+either.
 
 | Item | Cluster | Address | Status |
 |---|---|---|---|
-| Hub program | devnet | `5tCDEazUAkRjrkasup1uWcYo3t1C2ht76LmQva5rewQv` | live (upgradeable; authority `FRsH…wJZz`, deploy slot 494579757; on-chain hash matches the pinned Docker build) |
+| Hub program | devnet + mainnet-beta | `7c5oPs9GvX8vrC5jVFketNx1ZLuPs7HeH8Qc4XJx7b7i` | **live** on both clusters (same id, upgradeable). Mainnet-beta: deployed via tx `33duFXLgzuVpe7uveQr3hWnnVrud3Vh6NZ2B1hzs2F3ibce4UV7uY7RTDGzmeYpV4Tpy9cQFykvngaKu47LNKyYg`, on-chain hash matches the verified Docker build, OtterSec-verified against `OTCHUB/hubconnect@1b3bb077` (job `7c683ade-879d-4cf1-b354-7f86d21ec6a9`, see [verify.osec.io/status/7c5oPs9GvX8vrC5jVFketNx1ZLuPs7HeH8Qc4XJx7b7i](https://verify.osec.io/status/7c5oPs9GvX8vrC5jVFketNx1ZLuPs7HeH8Qc4XJx7b7i)). `initialize_config` not yet called on mainnet-beta — deferred until the `$HUB` mint exists |
 | Hub IDL / program metadata | devnet | `CnSKvxwKb3eNS6oF6GaAyAn8m3B8axXSCQYeBYrjdQfS` | live (Anchor 1.x metadata program `ProgM6JC…nk7S`) |
-| Hub program | mainnet-beta | — | pending (after M3.5 devnet suite + verified build) |
 | Metaplex Core program | devnet + mainnet | `CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d` | external |
 | OTC Desk program | mainnet-beta | `AjMx5My4YUDHMiCtLpTAtgkiUJgrpJnQqd5AcQnddHQW` | external, mainnet-only (mocked on devnet) |
 | OTC Desks collection | mainnet-beta | `D7sLW9uKZG3G7bNbWfMHvKSgVhU9nXdv7huTfepF5Jrh` | external (mirrored on devnet by `devnet-mock-desks.ts`) |

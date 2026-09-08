@@ -7,7 +7,7 @@ Anchor program · keeper services · read-only SDK · treasury dashboard.
 
 [![ci](https://github.com/OTCHUB/hubconnect/actions/workflows/ci.yml/badge.svg)](https://github.com/OTCHUB/hubconnect/actions/workflows/ci.yml)
 [![verified build](https://github.com/OTCHUB/hubconnect/actions/workflows/verify.yml/badge.svg)](https://github.com/OTCHUB/hubconnect/actions/workflows/verify.yml)
-[![program](https://img.shields.io/badge/program-5tCDEazU…5rewQv-14f195?logo=solana&logoColor=white)](https://explorer.solana.com/address/5tCDEazUAkRjrkasup1uWcYo3t1C2ht76LmQva5rewQv/verified-build)
+[![program](https://img.shields.io/badge/program-7c5oPs9G…XJx7b7i-14f195?logo=solana&logoColor=white)](https://explorer.solana.com/address/7c5oPs9GvX8vrC5jVFketNx1ZLuPs7HeH8Qc4XJx7b7i/verified-build)
 [![website](https://img.shields.io/badge/website-otchub.dev-14f195)](https://otchub.dev)
 [![app](https://img.shields.io/badge/app-app.otchub.dev-14f195)](https://app.otchub.dev)
 [![x](https://img.shields.io/badge/-@otchubdev-000000?logo=x&logoColor=white)](https://x.com/otchubdev)
@@ -144,7 +144,7 @@ exactly 10,000 bp.
 
 | Item | Devnet | Mainnet-beta |
 |---|---|---|
-| Hub program | [`5tCDEazUAkRjrkasup1uWcYo3t1C2ht76LmQva5rewQv`](https://explorer.solana.com/address/5tCDEazUAkRjrkasup1uWcYo3t1C2ht76LmQva5rewQv?cluster=devnet) — live | same keypair reserved; **pending** (after M3.5 devnet suite + verified build, see [Milestones](#milestones)) |
+| Hub program | [`7c5oPs9GvX8vrC5jVFketNx1ZLuPs7HeH8Qc4XJx7b7i`](https://explorer.solana.com/address/7c5oPs9GvX8vrC5jVFketNx1ZLuPs7HeH8Qc4XJx7b7i?cluster=devnet) — live | same id — **live**, deployed + OtterSec-verified (see [Security & Verification](#security--verification)); `initialize_config` pending the `$HUB` mint |
 | $HUB mint | `HWBPrRKgVRetz6Sa7p2aHLwDgapKpzkeZkyhKd9nDwaj` — devnet mock, 1B × 10⁶ | **pending** — published here the moment `initialize_config` runs on mainnet |
 | DexScreener | — | **pending** — link goes live once the $HUB mint and its first liquidity pool exist |
 
@@ -364,7 +364,7 @@ Anyone can confirm the on-chain program equals this source without trusting us o
 Requires Docker and `cargo install solana-verify`.
 
 ```sh
-PROGRAM=5tCDEazUAkRjrkasup1uWcYo3t1C2ht76LmQva5rewQv
+PROGRAM=7c5oPs9GvX8vrC5jVFketNx1ZLuPs7HeH8Qc4XJx7b7i
 RPC=https://api.mainnet-beta.solana.com          # or https://api.devnet.solana.com
 
 # 1. rebuild from the public repo at the released commit and compare with the deployed bytes
@@ -380,9 +380,23 @@ gh attestation verify hub.so --owner OTCHUB
 ```
 
 The upgrade authority also records the repo URL, commit and build args in the on-chain verify PDA
-and submits them to the OtterSec API, so [Solana Explorer](https://explorer.solana.com/address/5tCDEazUAkRjrkasup1uWcYo3t1C2ht76LmQva5rewQv/verified-build),
+and submits them to the OtterSec API, so [Solana Explorer](https://explorer.solana.com/address/7c5oPs9GvX8vrC5jVFketNx1ZLuPs7HeH8Qc4XJx7b7i/verified-build),
 SolanaFM and Solscan show the program as verified and wallets can resolve the source
 (`https://verify.osec.io/status/<program-id>`). `scripts/verify-build.sh verify` performs that step.
+
+## Security & Verification
+
+The `hub` program is **live on mainnet-beta** at
+[`7c5oPs9GvX8vrC5jVFketNx1ZLuPs7HeH8Qc4XJx7b7i`](https://explorer.solana.com/address/7c5oPs9GvX8vrC5jVFketNx1ZLuPs7HeH8Qc4XJx7b7i)
+and **OtterSec-verified** — the on-chain executable hash matches a public rebuild of this repo:
+
+- Verification status: **[verify.osec.io/status/7c5oPs9GvX8vrC5jVFketNx1ZLuPs7HeH8Qc4XJx7b7i](https://verify.osec.io/status/7c5oPs9GvX8vrC5jVFketNx1ZLuPs7HeH8Qc4XJx7b7i)**
+- Verified against commit [`OTCHUB/hubconnect@1b3bb077`](https://github.com/OTCHUB/hubconnect/tree/1b3bb077f540e9be3e262654ee89c9a7a2f11c85)
+- Security disclosure policy: embedded via `security_txt!` in `programs/hub/src/lib.rs`, kept in sync with [`SECURITY.md`](SECURITY.md)
+
+The program is deployed but **not yet initialized** — `initialize_config` is deferred until the
+`$HUB` mint exists, so its address can be supplied at initialization instead of hardcoded ahead of
+launch (see [Program IDs](#program-ids)).
 
 ## Milestones
 
