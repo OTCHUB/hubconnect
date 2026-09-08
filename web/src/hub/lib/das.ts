@@ -6,6 +6,8 @@
 export type DeskAssetArt = { name: string | null; image: string | null };
 
 type DasAsset = {
+  id?: string;
+  ownership?: { owner?: string };
   content?: {
     metadata?: { name?: string };
     files?: { uri?: string; mime?: string }[];
@@ -64,5 +66,45 @@ export async function fetchDeskArtBatch(
     return out;
   } catch {
     return {};
+  }
+}
+
+// getAssetsByGroup pages default to 1000 items; the collection is capped at MAX_DESK_SUPPLY
+// (5,000, see ../lib/yield.ts) so 5 pages always covers it.
+const DAS_GROUP_PAGE_LIMIT = 1000;
+const DAS_GROUP_MAX_PAGES = 5;
+
+export type DeskByNumber = { asset: string; owner: string | null; art: DeskAssetArt };
+
+/**
+ * Resolve a human "OTC Desk #<n>" display number to its asset id + current owner. There is no
+ * on-chain numeric desk id — only the cosmetic mint-time `name` set by the mint script
+ * (scripts/devnet-mock-desks.ts) — so this pages the collection via DAS `getAssetsByGroup` and
+ * matches on that name. Best-effort like the rest of this module: `null` on a non-DAS RPC, an
+ * unmatched number, or any error.
+ */
+export async function fetchDeskAssetByNumber(
+  rpcEndpoint: string,
+  collection: string,
+  deskNumber: number,
+): Promise<DeskByNumber | null> {
+  const target = `OTC Desk #${deskNumber}`;
+  try {
+    for (let page = 1; page <= DAS_GROUP_MAX_PAGES; page++) {
+      const result = (await dasRpc(rpcEndpoint, "getAssetsByGroup", {
+        groupKey: "collection",
+        groupValue: collection,
+        page,
+        limit: DAS_GROUP_PAGE_LIMIT,
+      })) as { items?: DasAsset[] } | null;
+      const items = result?.items ?? [];
+      const hit = items.find((a) => a.content?.metadata?.name === target);
+      if (hit?.id)
+        return { asset: hit.id, owner: hit.ownership?.owner ?? null, art: artFromAsset(hit) };
+      if (items.length < DAS_GROUP_PAGE_LIMIT) break;
+    }
+    return null;
+  } catch {
+    return null;
   }
 }

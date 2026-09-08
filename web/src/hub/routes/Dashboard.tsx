@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { DeskLookup } from "../components/DeskLookup";
+import { DeskLookupPanel } from "../components/DeskLookupPanel";
 import { Disclaimer } from "../components/Disclaimer";
 import { EpochTracker } from "../components/EpochTracker";
 import { MetricsStrip } from "../components/MetricsStrip";
@@ -37,12 +37,12 @@ export function Dashboard({ rawDeskDailyLamports, walletAddress }: DashboardProp
             <div id="hub-wallet">
               <WalletPanel state={state} walletAddress={walletAddress} />
             </div>
+            <Panel title="DESK LOOKUP">
+              <DeskLookupPanel state={state} />
+            </Panel>
           </>
         )}
       </ProtocolGate>
-      <Panel title="DESK LOOKUP">
-        <DeskLookup />
-      </Panel>
       <Disclaimer />
     </div>
   );
