@@ -1,8 +1,11 @@
 // Desk activate / upgrade (§A4): one tx per desk, paid in SOL (`activate_tier` / `upgrade_tier`,
-// 90% pot / 10% ops) or in $OTC at the fixed premium (`activate_tier_otc` / `upgrade_tier_otc`,
-// proceeds → POL reserve). Same reliability model as claim.ts: simulate unsigned first, one wallet
-// prompt, send, confirm. `upgrade_tier` rejects desks with pending yield, so a `claim_yield` ix is
-// prepended in the same tx when needed.
+// flat step fee, 90% pot / 10% ops) or in $OTC at the fixed premium (`activate_tier_otc` /
+// `upgrade_tier_otc`, proceeds → POL reserve) — either way, `target_tier` is reached directly in
+// ONE call: a fresh activation into T4 pays the flat step fee once, exactly like a fresh T1
+// activation. Every call also burns the $HUB tier cost (full cost for a fresh activation, just
+// the difference for an upgrade). Same reliability model as claim.ts: simulate unsigned first,
+// one wallet prompt, send, confirm. `upgrade_tier` rejects desks with pending yield, so a
+// `claim_yield` ix is prepended in the same tx when needed.
 import {
   ComputeBudgetProgram,
   Connection,
@@ -17,6 +20,7 @@ import {
   ataPda,
   configPda,
   epochPda,
+  hubCostDeltaUnits,
   otcPayPda,
   otcPayable,
   otcStepFeeUnits,
@@ -42,6 +46,8 @@ export type TierQuote = {
   premiumBp: number;
   otcAvailable: boolean;
   otcUnavailableReason?: string;
+  /** $HUB base units burned for this call (full tier cost on activation, delta on upgrade). */
+  hubBurnUnits: number;
 };
 
 const CU_LIMIT = 300_000;
@@ -79,15 +85,22 @@ export function quoteTierChange(opts: {
   const otcAvailable = !reason && otcPayable(otcPay);
   return {
     steps,
-    solLamports: config.stepFeeLamports * steps,
+    // Flat: one `activate_tier`/`upgrade_tier` call always costs one step fee, regardless of
+    // how many tiers it crosses.
+    solLamports: config.stepFeeLamports,
     otcUnits: otcAvailable && otcPay ? otcStepFeeUnits(otcPay, config, fromTier, toTier) : null,
     premiumBp: otcPay?.premiumBp ?? OTC_PREMIUM_BP,
     otcAvailable,
     otcUnavailableReason: reason,
+    hubBurnUnits: hubCostDeltaUnits(fromTier, toTier),
   };
 }
 
-/** Unsigned ixs: optional `claim_yield`, then `activate` (from 0) and/or `upgrade(toTier)`. */
+/**
+ * Unsigned ixs: optional `claim_yield`, then exactly ONE of `activate_tier(toTier)` (fresh
+ * activation, straight into `toTier`) or `upgrade_tier(toTier)` (already active) — never both.
+ * A fresh T4 activation is one `activate_tier(4)` call, not `activate_tier` + `upgrade_tier(4)`.
+ */
 export async function buildTierChangeIxs(opts: {
   program: HubProgram;
   payer: PublicKey;
@@ -105,12 +118,14 @@ export async function buildTierChangeIxs(opts: {
   const ixs: TransactionInstruction[] = [];
   if (fromTier > 0 && opts.pendingLamports > 0)
     ixs.push(await buildClaimYieldIx(program, payer, deskAsset));
-  const needsUpgrade = toTier > Math.max(fromTier, 1);
+  const hubMint = new PublicKey(config.hubMint);
   const common = {
     payer,
     deskAsset,
     config: configPda(id)[0],
     deskTier: tierPda(id, deskAsset)[0],
+    hubMint,
+    payerHub: ataPda(payer, hubMint)[0],
   };
 
   if (method === "sol") {
@@ -119,12 +134,12 @@ export async function buildTierChangeIxs(opts: {
       epoch: epochPda(id, config.currentEpoch)[0],
       pot: potPda(id)[0],
       opsWallet: new PublicKey(config.opsWallet),
+      tokenProgram: new PublicKey(TOKEN_PROGRAM_ID),
       systemProgram: SYSTEM_PROGRAM,
     };
     if (fromTier === 0)
-      ixs.push(await program.methods.activateTier().accountsStrict(accs).instruction());
-    if (needsUpgrade)
-      ixs.push(await program.methods.upgradeTier(toTier).accountsStrict(accs).instruction());
+      ixs.push(await program.methods.activateTier(toTier).accountsStrict(accs).instruction());
+    else ixs.push(await program.methods.upgradeTier(toTier).accountsStrict(accs).instruction());
     return ixs;
   }
 
@@ -142,12 +157,11 @@ export async function buildTierChangeIxs(opts: {
   if (fromTier === 0)
     ixs.push(
       await program.methods
-        .activateTierOtc()
+        .activateTierOtc(toTier)
         .accountsStrict({ ...accs, systemProgram: SYSTEM_PROGRAM })
         .instruction(),
     );
-  if (needsUpgrade)
-    ixs.push(await program.methods.upgradeTierOtc(toTier).accountsStrict(accs).instruction());
+  else ixs.push(await program.methods.upgradeTierOtc(toTier).accountsStrict(accs).instruction());
   return ixs;
 }
 

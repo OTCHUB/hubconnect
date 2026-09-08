@@ -13,6 +13,7 @@ use crate::constants::*;
 use crate::errors::HubError;
 use crate::events::*;
 use crate::instructions::mpl_core::require_desk;
+use crate::instructions::otc_pay::{burn_checked, require_token_account};
 use crate::instructions::pot::*;
 use crate::state::*;
 
@@ -32,6 +33,14 @@ pub struct ActivateTier<'info> {
     /// CHECK: matched against config.ops_wallet.
     #[account(mut, address = config.ops_wallet @ HubError::Unauthorized)]
     pub ops_wallet: UncheckedAccount<'info>,
+    /// CHECK: matched against config.hub_mint; decimals read for BurnChecked; supply mutates.
+    #[account(mut, address = config.hub_mint @ HubError::InvalidTokenAccount)]
+    pub hub_mint: UncheckedAccount<'info>,
+    /// CHECK: payer's $HUB token account (mint/owner verified in handler); burned on activation.
+    #[account(mut)]
+    pub payer_hub: UncheckedAccount<'info>,
+    /// CHECK: classic SPL Token program, asserted in `burn_checked`.
+    pub token_program: UncheckedAccount<'info>,
     #[account(
         init_if_needed, payer = payer, space = 8 + DeskTier::INIT_SPACE,
         seeds = [SEED_TIER, desk_asset.key().as_ref()], bump
@@ -40,8 +49,10 @@ pub struct ActivateTier<'info> {
     pub system_program: Program<'info, System>,
 }
 
-/// Fresh activation at T1, or re-activation of a voided tier (full price, §B5 wash-transfer).
-pub fn activate_tier(ctx: Context<ActivateTier>) -> Result<()> {
+/// Fresh activation into any tier `target_tier`, or re-activation of a voided tier (full price,
+/// §B5 wash-transfer): flat `step_fee(0, target_tier)` SOL (90% pot / 10% ops) + the full $HUB
+/// cost of `target_tier`, burned.
+pub fn activate_tier(ctx: Context<ActivateTier>, target_tier: u8) -> Result<()> {
     let asset = require_desk(
         &ctx.accounts.desk_asset,
         &ctx.accounts.config.desk_collection,
@@ -56,7 +67,13 @@ pub fn activate_tier(ctx: Context<ActivateTier>) -> Result<()> {
     require_activatable(t)?;
 
     let config = &mut ctx.accounts.config;
-    let fee = config.step_fee(0, 1)?;
+    require_token_account(
+        &ctx.accounts.payer_hub,
+        &config.hub_mint,
+        ctx.accounts.payer.key,
+    )?;
+    let fee = config.step_fee(0, target_tier)?;
+    let hub_cost = config.hub_cost_delta(0, target_tier)?;
     let to_ops = bps_of(fee, config.ops_pct_bp)?;
     let to_pot = sub(fee, to_ops)?;
     transfer_from_signer(
@@ -72,12 +89,20 @@ pub fn activate_tier(ctx: Context<ActivateTier>) -> Result<()> {
         to_ops,
     )?;
     book_inflow(config, &mut ctx.accounts.epoch, to_pot)?;
+    burn_checked(
+        &ctx.accounts.token_program,
+        &ctx.accounts.payer_hub,
+        &ctx.accounts.hub_mint,
+        &ctx.accounts.payer,
+        hub_cost,
+    )?;
 
     let epoch_idx = apply_activation(
         config,
         t,
         ctx.accounts.desk_asset.key(),
         asset.owner,
+        target_tier,
         ctx.bumps.desk_tier,
     )?;
 
@@ -85,11 +110,12 @@ pub fn activate_tier(ctx: Context<ActivateTier>) -> Result<()> {
     emit!(TierActivated {
         asset: t.asset_id,
         owner: asset.owner,
-        tier: 1,
+        tier: target_tier,
         epoch: epoch_idx,
         fee_lamports: fee,
         to_pot,
         to_ops,
+        hub_burned_units: hub_cost,
     });
     Ok(())
 }
@@ -110,6 +136,14 @@ pub struct UpgradeTier<'info> {
     /// CHECK: matched against config.ops_wallet.
     #[account(mut, address = config.ops_wallet @ HubError::Unauthorized)]
     pub ops_wallet: UncheckedAccount<'info>,
+    /// CHECK: matched against config.hub_mint; decimals read for BurnChecked; supply mutates.
+    #[account(mut, address = config.hub_mint @ HubError::InvalidTokenAccount)]
+    pub hub_mint: UncheckedAccount<'info>,
+    /// CHECK: payer's $HUB token account (mint/owner verified in handler); burned on upgrade.
+    #[account(mut)]
+    pub payer_hub: UncheckedAccount<'info>,
+    /// CHECK: classic SPL Token program, asserted in `burn_checked`.
+    pub token_program: UncheckedAccount<'info>,
     #[account(
         mut, seeds = [SEED_TIER, desk_asset.key().as_ref()], bump = desk_tier.bump,
         constraint = !desk_tier.voided @ HubError::TierVoided
@@ -118,7 +152,8 @@ pub struct UpgradeTier<'info> {
     pub system_program: Program<'info, System>,
 }
 
-/// Pay exactly the step difference to `target_tier`. Ownership change → void, no charge.
+/// Pay the flat `step_fee` once (90% pot / 10% ops, regardless of the step size) + the $HUB cost
+/// difference for `from → target_tier`, burned. Ownership change → void, no charge.
 pub fn upgrade_tier(ctx: Context<UpgradeTier>, target_tier: u8) -> Result<()> {
     let asset = require_desk(
         &ctx.accounts.desk_asset,
@@ -135,9 +170,15 @@ pub fn upgrade_tier(ctx: Context<UpgradeTier>, target_tier: u8) -> Result<()> {
         ctx.accounts.payer.key(),
         HubError::NotDeskOwner
     );
+    require_token_account(
+        &ctx.accounts.payer_hub,
+        &config.hub_mint,
+        ctx.accounts.payer.key,
+    )?;
     let from = settle_for_upgrade(config, t)?;
 
     let fee = config.step_fee(from, target_tier)?;
+    let hub_cost = config.hub_cost_delta(from, target_tier)?;
     let to_ops = bps_of(fee, config.ops_pct_bp)?;
     let to_pot = sub(fee, to_ops)?;
     transfer_from_signer(
@@ -153,6 +194,13 @@ pub fn upgrade_tier(ctx: Context<UpgradeTier>, target_tier: u8) -> Result<()> {
         to_ops,
     )?;
     book_inflow(config, &mut ctx.accounts.epoch, to_pot)?;
+    burn_checked(
+        &ctx.accounts.token_program,
+        &ctx.accounts.payer_hub,
+        &ctx.accounts.hub_mint,
+        &ctx.accounts.payer,
+        hub_cost,
+    )?;
 
     apply_upgrade(config, t, target_tier)?;
 
@@ -164,6 +212,7 @@ pub fn upgrade_tier(ctx: Context<UpgradeTier>, target_tier: u8) -> Result<()> {
         to_tier: target_tier,
         epoch: config.current_epoch,
         fee_lamports: fee,
+        hub_burned_units: hub_cost,
     });
     Ok(())
 }
@@ -244,24 +293,25 @@ pub(crate) fn require_activatable(t: &DeskTier) -> Result<()> {
 }
 
 /// Tier-state side of activation (shared by the SOL and $OTC payment paths): stamp the
-/// accumulator, enter T1 and add its weight to Σw. Returns the activation epoch.
+/// accumulator, enter `target_tier` and add its weight to Σw. Returns the activation epoch.
 pub(crate) fn apply_activation(
     config: &mut Config,
     t: &mut DeskTier,
     asset_id: Pubkey,
     owner: Pubkey,
+    target_tier: u8,
     bump: u8,
 ) -> Result<u64> {
     let epoch_idx = config.current_epoch;
     t.asset_id = asset_id;
     t.owner_at_activation = owner;
-    t.tier = 1;
+    t.tier = target_tier;
     t.activated_epoch = epoch_idx;
     t.stamp_acc_per_weight = config.acc_per_weight;
     t.total_claimed_lamports = 0;
     t.voided = false;
     t.bump = bump;
-    config.total_weight_bp = add(config.total_weight_bp, config.weight_bp(1)?)?;
+    config.total_weight_bp = add(config.total_weight_bp, config.weight_bp(target_tier)?)?;
     Ok(epoch_idx)
 }
 

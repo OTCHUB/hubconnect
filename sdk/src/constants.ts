@@ -4,9 +4,24 @@ export const LAMPORTS_PER_SOL = 1_000_000_000;
 
 export const TIER_WEIGHTS_BP = [10_000, 12_500, 16_000, 20_000] as const;
 export const TIER_WEIGHTS = TIER_WEIGHTS_BP.map((w) => w / BPS); // [1.00,1.25,1.60,2.00]
+/**
+ * Flat activation/upgrade SOL fee (90% pot / 10% ops) — paid once per `activate_tier` /
+ * `upgrade_tier` call, independent of how many tier-steps it crosses. A fresh activation into
+ * any tier (T1..T4) pays this once; a later upgrade to a higher tier pays it again, once,
+ * regardless of the size of the jump.
+ */
 export const STEP_FEE_LAMPORTS = LAMPORTS_PER_SOL / 2;
 export const OPS_PCT_BP = 1_000;
 export const BURN_PCT_BP = 1_000;
+/**
+ * $HUB base units required to reach each tier from scratch (cumulative table, not incremental) —
+ * mirrors `TIER_HUB_COST_UNITS` in constants.rs: T1 100k, T2 125k, T3 150k, T4 200k. A fresh
+ * activation burns the full cost of the target tier; an upgrade burns only the difference from
+ * the tier already held.
+ */
+export const TIER_HUB_COST_UNITS = [100_000, 125_000, 150_000, 200_000].map(
+  (v) => v * 10 ** 6,
+) as [number, number, number, number];
 /** A round closes once its inflow reaches this (OTC desk-pot trigger: 0.1 SOL). */
 export const MIN_POT_THRESHOLD_LAMPORTS = LAMPORTS_PER_SOL / 10;
 /** Fixed-point scale of `Config.acc_per_weight` (lamports × ACC_SCALE per bp of weight). */
@@ -214,10 +229,26 @@ export function tokenomicsPlan(
 /** Display names for tiers 1–4 (§A4): market-role ladder, not metals. */
 export const TIER_NAMES = ["TRADER", "BROKER", "DEALER", "MARKET MAKER"] as const;
 
-/** Cumulative step fee to reach `tier` from tier 0 (§A4). */
-export const cumulativeFeeLamports = (tier: number) => STEP_FEE_LAMPORTS * tier;
-/** Fee to move `from` → `to` (from = 0 is a fresh activation). */
-export const stepFeeLamports = (from: number, to: number) => STEP_FEE_LAMPORTS * (to - from);
+/**
+ * Flat SOL fee for any `activate_tier` / `upgrade_tier` call, regardless of `tier` or how many
+ * steps it crosses (§A4) — kept as a function of `tier` for API stability, but the fee no longer
+ * scales with it.
+ */
+export const cumulativeFeeLamports = (_tier: number) => STEP_FEE_LAMPORTS;
+/** Flat SOL fee to move `from` → `to` (from = 0 is a fresh activation) — same value every time. */
+export const stepFeeLamports = (_from: number, _to: number) => STEP_FEE_LAMPORTS;
+
+/** $HUB base units required to reach `tier` from scratch (§A4, cumulative table lookup). */
+export const cumulativeHubCostUnits = (tier: number) => TIER_HUB_COST_UNITS[tier - 1] ?? 0;
+/**
+ * $HUB due for `from` → `to` (`from = 0` is a fresh activation: the full cost of `to`) — mirrors
+ * `Config::hub_cost_delta`. An upgrade only ever burns the difference, never the same $HUB twice.
+ */
+export function hubCostDeltaUnits(from: number, to: number): number {
+  const toCost = cumulativeHubCostUnits(to);
+  if (from === 0) return toCost;
+  return toCost - cumulativeHubCostUnits(from);
+}
 
 /**
  * $OTC base units due for `feeLamports` — mirrors `OtcPayConfig::otc_fee`:

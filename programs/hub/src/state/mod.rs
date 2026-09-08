@@ -20,6 +20,8 @@ pub struct Config {
     pub otc_mint: Pubkey,
     pub tier_weights_bp: [u16; TIER_COUNT],
     pub step_fee_lamports: u64,
+    /// $HUB base units required to reach each tier from scratch (cumulative table).
+    pub tier_hub_cost_units: [u64; TIER_COUNT],
     /// A round closes once the open epoch's inflow reaches this (no clock involved).
     pub min_pot_threshold_lamports: u64,
     pub burn_pct_bp: u16,
@@ -244,14 +246,40 @@ impl Config {
         Ok(self.tier_weights_bp[(tier - 1) as usize] as u64)
     }
 
-    /// Step fee for moving `from` → `to` (from = 0 means fresh activation).
+    /// Flat SOL fee for an `activate_tier` / `upgrade_tier` call targeting `to` from `from`
+    /// (`from = 0` means fresh activation). Does not scale with `to - from` — every call pays
+    /// this once, whether it's a fresh T1 activation, a fresh T4 activation, or a T1→T4 upgrade.
     pub fn step_fee(&self, from: u8, to: u8) -> Result<u64> {
         require!(
             to > from && to as usize <= TIER_COUNT,
             crate::errors::HubError::InvalidTierStep
         );
-        self.step_fee_lamports
-            .checked_mul((to - from) as u64)
+        Ok(self.step_fee_lamports)
+    }
+
+    /// $HUB base units required to reach `tier` from scratch (cumulative table lookup).
+    pub fn hub_cost(&self, tier: u8) -> Result<u64> {
+        require!(
+            (1..=TIER_COUNT as u8).contains(&tier),
+            crate::errors::HubError::InvalidTier
+        );
+        Ok(self.tier_hub_cost_units[(tier - 1) as usize])
+    }
+
+    /// $HUB due for `from` → `to` (`from = 0` means fresh activation: the full cost of `to`).
+    /// An upgrade only ever pays the difference — never the same $HUB twice.
+    pub fn hub_cost_delta(&self, from: u8, to: u8) -> Result<u64> {
+        require!(
+            to > from && to as usize <= TIER_COUNT,
+            crate::errors::HubError::InvalidTierStep
+        );
+        let to_cost = self.hub_cost(to)?;
+        if from == 0 {
+            return Ok(to_cost);
+        }
+        let from_cost = self.hub_cost(from)?;
+        to_cost
+            .checked_sub(from_cost)
             .ok_or_else(|| error!(crate::errors::HubError::MathOverflow))
     }
 }

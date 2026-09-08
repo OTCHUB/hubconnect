@@ -16,7 +16,8 @@ export type Hub = {
     {
       "name": "activateTier",
       "docs": [
-        "§B3 #2"
+        "§B3 #2 — fresh activation (or re-activation of a voided tier) straight into `target_tier`;",
+        "flat `step_fee` SOL + the full $HUB cost of `target_tier`, burned."
       ],
       "discriminator": [
         2,
@@ -100,6 +101,17 @@ export type Hub = {
           "writable": true
         },
         {
+          "name": "hubMint",
+          "writable": true
+        },
+        {
+          "name": "payerHub",
+          "writable": true
+        },
+        {
+          "name": "tokenProgram"
+        },
+        {
           "name": "deskTier",
           "writable": true,
           "pda": {
@@ -125,7 +137,12 @@ export type Hub = {
           "address": "11111111111111111111111111111111"
         }
       ],
-      "args": []
+      "args": [
+        {
+          "name": "targetTier",
+          "type": "u8"
+        }
+      ]
     },
     {
       "name": "activateTierOtc",
@@ -202,6 +219,14 @@ export type Hub = {
           "writable": true
         },
         {
+          "name": "hubMint",
+          "writable": true
+        },
+        {
+          "name": "payerHub",
+          "writable": true
+        },
+        {
           "name": "tokenProgram"
         },
         {
@@ -230,7 +255,12 @@ export type Hub = {
           "address": "11111111111111111111111111111111"
         }
       ],
-      "args": []
+      "args": [
+        {
+          "name": "targetTier",
+          "type": "u8"
+        }
+      ]
     },
     {
       "name": "buildLp",
@@ -2115,7 +2145,8 @@ export type Hub = {
     {
       "name": "upgradeTier",
       "docs": [
-        "§B3 #3 — pays exactly `(target_tier - current) × step_fee`."
+        "§B3 #3 — flat `step_fee` SOL (never scales with the step size) + the $HUB cost",
+        "difference for `current → target_tier`, burned."
       ],
       "discriminator": [
         122,
@@ -2197,6 +2228,17 @@ export type Hub = {
         {
           "name": "opsWallet",
           "writable": true
+        },
+        {
+          "name": "hubMint",
+          "writable": true
+        },
+        {
+          "name": "payerHub",
+          "writable": true
+        },
+        {
+          "name": "tokenProgram"
         },
         {
           "name": "deskTier",
@@ -2303,6 +2345,14 @@ export type Hub = {
         },
         {
           "name": "polAccount",
+          "writable": true
+        },
+        {
+          "name": "hubMint",
+          "writable": true
+        },
+        {
+          "name": "payerHub",
           "writable": true
         },
         {
@@ -3139,6 +3189,18 @@ export type Hub = {
             "type": "u64"
           },
           {
+            "name": "tierHubCostUnits",
+            "docs": [
+              "$HUB base units required to reach each tier from scratch (cumulative table)."
+            ],
+            "type": {
+              "array": [
+                "u64",
+                4
+              ]
+            }
+          },
+          {
             "name": "minPotThresholdLamports",
             "docs": [
               "A round closes once the open epoch's inflow reaches this (no clock involved)."
@@ -3819,6 +3881,13 @@ export type Hub = {
           {
             "name": "toOps",
             "type": "u64"
+          },
+          {
+            "name": "hubBurnedUnits",
+            "docs": [
+              "$HUB base units burned to reach `tier` (the full tier cost; `from = 0`)."
+            ],
+            "type": "u64"
           }
         ]
       }
@@ -3827,7 +3896,8 @@ export type Hub = {
       "name": "tierPaidOtc",
       "docs": [
         "§A4.1 — step(s) paid in $OTC at the 2× premium; nothing enters the pot, the $OTC lands in the",
-        "POL reserve. `from_tier == 0` is a fresh activation."
+        "POL reserve. `from_tier == 0` is a fresh activation. `hub_burned_units` is paid separately —",
+        "the $HUB tier cost is always burned, on both the SOL and $OTC fee paths."
       ],
       "type": {
         "kind": "struct",
@@ -3867,6 +3937,10 @@ export type Hub = {
           {
             "name": "premiumBp",
             "type": "u16"
+          },
+          {
+            "name": "hubBurnedUnits",
+            "type": "u64"
           }
         ]
       }
@@ -3898,6 +3972,13 @@ export type Hub = {
           },
           {
             "name": "feeLamports",
+            "type": "u64"
+          },
+          {
+            "name": "hubBurnedUnits",
+            "docs": [
+              "$HUB base units burned for `from_tier → to_tier` (the cost difference)."
+            ],
             "type": "u64"
           }
         ]

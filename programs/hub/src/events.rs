@@ -11,6 +11,8 @@ pub struct TierActivated {
     pub fee_lamports: u64,
     pub to_pot: u64,
     pub to_ops: u64,
+    /// $HUB base units burned to reach `tier` (the full tier cost; `from = 0`).
+    pub hub_burned_units: u64,
 }
 
 #[event]
@@ -21,10 +23,13 @@ pub struct TierUpgraded {
     pub to_tier: u8,
     pub epoch: u64,
     pub fee_lamports: u64,
+    /// $HUB base units burned for `from_tier → to_tier` (the cost difference).
+    pub hub_burned_units: u64,
 }
 
 /// §A4.1 — step(s) paid in $OTC at the 2× premium; nothing enters the pot, the $OTC lands in the
-/// POL reserve. `from_tier == 0` is a fresh activation.
+/// POL reserve. `from_tier == 0` is a fresh activation. `hub_burned_units` is paid separately —
+/// the $HUB tier cost is always burned, on both the SOL and $OTC fee paths.
 #[event]
 pub struct TierPaidOtc {
     pub asset: Pubkey,
@@ -36,6 +41,7 @@ pub struct TierPaidOtc {
     pub otc_paid: u64,
     pub otc_per_sol: u64,
     pub premium_bp: u16,
+    pub hub_burned_units: u64,
 }
 
 #[event]

@@ -40,12 +40,14 @@ pub mod hub {
         instructions::admin::initialize_config(ctx, args)
     }
 
-    /// §B3 #2
-    pub fn activate_tier(ctx: Context<ActivateTier>) -> Result<()> {
-        instructions::tiers::activate_tier(ctx)
+    /// §B3 #2 — fresh activation (or re-activation of a voided tier) straight into `target_tier`;
+    /// flat `step_fee` SOL + the full $HUB cost of `target_tier`, burned.
+    pub fn activate_tier(ctx: Context<ActivateTier>, target_tier: u8) -> Result<()> {
+        instructions::tiers::activate_tier(ctx, target_tier)
     }
 
-    /// §B3 #3 — pays exactly `(target_tier - current) × step_fee`.
+    /// §B3 #3 — flat `step_fee` SOL (never scales with the step size) + the $HUB cost
+    /// difference for `current → target_tier`, burned.
     pub fn upgrade_tier(ctx: Context<UpgradeTier>, target_tier: u8) -> Result<()> {
         instructions::tiers::upgrade_tier(ctx, target_tier)
     }
@@ -142,8 +144,8 @@ pub mod hub {
     }
 
     /// §A4.1 #16 — `activate_tier` paid in $OTC at the 2× premium; proceeds → POL reserve.
-    pub fn activate_tier_otc(ctx: Context<ActivateTierOtc>) -> Result<()> {
-        instructions::otc_pay::activate_tier_otc(ctx)
+    pub fn activate_tier_otc(ctx: Context<ActivateTierOtc>, target_tier: u8) -> Result<()> {
+        instructions::otc_pay::activate_tier_otc(ctx, target_tier)
     }
 
     /// §A4.1 #17 — `upgrade_tier` paid in $OTC at the 2× premium; proceeds → POL reserve.

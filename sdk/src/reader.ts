@@ -65,6 +65,8 @@ export type ConfigView = {
   otcMint: string;
   tierWeightsBp: number[];
   stepFeeLamports: number;
+  /** $HUB base units required to reach each tier from scratch (cumulative table). */
+  tierHubCostUnits: number[];
   minPotThresholdLamports: number;
   burnPctBp: number;
   opsPctBp: number;
@@ -225,6 +227,7 @@ export function toConfigView(
     otcMint: c.otcMint.toBase58(),
     tierWeightsBp: [...c.tierWeightsBp],
     stepFeeLamports: n(c.stepFeeLamports),
+    tierHubCostUnits: c.tierHubCostUnits.map((v) => n(v)),
     minPotThresholdLamports: n(c.minPotThresholdLamports),
     burnPctBp: c.burnPctBp,
     opsPctBp: c.opsPctBp,
@@ -438,9 +441,10 @@ export function otcPayable(p: OtcPayView | null, nowSecs = Math.floor(Date.now()
   return !!p && p.enabled && p.otcPerSol > 0n && nowSecs - p.rateTs <= OTC_RATE_MAX_AGE_SECS;
 }
 
-/** $OTC units the program will charge for the `from → to` step(s) under `p`. */
-export function otcStepFeeUnits(p: OtcPayView, c: ConfigView, from: number, to: number) {
-  return otcFeeUnits(c.stepFeeLamports * (to - from), p.otcPerSol, p.premiumBp);
+/** $OTC units the program will charge for an `activate`/`upgrade` call under `p` — the flat SOL
+ * step-fee value at the premium; independent of `from`/`to` (kept as params for API stability). */
+export function otcStepFeeUnits(p: OtcPayView, c: ConfigView, _from: number, _to: number) {
+  return otcFeeUnits(c.stepFeeLamports, p.otcPerSol, p.premiumBp);
 }
 
 /** Whole lamports of dust that will be folded into the open round at the next finalize. */

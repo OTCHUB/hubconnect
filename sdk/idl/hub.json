@@ -10,7 +10,8 @@
     {
       "name": "activate_tier",
       "docs": [
-        "§B3 #2"
+        "§B3 #2 — fresh activation (or re-activation of a voided tier) straight into `target_tier`;",
+        "flat `step_fee` SOL + the full $HUB cost of `target_tier`, burned."
       ],
       "discriminator": [
         2,
@@ -94,6 +95,17 @@
           "writable": true
         },
         {
+          "name": "hub_mint",
+          "writable": true
+        },
+        {
+          "name": "payer_hub",
+          "writable": true
+        },
+        {
+          "name": "token_program"
+        },
+        {
           "name": "desk_tier",
           "writable": true,
           "pda": {
@@ -119,7 +131,12 @@
           "address": "11111111111111111111111111111111"
         }
       ],
-      "args": []
+      "args": [
+        {
+          "name": "target_tier",
+          "type": "u8"
+        }
+      ]
     },
     {
       "name": "activate_tier_otc",
@@ -196,6 +213,14 @@
           "writable": true
         },
         {
+          "name": "hub_mint",
+          "writable": true
+        },
+        {
+          "name": "payer_hub",
+          "writable": true
+        },
+        {
           "name": "token_program"
         },
         {
@@ -224,7 +249,12 @@
           "address": "11111111111111111111111111111111"
         }
       ],
-      "args": []
+      "args": [
+        {
+          "name": "target_tier",
+          "type": "u8"
+        }
+      ]
     },
     {
       "name": "build_lp",
@@ -2109,7 +2139,8 @@
     {
       "name": "upgrade_tier",
       "docs": [
-        "§B3 #3 — pays exactly `(target_tier - current) × step_fee`."
+        "§B3 #3 — flat `step_fee` SOL (never scales with the step size) + the $HUB cost",
+        "difference for `current → target_tier`, burned."
       ],
       "discriminator": [
         122,
@@ -2191,6 +2222,17 @@
         {
           "name": "ops_wallet",
           "writable": true
+        },
+        {
+          "name": "hub_mint",
+          "writable": true
+        },
+        {
+          "name": "payer_hub",
+          "writable": true
+        },
+        {
+          "name": "token_program"
         },
         {
           "name": "desk_tier",
@@ -2297,6 +2339,14 @@
         },
         {
           "name": "pol_account",
+          "writable": true
+        },
+        {
+          "name": "hub_mint",
+          "writable": true
+        },
+        {
+          "name": "payer_hub",
           "writable": true
         },
         {
@@ -3133,6 +3183,18 @@
             "type": "u64"
           },
           {
+            "name": "tier_hub_cost_units",
+            "docs": [
+              "$HUB base units required to reach each tier from scratch (cumulative table)."
+            ],
+            "type": {
+              "array": [
+                "u64",
+                4
+              ]
+            }
+          },
+          {
             "name": "min_pot_threshold_lamports",
             "docs": [
               "A round closes once the open epoch's inflow reaches this (no clock involved)."
@@ -3813,6 +3875,13 @@
           {
             "name": "to_ops",
             "type": "u64"
+          },
+          {
+            "name": "hub_burned_units",
+            "docs": [
+              "$HUB base units burned to reach `tier` (the full tier cost; `from = 0`)."
+            ],
+            "type": "u64"
           }
         ]
       }
@@ -3821,7 +3890,8 @@
       "name": "TierPaidOtc",
       "docs": [
         "§A4.1 — step(s) paid in $OTC at the 2× premium; nothing enters the pot, the $OTC lands in the",
-        "POL reserve. `from_tier == 0` is a fresh activation."
+        "POL reserve. `from_tier == 0` is a fresh activation. `hub_burned_units` is paid separately —",
+        "the $HUB tier cost is always burned, on both the SOL and $OTC fee paths."
       ],
       "type": {
         "kind": "struct",
@@ -3861,6 +3931,10 @@
           {
             "name": "premium_bp",
             "type": "u16"
+          },
+          {
+            "name": "hub_burned_units",
+            "type": "u64"
           }
         ]
       }
@@ -3892,6 +3966,13 @@
           },
           {
             "name": "fee_lamports",
+            "type": "u64"
+          },
+          {
+            "name": "hub_burned_units",
+            "docs": [
+              "$HUB base units burned for `from_tier → to_tier` (the cost difference)."
+            ],
             "type": "u64"
           }
         ]

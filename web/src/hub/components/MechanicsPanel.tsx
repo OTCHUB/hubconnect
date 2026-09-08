@@ -1,5 +1,11 @@
-import { TIER_NAMES, cumulativeFeeLamports, type ProtocolState } from "@hub-sdk";
-import { fmtBp, fmtSol, fmtWeight } from "../lib/format";
+import {
+  HUB_DECIMALS,
+  TIER_HUB_COST_UNITS,
+  TIER_NAMES,
+  cumulativeFeeLamports,
+  type ProtocolState,
+} from "@hub-sdk";
+import { fmtBp, fmtSol, fmtUnits, fmtWeight } from "../lib/format";
 import { yieldBoostPctOverBase } from "../lib/yield";
 import {
   ACTIVATION_DIAGRAM,
@@ -68,15 +74,19 @@ export function MechanicsPanel({ state }: { state: ProtocolState }) {
           </li>
           <li className={li}>
             Pay the Activation Cost in SOL, or in $OTC at a fixed 2.00x premium — $OTC payments go
-            straight into the protocol's liquidity reserve rather than the reward pool.
+            straight into the protocol's liquidity reserve rather than the reward pool. Either way
+            you also burn $HUB for the target tier — permanently destroyed, not sent to the pool.
           </li>
           <li className={li}>
             Rewards start accruing the instant you activate — only reward rounds closed after that
             moment count, so there's no way to backdate earnings or dilute existing holders.
           </li>
           <li className={li}>
-            Upgrading to a higher tier later only costs the difference between your current and
-            target tier — you never pay for the same step twice.
+            One call reaches any tier directly — a fresh desk can activate straight into MARKET
+            MAKER for the same flat SOL fee as a TRADER activation, paid once. Upgrading later pays
+            that flat SOL fee again (once per call, regardless of the size of the jump), plus only
+            the $HUB difference between your current and target tier — you never burn the same $HUB
+            twice.
           </li>
         </ul>
         <div className="mt-3 overflow-x-auto">
@@ -84,7 +94,8 @@ export function MechanicsPanel({ state }: { state: ProtocolState }) {
             <thead>
               <tr className="border-b border-green-500/30 text-left text-green-500/60">
                 <th className="py-1 pr-3 font-normal">TIER</th>
-                <th className="py-1 pr-3 font-normal">ACTIVATION COST</th>
+                <th className="py-1 pr-3 font-normal">SOL FEE</th>
+                <th className="py-1 pr-3 font-normal">$HUB BURN</th>
                 <th className="py-1 pr-3 font-normal">YIELD BOOST</th>
               </tr>
             </thead>
@@ -95,6 +106,9 @@ export function MechanicsPanel({ state }: { state: ProtocolState }) {
                   <tr key={tier} className="border-b border-green-500/10 last:border-0">
                     <td className="py-1 pr-3 text-green-300">{TIER_NAMES[i]}</td>
                     <td className="py-1 pr-3">{fmtSol(cumulativeFeeLamports(tier))}</td>
+                    <td className="py-1 pr-3 text-cyan-300">
+                      {fmtUnits(BigInt(TIER_HUB_COST_UNITS[i]), HUB_DECIMALS, 0)} HUB
+                    </td>
                     <td className="py-1 pr-3 text-emerald-300">
                       {tier === 1 ? "base rate" : `+${yieldBoostPctOverBase(tier)}%`}
                       <span className="ml-1 text-green-500/50">({fmtWeight(w)})</span>
@@ -104,6 +118,11 @@ export function MechanicsPanel({ state }: { state: ProtocolState }) {
               })}
             </tbody>
           </table>
+          <div className="mt-1 text-[10px] text-green-700">
+            SOL fee is flat — paid once per activate/upgrade call, the same whether it's a fresh T1
+            or a fresh T4. $HUB burn is cumulative — an upgrade only burns the difference from the
+            tier you're already at.
+          </div>
         </div>
         <MermaidBlock source={ACTIVATION_DIAGRAM} title="activation flow (technical detail)" />
       </CollapsibleCard>

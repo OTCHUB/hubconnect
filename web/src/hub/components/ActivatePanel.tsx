@@ -1,6 +1,14 @@
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { BPS, TIER_NAMES, pendingYieldLamports, splitFee, type ProtocolState } from "@hub-sdk";
+import {
+  BPS,
+  HUB_DECIMALS,
+  TIER_HUB_COST_UNITS,
+  TIER_NAMES,
+  pendingYieldLamports,
+  splitFee,
+  type ProtocolState,
+} from "@hub-sdk";
 import { useHub } from "../HubProvider";
 import { useOtcPay } from "../hooks/useOtcPay";
 import { usePayerBalances } from "../hooks/usePayerBalances";
@@ -32,7 +40,7 @@ export function ActivatePanel({ address, state, desks, onChanged }: Props) {
   const { connection, program, resolveSigner } = useHub();
   const qc = useQueryClient();
   const otcPayQ = useOtcPay();
-  const balances = usePayerBalances(address, state.config.otcMint);
+  const balances = usePayerBalances(address, state.config.otcMint, state.config.hubMint);
   const [asset, setAsset] = useState<string | null>(null);
   const [toTier, setToTier] = useState(1);
   const [method, setMethod] = useState<PayMethod>("sol");
@@ -68,12 +76,18 @@ export function ActivatePanel({ address, state, desks, onChanged }: Props) {
 
   const split = quote ? splitFee(quote.solLamports) : null;
   const otcBal = balances.data?.otcUnits ?? null;
+  const hubBal = balances.data?.hubUnits ?? null;
+  const hubDecimals = balances.data?.hubDecimals ?? HUB_DECIMALS;
   const otcShort =
     method === "otc" && quote?.otcUnits != null && otcBal !== null && otcBal < quote.otcUnits;
   const solShort =
     method === "sol" && quote && balances.data
       ? balances.data.solLamports < BigInt(quote.solLamports)
       : false;
+  const hubShort =
+    quote && hubBal !== null
+      ? hubBal < BigInt(quote.hubBurnUnits)
+      : quote != null && hubBal === null;
 
   const run = async () => {
     setErr(null);
@@ -81,6 +95,7 @@ export function ActivatePanel({ address, state, desks, onChanged }: Props) {
     if (!desk || !quote) return setErr("pick a desk and a target tier above its current tier");
     if (method === "otc" && !quote.otcAvailable)
       return setErr(`$OTC payment unavailable: ${quote.otcUnavailableReason}`);
+    if (hubShort) return setErr("insufficient $HUB balance for this activation's burn cost");
     setBusy(true);
     setLogs([]);
     const res = await executeTierChange({
@@ -166,13 +181,18 @@ export function ActivatePanel({ address, state, desks, onChanged }: Props) {
                 type="button"
                 disabled={busy || t <= fromTier}
                 onClick={() => setToTier(t)}
-                className={`border py-1 text-[11px] disabled:opacity-30 ${
+                className={`flex flex-col items-center border py-1 text-[11px] disabled:opacity-30 ${
                   toTier === t
                     ? "border-emerald-500/60 bg-emerald-500/10 text-emerald-300"
                     : "border-green-500/30 text-green-500/60"
                 }`}
               >
-                T{t} {TIER_NAMES[t - 1]}
+                <span>
+                  T{t} {TIER_NAMES[t - 1]}
+                </span>
+                <span className="text-[9px] opacity-70">
+                  {fmtUnits(BigInt(TIER_HUB_COST_UNITS[t - 1]), HUB_DECIMALS, 0)} HUB
+                </span>
               </button>
             ))}
           </div>
@@ -219,13 +239,21 @@ export function ActivatePanel({ address, state, desks, onChanged }: Props) {
                   {premium}× premium → POL reserve
                 </span>
               </div>
+              <div
+                className={`mt-1 flex justify-between gap-2 ${hubShort ? "text-amber-400" : "text-cyan-300"}`}
+              >
+                <span>$HUB burn: {fmtUnits(BigInt(quote.hubBurnUnits), HUB_DECIMALS, 0)} HUB</span>
+                <span className="text-green-700">
+                  {fromTier ? "T" + fromTier + " → T" + toTier + " difference" : "full tier cost"}
+                </span>
+              </div>
               <div className="mt-1 text-[10px] text-green-700">
-                {`${quote.steps} step(s) · ${pending > 0 ? "claim_yield first · " : ""}1 tx · 1 prompt`}
+                {`1 call, direct to T${toTier} · ${pending > 0 ? "claim_yield first · " : ""}1 tx · 1 prompt`}
               </div>
             </div>
           )}
 
-          <div className="mt-2 grid grid-cols-2 gap-1 text-[11px]">
+          <div className="mt-2 grid grid-cols-3 gap-1 text-[11px]">
             <div className="flex justify-between border border-green-500/20 px-2 py-1">
               <span className="text-green-600">SOL_BAL</span>
               <span className={solShort ? "text-amber-400" : "text-emerald-300"}>
@@ -242,14 +270,24 @@ export function ActivatePanel({ address, state, desks, onChanged }: Props) {
                     : `${fmtUnits(otcBal, otcDecimals)} OTC`}
               </span>
             </div>
+            <div className="flex justify-between border border-green-500/20 px-2 py-1">
+              <span className="text-green-600">$HUB_BAL</span>
+              <span className={hubShort ? "text-amber-400" : "text-cyan-300"}>
+                {!balances.data
+                  ? "…"
+                  : hubBal === null
+                    ? "no token account"
+                    : `${fmtUnits(hubBal, hubDecimals, 0)} HUB`}
+              </span>
+            </div>
           </div>
-          {(otcShort || solShort) && (
+          {(otcShort || solShort || hubShort) && (
             <div className="mt-1 text-[11px] text-amber-400">
-              insufficient {ticker} for this {verb.toLowerCase()}.
+              insufficient {hubShort ? "$HUB" : ticker} for this {verb.toLowerCase()}.
             </div>
           )}
 
-          {hasQuote && !busy && (
+          {hasQuote && !busy && !hubShort && (
             <div className="mt-2 text-[10px] uppercase tracking-widest text-emerald-400/70">
               activation ready — press the big green button.
             </div>
@@ -258,7 +296,7 @@ export function ActivatePanel({ address, state, desks, onChanged }: Props) {
             <button
               type="button"
               onClick={run}
-              disabled={busy || !hasQuote || (method === "otc" && !otcAvailable)}
+              disabled={busy || !hasQuote || hubShort || (method === "otc" && !otcAvailable)}
               className={`${btn} border-emerald-500/60 font-bold text-emerald-300 hover:bg-emerald-500/10`}
             >
               {runLabel}
@@ -277,7 +315,7 @@ export function ActivatePanel({ address, state, desks, onChanged }: Props) {
       {err && <div className="mt-2 text-[11px] text-amber-400">ERR: {err}</div>}
       <TxLogView logs={logs} />
       <div className="mt-2 text-[10px] text-green-700">
-        {`SOL fee = step_fee × steps (90% pot, 10% ops). $OTC fee = SOL value × otc_per_sol × ${premium ?? "2.00"} → program-custodied POL reserve. The tx is simulated unsigned first; a failing sim is dropped with no fee spent.`}
+        {`SOL fee = flat step_fee, paid once per activate/upgrade call (90% pot, 10% ops) — independent of how many tiers the call crosses. $HUB burn = full tier cost on a fresh activation, or just the difference from your current tier on an upgrade — never paid twice. $OTC fee = SOL value × otc_per_sol × ${premium ?? "2.00"} → program-custodied POL reserve. The tx is simulated unsigned first; a failing sim is dropped with no fee spent.`}
       </div>
     </Panel>
   );

@@ -157,6 +157,7 @@ mod tests {
             otc_mint: Pubkey::default(),
             tier_weights_bp: TIER_WEIGHTS_BP,
             step_fee_lamports: STEP_FEE_LAMPORTS,
+            tier_hub_cost_units: TIER_HUB_COST_UNITS,
             min_pot_threshold_lamports: MIN_POT_THRESHOLD_LAMPORTS,
             burn_pct_bp: BURN_PCT_BP,
             ops_pct_bp: OPS_PCT_BP,
@@ -177,14 +178,33 @@ mod tests {
         }
     }
 
+    /// Flat fee: every activate/upgrade call pays 0.5 SOL once, independent of the step size —
+    /// a fresh T1 activation, a fresh T4 activation, and a T1→T4 upgrade all cost the same.
     #[test]
-    fn step_fees_match_a4_table() {
+    fn step_fees_are_flat_regardless_of_step_size() {
         let c = cfg();
         assert_eq!(c.step_fee(0, 1).unwrap(), 500_000_000);
-        assert_eq!(c.step_fee(1, 4).unwrap(), 1_500_000_000);
+        assert_eq!(c.step_fee(0, 4).unwrap(), 500_000_000);
+        assert_eq!(c.step_fee(1, 4).unwrap(), 500_000_000);
         assert_eq!(c.step_fee(2, 3).unwrap(), 500_000_000);
         assert!(c.step_fee(2, 2).is_err());
         assert!(c.step_fee(3, 5).is_err());
+    }
+
+    /// $HUB tier cost table (§A4): fresh activation burns the full cost of the target tier; an
+    /// upgrade only ever burns the difference from the tier already held.
+    #[test]
+    fn hub_costs_match_a4_table() {
+        let c = cfg();
+        assert_eq!(c.hub_cost(1).unwrap(), 100_000 * HUB_UNIT);
+        assert_eq!(c.hub_cost(4).unwrap(), 200_000 * HUB_UNIT);
+        assert_eq!(c.hub_cost_delta(0, 1).unwrap(), 100_000 * HUB_UNIT);
+        assert_eq!(c.hub_cost_delta(0, 4).unwrap(), 200_000 * HUB_UNIT);
+        assert_eq!(c.hub_cost_delta(1, 2).unwrap(), 25_000 * HUB_UNIT);
+        assert_eq!(c.hub_cost_delta(1, 4).unwrap(), 100_000 * HUB_UNIT);
+        assert!(c.hub_cost_delta(2, 2).is_err());
+        assert!(c.hub_cost(0).is_err());
+        assert!(c.hub_cost(5).is_err());
     }
 
     #[test]

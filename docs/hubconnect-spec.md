@@ -139,39 +139,62 @@ constant is never hand-updated. Update it anyway for the static/offline view.
 
 ### A4. Tier system
 
-Tiers bind to a desk NFT asset id, not to a wallet. Upgrade-only (pay the step
-difference). **Burn-based, never lock-based** — the launcher's 70% leg pays
-per-wallet pro-rata on HUB held, so locked HUB would miss it; burned tiers never
-conflict.
+Tiers bind to a desk NFT asset id, not to a wallet. Every `activate_tier` /
+`upgrade_tier` call targets a tier directly (`target_tier`, 1..4) and pays two
+things at once:
 
-| Tier | Weight | Cumulative cost | To pot (90%) | To ops (10%) |
-|---|---|---|---|---|
-| T1 TRADER | 1.00x | 0.5 SOL | 0.45 | 0.05 |
-| T2 BROKER | 1.25x | 1.0 SOL | 0.90 | 0.10 |
-| T3 DEALER | 1.60x | 1.5 SOL | 1.35 | 0.15 |
-| T4 MARKET MAKER | 2.00x | 2.0 SOL | 1.80 | 0.20 |
+1. **A flat SOL fee** (`STEP_FEE_LAMPORTS = 0.5 SOL`) — paid once per call,
+   independent of how many tiers the call crosses. A fresh activation straight
+   into T4 costs the same 0.5 SOL as a fresh T1 activation; a later upgrade to
+   any higher tier pays this 0.5 SOL again, once, regardless of the size of the
+   jump — never `(to − from) × fee`.
+2. **A $HUB burn** — the tier's $HUB cost is a cumulative table looked up from
+   `Config.tier_hub_cost_units`; a fresh activation burns the full cost of the
+   target tier, an upgrade burns only the difference from the tier already
+   held (`hub_cost_delta`, never the same $HUB twice). Burned via spl-token
+   `BurnChecked` at the moment of activation/upgrade — permanent, independent
+   of the round-based buyback burn (§A7 below).
+
+**Burn-based, never lock-based** — the launcher's 70% leg pays per-wallet
+pro-rata on HUB held, so locked HUB would miss it; burned tiers never conflict.
+
+| Tier | Weight | SOL fee (flat, per call) | To pot (90%) | To ops (10%) | $HUB burn (cumulative) |
+|---|---|---|---|---|---|
+| T1 TRADER | 1.00x | 0.5 SOL | 0.45 | 0.05 | 100,000 $HUB |
+| T2 BROKER | 1.25x | 0.5 SOL | 0.45 | 0.05 | 125,000 $HUB |
+| T3 DEALER | 1.60x | 0.5 SOL | 0.45 | 0.05 | 150,000 $HUB |
+| T4 MARKET MAKER | 2.00x | 0.5 SOL | 0.45 | 0.05 | 200,000 $HUB |
+
+Example: a fresh activation straight into T4 pays 0.5 SOL + burns 200,000
+$HUB — one call, same SOL fee as a fresh T1. A holder who instead activates T1
+(0.5 SOL + 100,000 $HUB burned) and later upgrades to T4 pays another 0.5 SOL
+plus burns only the 100,000 $HUB difference (200,000 − 100,000) — never the
+same $HUB twice, but the flat SOL fee is paid again on every call.
 
 Display names are UI-only (`sdk/src/constants.ts` `TIER_NAMES`); the program
 stores tier indices 1–4 and weights in basis points.
 
 ### A4.1 Paying steps in $OTC (2× premium → POL reserve)
 
-Every step may alternatively be paid in $OTC via `activate_tier_otc` /
-`upgrade_tier_otc`. The tier result is identical (same weight, same stamp, same
-lazy-revocation rules); only the payment leg differs:
+Every call may alternatively pay its SOL leg in $OTC via `activate_tier_otc` /
+`upgrade_tier_otc` (same `target_tier` argument, same $HUB burn either way).
+The tier result is identical (same weight, same stamp, same lazy-revocation
+rules); only the SOL-equivalent payment leg differs:
 
 | | SOL path | $OTC path |
 |---|---|---|
-| Price per step | 0.5 SOL | `⌈0.5 SOL × otc_per_sol × 2.00⌉` $OTC units — the SOL value **at a fixed 2× premium** (`OTC_PREMIUM_BP = 20_000`, written at init, not updatable) |
+| Price per call | 0.5 SOL (flat, see §A4) | `⌈0.5 SOL × otc_per_sol × 2.00⌉` $OTC units — the flat SOL fee's value **at a fixed 2× premium** (`OTC_PREMIUM_BP = 20_000`, written at init, not updatable) |
 | Reference rate | — | `OtcPayConfig.otc_per_sol` ($OTC base units per SOL), refreshed by the authority keeper (`set_otc_rate`); the path rejects a rate older than `OTC_RATE_MAX_AGE = 24h` |
+| $HUB burn | full tier cost (fresh) / delta (upgrade) — burned either way | same, burned either way |
 | Proceeds | 90% pot / 10% ops | 100% → **POL reserve**: the `["vault"]` PDA's $OTC token account. Nothing enters the pot or ops; the $OTC can only leave via a program instruction (`build_lp(HubOtc)`, §A6.2 phase 2) — it is the $OTC leg of the $OTC/$HUB pair, never operating capital |
-| Round inflow | yes (source A) | **no** — an $OTC-paid step adds weight without adding SOL inflow |
+| Round inflow | yes (source A) | **no** — an $OTC-paid call adds weight without adding SOL inflow |
 
-Example at 1 SOL = 1,000 $OTC: T1 activation costs 0.5 SOL or 1,000 $OTC
-(500 $OTC of value × 2); T1→T4 costs 1.5 SOL or 3,000 $OTC. `OtcPayConfig` is a
-separate PDA created by the authority after `initialize_config` (`init_otc_payments`,
-starts disabled), so the path can be added to a live deployment without migrating
-`Config`; absent or disabled ⇒ SOL-only.
+Example at 1 SOL = 1,000 $OTC: a fresh T4 activation costs 0.5 SOL or 1,000
+$OTC (500 $OTC of value × 2) plus burns 200,000 $HUB either way — one call.
+`OtcPayConfig` is a separate PDA created by the authority after
+`initialize_config` (`init_otc_payments`, starts disabled), so the path can be
+added to a live deployment without migrating `Config`; absent or disabled ⇒
+SOL-only.
 
 ### A5. Yield engine
 
@@ -410,7 +433,7 @@ IDL account and singleton PDAs are listed in **Appendix — Deployment addresses
 
 | Account | Seeds (all under program id) | Key fields |
 |---|---|---|
-| `Config` | `["config"]` | authority, pot PDA, ops_wallet, treasury, **OTC-side refs** (otc_program, otc_desk_pot, desk_collection, hub_mint, otc_mint — runtime-set, §A2), tier_weights_bp[4], step_fee_lamports, min_pot_threshold_lamports (0.1 SOL), burn_pct_bp (1000), ops_pct_bp (1000), consignment_enabled, consignor_share_bp, lp_enabled, lp_target_sol_lamports, lp_phase2_open_ts, paused, current_epoch, genesis_ts, total_weight_bp, pot_liability_lamports, **acc_per_weight (u128, lifetime)**, **dust_scaled (u128)**, bumps |
+| `Config` | `["config"]` | authority, pot PDA, ops_wallet, treasury, **OTC-side refs** (otc_program, otc_desk_pot, desk_collection, hub_mint, otc_mint — runtime-set, §A2), tier_weights_bp[4], step_fee_lamports (flat, §A4), **tier_hub_cost_units[4]** (cumulative $HUB burn table, §A4), min_pot_threshold_lamports (0.1 SOL), burn_pct_bp (1000), ops_pct_bp (1000), consignment_enabled, consignor_share_bp, lp_enabled, lp_target_sol_lamports, lp_phase2_open_ts, paused, current_epoch, genesis_ts, total_weight_bp, pot_liability_lamports, **acc_per_weight (u128, lifetime)**, **dust_scaled (u128)**, bumps |
 | `Epoch` (one round) | `["epoch", epoch_index u64]` | index, start_ts, finalized_ts, inflow_lamports, distributed_lamports (credited), burn_pending_lamports, rolled_forward_lamports (floor remainder), total_weight_bp (Σw at close), per_weight_scaled, acc_per_weight_after, finalized |
 | `DeskTier` | `["tier", asset_id]` | asset_id, owner_at_activation, tier 1–4, activated_epoch, **stamp_acc_per_weight**, total_claimed_lamports, voided |
 | `ConsignedDesk` | `["consign", asset_id]` | asset_id, consignor, consigned_epoch, active |
@@ -436,8 +459,8 @@ the OTC program config on-chain and proposes updates.
 | # | Instruction | Accounts | Constraints |
 |---|---|---|---|
 | 1 | `initialize_config` | payer, Config, Pot, BurnState, TreasuryState, Vault, Epoch[0] | once; args = ops_wallet, treasury, otc_program, otc_desk_pot, desk_collection, hub_mint, otc_mint, tier weights, step fee, `min_pot_threshold_lamports`; payer becomes `Config.authority` and `BurnState.authority`; opens round 0 |
-| 2 | `activate_tier` | payer, desk NFT (Metaplex Core asset), Config, Pot, ops wallet, DeskTier | verify payer owns desk asset via Core plugin/DAS **inside the instruction**; tier = current+1 (or 1); pay 0.5 SOL: 90% → Pot, 10% → ops; mark 10% of inflow as burn-pending |
-| 3 | `upgrade_tier` | payer, desk NFT, Config, Pot, ops, DeskTier | pay step difference; same ownership check |
+| 2 | `activate_tier` | payer, desk NFT (Metaplex Core asset), Config, Epoch, Pot, ops wallet, hub_mint, payer $HUB ATA, Token program, DeskTier | args: `target_tier` (1..4); verify payer owns desk asset via Core plugin/DAS **inside the instruction**; fresh activation (or re-activation of a voided tier) straight into `target_tier`; pay flat 0.5 SOL: 90% → Pot, 10% → ops; `BurnChecked` the full $HUB cost of `target_tier` from the payer's $HUB ATA |
+| 3 | `upgrade_tier` | payer, desk NFT, Config, Epoch, Pot, ops, hub_mint, payer $HUB ATA, Token program, DeskTier | args: `target_tier`; pay the same flat 0.5 SOL fee again (once, regardless of step size); `BurnChecked` only the $HUB delta between the current tier and `target_tier`; same ownership check (mismatch → void, no charge) |
 | 4 | `finalize_epoch` | keeper (permissionless), Config, Epoch, next Epoch, Pot, BurnState | **threshold gate**: rejected (`PotBelowThreshold`) until inflow + dust carry ≥ `min_pot_threshold_lamports`; Σw > 0; 10% → burn-pending; `acc_per_weight += ⌊distributable × 10¹² / Σw⌋`; opens the next round with the floor remainder |
 | 5 | `claim_yield` | claimer, desk NFT, DeskTier, Config, Pot | **lazy revocation**: re-verify desk ownership on-chain NOW; if caller ≠ owner → void tier (voided = true, no refund) and revert; pay `⌊(acc − stamp) × w / 10¹²⌋` for every round since the stamp in one tx; stamp := acc; `NothingToClaim` when zero |
 | 5b | `claim_accrual` | wallet, StakerAccrual, Config, Pot | pay the wallet's consignor credits (`owed_lamports`) in one tx; `AccrualEmpty` when zero |
@@ -451,8 +474,8 @@ the OTC program config on-chain and proposes updates.
 | 13 | `build_lp` | treasury multisig, Config, treasury LP vault, AMM pool accounts | `lp_enabled` must be true; deposit paired liquidity per §A6.2 (HUB/SOL first, HUB/OTC only after phase-2 gate); LP tokens custodied in the treasury PDA vault; withdraw path can never sell HUB |
 | 14 | `init_otc_payments` | authority, Config, TreasuryState, Vault, pol_account, OtcPayConfig | §A4.1; `pol_account` must be an SPL token account with mint = `Config.otc_mint`, owner = vault PDA; creates `OtcPayConfig` disabled/unpriced with `premium_bp = OTC_PREMIUM_BP` |
 | 15 | `set_otc_rate` | authority, Config, OtcPayConfig | args `otc_per_sol`, `enabled`; stamps `rate_ts = now`; `enabled` with rate 0 rejected. The premium is not an argument |
-| 16 | `activate_tier_otc` | payer, desk NFT, Config, OtcPayConfig, otc_mint, payer $OTC ATA, pol_account, Token program, DeskTier | same gates/state as #2; requires `enabled`, rate fresh (≤ 24h); `TransferChecked` of `otc_fee(step_fee(0,1))` payer → POL reserve; no pot/ops/inflow booking; `total_otc_collected += fee` |
-| 17 | `upgrade_tier_otc` | payer, desk NFT, Config, OtcPayConfig, otc_mint, payer $OTC ATA, pol_account, Token program, DeskTier | same gates/state as #3 (ownership change → void, no charge; `ClaimBeforeUpgrade`); fee `otc_fee(step_fee(from, target))` → POL reserve |
+| 16 | `activate_tier_otc` | payer, desk NFT, Config, OtcPayConfig, otc_mint, payer $OTC ATA, pol_account, hub_mint, payer $HUB ATA, Token program, DeskTier | args: `target_tier`; same gates/state as #2; requires `enabled`, rate fresh (≤ 24h); `TransferChecked` of `otc_fee(step_fee(0, target_tier))` payer → POL reserve; `BurnChecked` the full $HUB cost of `target_tier`; no pot/ops/inflow booking; `total_otc_collected += fee` |
+| 17 | `upgrade_tier_otc` | payer, desk NFT, Config, OtcPayConfig, otc_mint, payer $OTC ATA, pol_account, hub_mint, payer $HUB ATA, Token program, DeskTier | args: `target_tier`; same gates/state as #3 (ownership change → void, no charge; `ClaimBeforeUpgrade`); fee `otc_fee(step_fee(from, target_tier))` → POL reserve; `BurnChecked` only the $HUB delta between `from` and `target_tier` |
 
 Program-level invariants to assert everywhere: `inflow_lamports ==
 distributed + burn_pending + rolled_forward`; pot lamports ≥ liability; DeskTier
@@ -501,7 +524,8 @@ keeper-anyone with a small reward? — start permissioned, open later).
 ### B5. Test plan (the other agent must implement all)
 
 **Unit (Rust):**
-- Tier math: step differences, weight lookups, void semantics.
+- Tier math: flat SOL fee regardless of step size, $HUB burn cost deltas,
+  weight lookups, void semantics.
 - Epoch math: pro-rata distribution, 90/10 split, roll-forward, no rounding
   loss (last claimer gets remainder).
 - Config guardrails: bp bounds, whitelisted update fields.
@@ -515,7 +539,8 @@ keeper-anyone with a small reward? — start permissioned, open later).
 - **Lazy revocation**: transfer the desk NFT mid-round → old owner's claim
   reverts and voids the tier; new owner cannot claim without re-activating; no
   refund emitted.
-- Upgrade path T1→T4 pays exactly the difference; double-upgrade rejected.
+- Upgrade path T1→T4 pays the flat SOL fee again (once) and burns exactly the
+  $HUB difference (never the full T4 cost twice); double-upgrade rejected.
 - Multi-round catch-up: a desk that skips rounds 1–2 claims both in one tx in
   round 3; Σ payouts + dust == credited exactly (zero-sum, ≤ 1 lamport floor per
   claim); whole-lamport dust re-enters the next round as inflow.
@@ -700,14 +725,16 @@ round_size     = max(min_pot_threshold, effective_inflow_live)
 proj_round_i   = (w_i / Σw_live) × 0.90 × round_size
 rounds_per_day = 86400 / (last_round.finalized_ts − last_round.start_ts)   # null before first close
 proj_daily_i   = proj_round_i × rounds_per_day
-breakeven      = cumulative_cost_i / proj_round_i                          # in rounds
+breakeven      = STEP_FEE_LAMPORTS / proj_round_i   # flat SOL fee ÷ payout — same fee at every tier
 vs_raw         = proj_daily_i / D_live              # multiplier vs raw desk take
 ```
 
-Displayed per tier: cumulative cost, live weight, projected SOL/day (with USD),
-breakeven in days, and the **vs-raw multiplier** — the single number the whole
-product reduces to. Column beside it: the raw desk earning (D) so the comparison
-is unmissable. All projections labeled `ESTIMATE — scales with Σw; not a promise`.
+Displayed per tier: flat SOL fee + cumulative $HUB burn (§A4), live weight,
+projected SOL/day (with USD), breakeven in days, and the **vs-raw multiplier**
+— the single number the whole product reduces to. Column beside it: the raw
+desk earning (D) so the comparison is unmissable. Breakeven counts only the
+SOL fee (the $HUB burn has no SOL-denominated price on-chain to net against
+it). All projections labeled `ESTIMATE — scales with Σw; not a promise`.
 
 ### C5. Scenario toggle
 
@@ -752,8 +779,9 @@ treasury ATA is the only locked holder.
 | Constant | Value |
 |---|---|
 | TIER_STEPS / WEIGHTS | 4 / [1.00, 1.25, 1.60, 2.00] |
-| STEP_FEE | 0.5 SOL (90% pot / 10% ops) |
-| OTC_PREMIUM | 2.00× (20_000 bp) — $OTC step price = SOL step value × premium (§A4.1); 100% → POL reserve |
+| STEP_FEE | 0.5 SOL, flat — paid once per `activate_tier`/`upgrade_tier` call regardless of tiers crossed (90% pot / 10% ops) |
+| TIER_HUB_COST (cumulative) | T1 100,000 / T2 125,000 / T3 150,000 / T4 200,000 $HUB — fresh activation burns the full target-tier cost, upgrade burns only the delta from the current tier (§A4) |
+| OTC_PREMIUM | 2.00× (20_000 bp) — $OTC price = flat STEP_FEE value × premium (§A4.1); 100% → POL reserve |
 | OTC_RATE_MAX_AGE | 24h — $OTC path rejects an `otc_per_sol` older than this |
 | MIN_POT_THRESHOLD | 0.1 SOL per round (no clock; `update_config`-adjustable) |
 | ACC_SCALE | 10¹² (accumulator precision) |

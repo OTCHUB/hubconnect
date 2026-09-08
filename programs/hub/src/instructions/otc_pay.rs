@@ -6,6 +6,11 @@
 //! via a spl-token `TransferChecked` into the program-custodied POL reserve. Nothing enters
 //! the pot or ops wallet on this path; the tier-state mutation is shared with `tiers.rs`.
 //! Raw SPL layouts are read directly (no anchor-spl), matching the mpl-core approach.
+//!
+//! This module also hosts `burn_checked`, the raw spl-token `BurnChecked` helper both this
+//! module's OTC-priced activate/upgrade path and `tiers.rs`'s SOL-priced path use to destroy the
+//! $HUB tier cost — it's a generic SPL primitive, not $OTC-specific, but lives beside the other
+//! hand-rolled token-program helpers to avoid a third near-empty module.
 
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::{instruction::Instruction, program::invoke_signed};
@@ -94,6 +99,40 @@ pub fn transfer_checked<'info>(
         &[from.clone(), mint.clone(), to.clone(), authority.clone()],
         signer_seeds,
     )?;
+    Ok(())
+}
+
+/// spl-token `BurnChecked { amount, decimals }` — destroys `amount` from `account` (mint =
+/// `mint`); `authority` is always a tx signer here (the token account's own owner), never a PDA,
+/// so `invoke` (no seeds) would also work, but `invoke_signed` with `&[]` is equivalent and keeps
+/// this symmetric with `transfer_checked`.
+pub fn burn_checked<'info>(
+    token_program: &AccountInfo<'info>,
+    account: &AccountInfo<'info>,
+    mint: &AccountInfo<'info>,
+    authority: &AccountInfo<'info>,
+    amount: u64,
+) -> Result<()> {
+    require_keys_eq!(
+        *token_program.key,
+        TOKEN_PROGRAM_ID,
+        HubError::WrongTokenProgram
+    );
+    let decimals = mint_decimals(mint)?;
+    let mut data = Vec::with_capacity(10);
+    data.push(TOKEN_IX_BURN_CHECKED);
+    data.extend_from_slice(&amount.to_le_bytes());
+    data.push(decimals);
+    let ix = Instruction {
+        program_id: TOKEN_PROGRAM_ID,
+        accounts: vec![
+            AccountMeta::new(*account.key, false),
+            AccountMeta::new(*mint.key, false),
+            AccountMeta::new_readonly(*authority.key, true),
+        ],
+        data,
+    };
+    invoke_signed(&ix, &[account.clone(), mint.clone(), authority.clone()], &[])?;
     Ok(())
 }
 
@@ -192,7 +231,13 @@ pub struct ActivateTierOtc<'info> {
     /// CHECK: POL reserve recorded on OtcPayConfig at init.
     #[account(mut, address = otc_pay.pol_account @ HubError::InvalidTokenAccount)]
     pub pol_account: UncheckedAccount<'info>,
-    /// CHECK: classic SPL Token program, asserted in `transfer_checked`.
+    /// CHECK: matched against config.hub_mint; decimals read for BurnChecked; supply mutates.
+    #[account(mut, address = config.hub_mint @ HubError::InvalidTokenAccount)]
+    pub hub_mint: UncheckedAccount<'info>,
+    /// CHECK: payer's $HUB token account (mint/owner verified in handler); burned on activation.
+    #[account(mut)]
+    pub payer_hub: UncheckedAccount<'info>,
+    /// CHECK: classic SPL Token program, asserted in `transfer_checked` / `burn_checked`.
     pub token_program: UncheckedAccount<'info>,
     #[account(
         init_if_needed, payer = payer, space = 8 + DeskTier::INIT_SPACE,
@@ -202,8 +247,10 @@ pub struct ActivateTierOtc<'info> {
     pub system_program: Program<'info, System>,
 }
 
-/// `activate_tier` paid in $OTC (§A4.1). Same tier semantics; fee = `otc_fee(step_fee(0,1))`.
-pub fn activate_tier_otc(ctx: Context<ActivateTierOtc>) -> Result<()> {
+/// `activate_tier` paid in $OTC (§A4.1) into any tier `target_tier` (fresh activation, exactly
+/// like the SOL path): flat `otc_fee(step_fee(0, target_tier))` + the full $HUB cost of
+/// `target_tier`, burned.
+pub fn activate_tier_otc(ctx: Context<ActivateTierOtc>, target_tier: u8) -> Result<()> {
     let asset = require_desk(
         &ctx.accounts.desk_asset,
         &ctx.accounts.config.desk_collection,
@@ -221,11 +268,17 @@ pub fn activate_tier_otc(ctx: Context<ActivateTierOtc>) -> Result<()> {
         &ctx.accounts.config.otc_mint,
         ctx.accounts.payer.key,
     )?;
+    require_token_account(
+        &ctx.accounts.payer_hub,
+        &ctx.accounts.config.hub_mint,
+        ctx.accounts.payer.key,
+    )?;
 
     let config = &mut ctx.accounts.config;
     let p = &mut ctx.accounts.otc_pay;
-    let fee = config.step_fee(0, 1)?;
+    let fee = config.step_fee(0, target_tier)?;
     let otc = p.otc_fee(fee)?;
+    let hub_cost = config.hub_cost_delta(0, target_tier)?;
     transfer_checked(
         &ctx.accounts.token_program,
         &ctx.accounts.payer_otc,
@@ -239,24 +292,33 @@ pub fn activate_tier_otc(ctx: Context<ActivateTierOtc>) -> Result<()> {
         .total_otc_collected
         .checked_add(otc)
         .ok_or_else(|| error!(HubError::MathOverflow))?;
+    burn_checked(
+        &ctx.accounts.token_program,
+        &ctx.accounts.payer_hub,
+        &ctx.accounts.hub_mint,
+        &ctx.accounts.payer,
+        hub_cost,
+    )?;
 
     let epoch = apply_activation(
         config,
         t,
         ctx.accounts.desk_asset.key(),
         asset.owner,
+        target_tier,
         ctx.bumps.desk_tier,
     )?;
     emit!(TierPaidOtc {
         asset: t.asset_id,
         owner: asset.owner,
         from_tier: 0,
-        to_tier: 1,
+        to_tier: target_tier,
         epoch,
         sol_equivalent_lamports: fee,
         otc_paid: otc,
         otc_per_sol: p.otc_per_sol,
         premium_bp: p.premium_bp,
+        hub_burned_units: hub_cost,
     });
     Ok(())
 }
@@ -280,7 +342,13 @@ pub struct UpgradeTierOtc<'info> {
     /// CHECK: POL reserve recorded on OtcPayConfig at init.
     #[account(mut, address = otc_pay.pol_account @ HubError::InvalidTokenAccount)]
     pub pol_account: UncheckedAccount<'info>,
-    /// CHECK: classic SPL Token program, asserted in `transfer_checked`.
+    /// CHECK: matched against config.hub_mint; decimals read for BurnChecked; supply mutates.
+    #[account(mut, address = config.hub_mint @ HubError::InvalidTokenAccount)]
+    pub hub_mint: UncheckedAccount<'info>,
+    /// CHECK: payer's $HUB token account (mint/owner verified in handler); burned on upgrade.
+    #[account(mut)]
+    pub payer_hub: UncheckedAccount<'info>,
+    /// CHECK: classic SPL Token program, asserted in `transfer_checked` / `burn_checked`.
     pub token_program: UncheckedAccount<'info>,
     #[account(
         mut, seeds = [SEED_TIER, desk_asset.key().as_ref()], bump = desk_tier.bump,
@@ -289,8 +357,9 @@ pub struct UpgradeTierOtc<'info> {
     pub desk_tier: Account<'info, DeskTier>,
 }
 
-/// `upgrade_tier` paid in $OTC (§A4.1): `otc_fee(step_fee(from, target))`. Ownership change →
-/// void, no charge — identical to the SOL path.
+/// `upgrade_tier` paid in $OTC (§A4.1): flat `otc_fee(step_fee(from, target))` + the $HUB cost
+/// difference for `from → target`, burned. Ownership change → void, no charge — identical to
+/// the SOL path.
 pub fn upgrade_tier_otc(ctx: Context<UpgradeTierOtc>, target_tier: u8) -> Result<()> {
     let asset = require_desk(
         &ctx.accounts.desk_asset,
@@ -312,11 +381,17 @@ pub fn upgrade_tier_otc(ctx: Context<UpgradeTierOtc>, target_tier: u8) -> Result
         &config.otc_mint,
         ctx.accounts.payer.key,
     )?;
+    require_token_account(
+        &ctx.accounts.payer_hub,
+        &config.hub_mint,
+        ctx.accounts.payer.key,
+    )?;
     let from = settle_for_upgrade(config, t)?;
 
     let p = &mut ctx.accounts.otc_pay;
     let fee = config.step_fee(from, target_tier)?;
     let otc = p.otc_fee(fee)?;
+    let hub_cost = config.hub_cost_delta(from, target_tier)?;
     transfer_checked(
         &ctx.accounts.token_program,
         &ctx.accounts.payer_otc,
@@ -330,6 +405,13 @@ pub fn upgrade_tier_otc(ctx: Context<UpgradeTierOtc>, target_tier: u8) -> Result
         .total_otc_collected
         .checked_add(otc)
         .ok_or_else(|| error!(HubError::MathOverflow))?;
+    burn_checked(
+        &ctx.accounts.token_program,
+        &ctx.accounts.payer_hub,
+        &ctx.accounts.hub_mint,
+        &ctx.accounts.payer,
+        hub_cost,
+    )?;
 
     apply_upgrade(config, t, target_tier)?;
     emit!(TierPaidOtc {
@@ -342,6 +424,7 @@ pub fn upgrade_tier_otc(ctx: Context<UpgradeTierOtc>, target_tier: u8) -> Result
         otc_paid: otc,
         otc_per_sol: p.otc_per_sol,
         premium_bp: p.premium_bp,
+        hub_burned_units: hub_cost,
     });
     Ok(())
 }

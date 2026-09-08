@@ -79,6 +79,7 @@ pub fn initialize_config(ctx: Context<InitializeConfig>, args: InitializeConfigA
     c.otc_mint = args.otc_mint;
     c.tier_weights_bp = TIER_WEIGHTS_BP;
     c.step_fee_lamports = STEP_FEE_LAMPORTS;
+    c.tier_hub_cost_units = TIER_HUB_COST_UNITS;
     c.min_pot_threshold_lamports = threshold;
     c.burn_pct_bp = BURN_PCT_BP;
     c.ops_pct_bp = OPS_PCT_BP;

@@ -11,9 +11,26 @@ pub const LAMPORTS_PER_SOL: u64 = 1_000_000_000;
 pub const TIER_COUNT: usize = 4;
 pub const TIER_WEIGHTS_BP: [u16; TIER_COUNT] = [10_000, 12_500, 16_000, 20_000];
 
-/// STEP_FEE = 0.5 SOL per tier step (90% pot / 10% ops).
+/// ACTIVATION_FEE = 0.5 SOL, paid FLAT once per `activate_tier` / `upgrade_tier` call (90% pot /
+/// 10% ops) — independent of how many tier-steps the call crosses. A fresh activation into any
+/// tier (T1..T4) pays this once; a later upgrade to a higher tier pays it again, once, regardless
+/// of the size of the jump — never `(to - from) × fee`. (Named STEP_FEE for historical/layout
+/// reasons; see `Config::step_fee`, which no longer scales with the step count.)
 pub const STEP_FEE_LAMPORTS: u64 = LAMPORTS_PER_SOL / 2;
 pub const OPS_PCT_BP: u16 = 1_000;
+
+/// TIER_HUB_COST: $HUB base units required to reach each tier from scratch (cumulative table,
+/// not incremental) — T1 100k, T2 125k, T3 150k, T4 200k. A fresh activation burns the full cost
+/// of the target tier; a later upgrade burns only the difference from the tier it's already at
+/// (never pays for the same $HUB twice). Burned via spl-token `BurnChecked` at the moment of
+/// activation/upgrade, so every tier change permanently shrinks supply — independent of, and in
+/// addition to, the round-based buyback burn (`record_burn`).
+pub const TIER_HUB_COST_UNITS: [u64; TIER_COUNT] = [
+    100_000 * HUB_UNIT,
+    125_000 * HUB_UNIT,
+    150_000 * HUB_UNIT,
+    200_000 * HUB_UNIT,
+];
 
 /// BUYBACK_BURN_PCT = 10% of every pot inflow.
 pub const BURN_PCT_BP: u16 = 1_000;
@@ -102,6 +119,8 @@ pub const SEED_AIRDROP: &[u8] = b"airdrop";
 pub const TOKEN_PROGRAM_ID: Pubkey = pubkey!("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
 /// spl-token `TransferChecked` instruction discriminator.
 pub const TOKEN_IX_TRANSFER_CHECKED: u8 = 12;
+/// spl-token `BurnChecked` instruction discriminator.
+pub const TOKEN_IX_BURN_CHECKED: u8 = 15;
 /// spl-token `Account` length; `Mint.decimals` offset.
 pub const TOKEN_ACCOUNT_LEN: usize = 165;
 pub const MINT_DECIMALS_OFFSET: usize = 44;
