@@ -53,7 +53,6 @@ export function MechanicsPanel({ state }: { state: ProtocolState }) {
           <Row k="burn rate / round" v={fmtBp(config.burnPctBp)} />
           <Row k="protocol fee" v={fmtBp(config.opsPctBp)} />
           <Row k="reward round trigger" v={fmtSol(config.minPotThresholdLamports)} />
-          <Row k="referral share" v={fmtBp(config.consignorShareBp)} />
         </div>
         <FlywheelDiagram />
       </Panel>
@@ -162,21 +161,16 @@ export function MechanicsPanel({ state }: { state: ProtocolState }) {
             are capped at 10% of treasury SOL per desk and only target verified sellers.
           </li>
           <li className={li}>
-            Any holder can also donate a desk to the treasury without giving up ownership — they
-            keep the right to withdraw it later, and can optionally route a share of its earnings
-            back to themselves as a referral share ({fmtBp(config.consignorShareBp)} default).
-          </li>
-          <li className={li}>
-            Every desk the treasury owns or holds for a donor earns rewards exactly like any other
-            desk, and that income feeds straight back into the same reward pool everyone shares
-            from. A bigger treasury desk stack means a bigger reward pool for every activated desk —{" "}
+            Every desk the treasury owns earns rewards exactly like any other desk, and that income
+            feeds straight back into the same reward pool everyone shares from. A bigger treasury
+            desk stack means a bigger reward pool for every activated desk —{" "}
             {config.tierWeightsBp.map((w, i) => `${TIER_NAMES[i]} ${fmtWeight(w)}`).join(" / ")}—
             with zero dilution to any holder.
           </li>
           <li className={li}>
             Occasionally the treasury sells a desk back to the market at a 10% discount to manage
             its holdings: half the sale burns $HUB immediately, the other half tops up the reward
-            pool. Donated desks are permanently excluded from ever being sold.
+            pool.
           </li>
         </ul>
         <MermaidBlock source={TREASURY_DIAGRAM} title="treasury yield boost (technical detail)" />

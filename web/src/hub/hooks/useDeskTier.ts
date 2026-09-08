@@ -1,12 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { PublicKey } from "@solana/web3.js";
-import {
-  fetchConsignment,
-  fetchDeskTier,
-  fetchEpoch,
-  pendingYieldLamports,
-  type ConfigView,
-} from "@hub-sdk";
+import { fetchDeskTier, fetchEpoch, pendingYieldLamports, type ConfigView } from "@hub-sdk";
 import { useHub } from "../HubProvider";
 import { fetchDeskArt, type DeskAssetArt } from "../lib/das";
 
@@ -36,12 +30,11 @@ export function useDeskTier(asset: string, config: ConfigView | null) {
     ],
     enabled: key !== null && config !== null,
     queryFn: async () => {
-      const [tier, consignment, art] = await Promise.all([
+      const [tier, art] = await Promise.all([
         fetchDeskTier(program, key!),
-        fetchConsignment(program, key!),
         fetchDeskArt(connection.rpcEndpoint, key!.toBase58()),
       ]);
-      if (!tier || config === null) return { tier, consignment, pending: null, art };
+      if (!tier || config === null) return { tier, pending: null, art };
 
       // Exact, one-tx claimable amount: ⌊(acc − stamp) × w / 10¹²⌋ — no per-round scan needed.
       const lamports = pendingYieldLamports(tier, config);
@@ -58,7 +51,7 @@ export function useDeskTier(asset: string, config: ConfigView | null) {
         if (!e || !e.finalized || e.accPerWeightAfter <= tier.stampAccPerWeight) break;
         rounds++;
       }
-      return { tier, consignment, pending: { lamports, rounds, truncated }, art };
+      return { tier, pending: { lamports, rounds, truncated }, art };
     },
   });
 }

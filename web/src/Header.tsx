@@ -1,6 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { NavLink } from "react-router-dom";
-import { EnvBadge, rpcHost, useHub } from "./hub";
+import { EnvBadge, rpcHost, useHub, useWallet } from "./hub";
+import { WalletConnect } from "./hub/components/WalletConnect";
+import { AddressLink } from "./hub/components/ui/AddressLink";
+import { CopyButton } from "./hub/components/ui/CopyButton";
 import { shortKey } from "./hub/lib/format";
 
 // otchub header buttons: bordered, uppercase, green-500/50 outline, tinted when active.
@@ -19,43 +22,89 @@ const fomoLinkCls =
 const walletLinkCls =
   "inline-flex items-center gap-1 whitespace-nowrap border border-emerald-500/70 px-2 py-1 text-[10px] font-bold tracking-widest text-emerald-400 hover:bg-emerald-500/10 sm:px-2.5";
 
-const WALLET_STORAGE_KEY = "hub:wallet";
-
-/** Compact connect/status control — mirrors WalletPanel's connected state (same storage key +
- * change event) without duplicating the full connect flow; jumps to/opens the WALLET_CONNECT
- * panel on the dashboard route. */
+/**
+ * Top-of-app connect control — the one place a user needs to connect a wallet. Backed by the
+ * app-wide `WalletProvider` (see `hub/WalletProvider.tsx`), so once connected here the same
+ * address/signer is available to every panel below (portfolio, activate, claim, swap, airdrop
+ * checker) without reconnecting.
+ */
 function HeaderWallet() {
-  const [address, setAddress] = useState<string | null>(() => {
-    try {
-      return localStorage.getItem(WALLET_STORAGE_KEY);
-    } catch {
-      return null;
-    }
-  });
-  useEffect(() => {
-    const refresh = () => {
-      try {
-        setAddress(localStorage.getItem(WALLET_STORAGE_KEY));
-      } catch {
-        setAddress(null);
-      }
-    };
-    window.addEventListener("hub:wallet-changed", refresh);
-    window.addEventListener("storage", refresh);
-    return () => {
-      window.removeEventListener("hub:wallet-changed", refresh);
-      window.removeEventListener("storage", refresh);
-    };
-  }, []);
+  const { address, connecting, connect, disconnect } = useWallet();
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
 
-  const goToWallet = () => {
-    document.getElementById("hub-wallet")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  useEffect(() => {
+    if (!open) return;
+    const onOutside = (e: MouseEvent) => {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onEsc = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onOutside);
+    document.addEventListener("keydown", onEsc);
+    return () => {
+      document.removeEventListener("mousedown", onOutside);
+      document.removeEventListener("keydown", onEsc);
+    };
+  }, [open]);
+
+  const onConnected = (pk: string) => {
+    connect(pk);
+    setOpen(false);
   };
 
+  const label = address
+    ? `[ ${shortKey(address, 4)} ]`
+    : connecting
+      ? "[ RECONNECTING... ]"
+      : "[ CONNECT_WALLET ]";
+
   return (
-    <a href="#hub-wallet" onClick={goToWallet} className={walletLinkCls} title="wallet connect">
-      {address ? `[ ${shortKey(address, 4)} ]` : "[ CONNECT_WALLET ]"}
-    </a>
+    <div className="relative" ref={rootRef}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className={walletLinkCls}
+        title={address ? "wallet menu" : "connect a wallet"}
+        aria-expanded={open}
+      >
+        {label}
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full z-50 mt-1.5 w-[min(22rem,90vw)] border border-green-500/40 bg-black p-3 text-left shadow-lg shadow-black/60">
+          {address ? (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-[10px] uppercase tracking-widest text-green-500/60">
+                <span>CONNECTED</span>
+                <CopyButton text={address} />
+              </div>
+              <div className="text-xs">
+                <AddressLink address={address} full />
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  disconnect();
+                  setOpen(false);
+                }}
+                className="w-full border border-amber-500/40 px-2 py-1 text-[10px] uppercase tracking-widest text-amber-400 hover:bg-amber-500/10"
+              >
+                [DISCONNECT]
+              </button>
+              <div className="border-t border-green-500/20 pt-2">
+                <span className="text-[10px] text-green-500/50">SWITCH_WALLET:</span>
+                <div className="mt-1.5">
+                  <WalletConnect onConnected={onConnected} />
+                </div>
+              </div>
+            </div>
+          ) : (
+            <WalletConnect onConnected={onConnected} />
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 

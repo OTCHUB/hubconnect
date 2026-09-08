@@ -200,14 +200,12 @@ export function DeploymentsPage() {
           <div className="space-y-3">
             <div className="flex flex-wrap gap-2">
               <Flag on={!config.paused} label="LIVE" />
-              <Flag on={config.consignmentEnabled} label="CONSIGNMENT" />
               <Flag on={config.lpEnabled} label="LP" />
             </div>
             <div className="grid grid-cols-1 gap-x-4 sm:grid-cols-2">
               <Row k="burn split (round)" v={fmtBp(config.burnPctBp, 2)} />
               <Row k="lp split (round)" v={fmtBp(config.lpPctBp, 2)} />
               <Row k="ops split (step fee)" v={fmtBp(config.opsPctBp, 2)} />
-              <Row k="consignor share" v={fmtBp(config.consignorShareBp, 2)} />
               <Row k="round-close threshold" v={fmtSol(config.minPotThresholdLamports)} />
               <Row k="tier step fee" v={fmtSol(config.stepFeeLamports)} />
               <Row k="lp target (phase-2)" v={fmtSol(config.lpTargetSolLamports)} />

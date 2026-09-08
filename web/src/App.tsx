@@ -1,5 +1,6 @@
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { HubProvider, HubRoutes, useHub } from "./hub";
+import { WalletProvider } from "./hub/WalletProvider";
 import { Header } from "./Header";
 import { Footer } from "./Footer";
 import { TerminalBottomBar, TerminalTopBar } from "./TerminalBars";
@@ -38,9 +39,11 @@ export function App() {
       programId={shellConfig.programId}
       cluster={shellConfig.cluster}
     >
-      <BrowserRouter>
-        <AppShell />
-      </BrowserRouter>
+      <WalletProvider>
+        <BrowserRouter>
+          <AppShell />
+        </BrowserRouter>
+      </WalletProvider>
     </HubProvider>
   );
 }

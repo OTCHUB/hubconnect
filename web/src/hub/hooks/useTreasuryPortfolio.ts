@@ -14,8 +14,6 @@ import { baseInputs, roundsPerDay, tierPayoutLamports } from "../lib/yield";
 
 export type TreasuryDesk = {
   asset: string;
-  /** "owned" = bought on secondary (multisig wallet); "consigned" = held in the vault PDA for a consignor. */
-  custody: "owned" | "consigned";
   tier: DeskTierView | null;
   pendingLamports: number;
   /** Projected SOL/round for this desk's tier under current inputs (0 when not activated). */
@@ -61,16 +59,12 @@ export function useTreasuryPortfolio(state: ProtocolState | null) {
       const otcMint = new PublicKey(config.otcMint);
       const [otcAta] = ataPda(treasury, otcMint);
 
-      const [owned, consigned, solLamports, otc] = await Promise.all([
+      const [owned, solLamports, otc] = await Promise.all([
         fetchOwnedDesks(connection, treasury, collection),
-        fetchOwnedDesks(connection, vault, collection),
         connection.getBalance(treasury, "confirmed"),
         connection.getTokenAccountBalance(otcAta, "confirmed").catch(() => null),
       ]);
-      const all = [
-        ...owned.map((a) => ({ asset: a, custody: "owned" as const })),
-        ...consigned.map((a) => ({ asset: a, custody: "consigned" as const })),
-      ];
+      const all = owned.map((a) => ({ asset: a }));
       const tiers = await Promise.all(all.map((d) => fetchDeskTier(program, d.asset)));
 
       const inputs = baseInputs(state!.currentEpoch, config);
@@ -80,7 +74,6 @@ export function useTreasuryPortfolio(state: ProtocolState | null) {
         const active = tier && !tier.voided;
         return {
           asset: d.asset.toBase58(),
-          custody: d.custody,
           tier,
           pendingLamports: active ? pendingYieldLamports(tier, config) : 0,
           roundLamports: active ? tierPayoutLamports(tier.tier, inputs) : 0,

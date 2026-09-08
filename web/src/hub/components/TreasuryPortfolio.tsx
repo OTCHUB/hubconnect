@@ -18,11 +18,6 @@ function DeskRow({ desk }: { desk: TreasuryDesk }) {
   return (
     <div className="flex items-center gap-2 border-b border-green-500/10 px-2 py-1 text-xs last:border-0">
       <AddressLink address={desk.asset} />
-      <span
-        className={`text-[10px] ${desk.custody === "owned" ? "text-emerald-500" : "text-amber-500"}`}
-      >
-        {desk.custody.toUpperCase()}
-      </span>
       <span className={`flex-1 ${tone}`}>{label}</span>
       <span className="w-24 text-right text-green-400">{fmtSol(desk.pendingLamports, 4)}</span>
       <a
@@ -133,8 +128,8 @@ export function TreasuryPortfolio({ state }: { state: ProtocolState }) {
             </div>
           )}
           <div className="mt-2 text-[10px] text-green-700">
-            OWNED = bought on Magic Eden by the multisig; CONSIGNED = held in the vault PDA for a
-            consignor. Per-day is an estimate from the last closed round's cadence.
+            Desks bought on Magic Eden by the multisig. Per-day is an estimate from the last
+            closed round's cadence.
           </div>
         </>
       )}

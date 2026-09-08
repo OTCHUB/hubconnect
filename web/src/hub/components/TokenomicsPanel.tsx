@@ -76,7 +76,7 @@ export function TokenomicsPanel({ state }: { state: ProtocolState }) {
             value={fmtNum(deskCount)}
             sub={
               deskCountSource === "snapshot"
-                ? `snapshot ${onChain ? fmtUtc(onChain.snapshotTs) : ""}`
+                ? `round ${onChain?.snapshotRound ?? 1} · ${onChain ? fmtUtc(onChain.snapshotTs) : ""}`
                 : `target · launch policy cap (live: ${fmtNum(liveDeskCount)} today)`
             }
           />
@@ -93,7 +93,11 @@ export function TokenomicsPanel({ state }: { state: ProtocolState }) {
           <Stat
             label="yield reserve"
             value={fmtHub(plan.yieldReserveUnits, d)}
-            sub="$OTC · CRCLx · OpenAI · Anthropic basket · never sold"
+            sub={
+              onChain
+                ? `floor · locked in vault, no withdraw ix exists`
+                : "$OTC · CRCLx · OpenAI · Anthropic basket · never sold"
+            }
           />
           <Stat
             label="LP reserve"
@@ -155,9 +159,49 @@ export function TokenomicsPanel({ state }: { state: ProtocolState }) {
           v={onChain ? <AddressLink address={onChain.airdropVault} /> : "—"}
         />
         <Row
+          k="snapshot round"
+          v={
+            onChain
+              ? `${fmtNum(onChain.snapshotRound)}${onChain.snapshotRound > 1 ? " · desk count extended since round 1" : ""}`
+              : "—"
+          }
+        />
+        <Row
           k="tokenomics PDA"
           v={<AddressLink address={tokenomicsPda(programId)[0].toBase58()} />}
         />
+      </Panel>
+
+      <Panel title="TREASURY LOCK">
+        <Row
+          k="floor"
+          v={onChain ? `${fmtHub(onChain.treasuryLockUnits, d)} · 2% of max supply` : "—"}
+        />
+        <Row
+          k="vault"
+          v={onChain ? <AddressLink address={onChain.treasuryLockVault} /> : "—"}
+        />
+        <Row
+          k="mechanism"
+          v="the genesis floor is never debited; OTC-launcher holder rewards deposited on top via fund_treasury_reward are redistributed to active desk holders by tier weight"
+        />
+        <Row
+          k="reward pool deposited"
+          v={onChain ? fmtHub(onChain.rewardDepositedUnits, d) : "—"}
+        />
+        <Row
+          k="reward pool distributed"
+          v={onChain ? fmtHub(onChain.rewardDistributedUnits, d) : "—"}
+        />
+        <Row
+          k="reward pool pending"
+          v={
+            onChain
+              ? `${fmtHub(onChain.rewardPendingUnits, d)}${onChain.rewardPendingUnits > 0n ? " · awaiting open_reward_round" : ""}`
+              : "—"
+          }
+        />
+        <Row k="reward rounds opened" v={onChain ? fmtNum(onChain.rewardRoundCount) : "—"} />
       </Panel>
 
       <CollapsibleCard

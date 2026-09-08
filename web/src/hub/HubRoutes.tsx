@@ -1,4 +1,5 @@
 import { Navigate, Route, Routes } from "react-router-dom";
+import { AirdropPage } from "./routes/AirdropPage";
 import { Dashboard, type DashboardProps } from "./routes/Dashboard";
 import { DeploymentsPage } from "./routes/DeploymentsPage";
 import { DeskPage } from "./routes/DeskPage";
@@ -15,7 +16,10 @@ export type HubRoutesProps = DashboardProps;
  *   "tokenomics"    supply allocation (on-chain TokenomicsConfig) · airdrop · Dexscreener payload
  *   "mechanics"     activation lifecycle · fee flow · treasury flywheel · buyback/LP (Mermaid + docs)
  *   "deployments"   program / PDA / dependency registry with Solscan links
- *   "desk/:asset"   per-desk tier / consignment / unclaimed estimate
+ *   "desk/:asset"   per-desk tier / unclaimed estimate
+ *   "airdrop"       §A7.1 genesis airdrop checker — reachable by direct link only, not yet in
+ *                   Header.tsx's nav (see AirdropPage.tsx); it self-gates on-chain via
+ *                   TokenomicsConfig.airdropRootSet until the snapshot is actually published.
  */
 export function HubRoutes(props: HubRoutesProps) {
   return (
@@ -25,6 +29,7 @@ export function HubRoutes(props: HubRoutesProps) {
       <Route path="tokenomics" element={<TokenomicsPage />} />
       <Route path="mechanics" element={<MechanicsPage />} />
       <Route path="deployments" element={<DeploymentsPage />} />
+      <Route path="airdrop" element={<AirdropPage />} />
       <Route path="desk/:asset" element={<DeskPage />} />
       <Route path="*" element={<Navigate to=".." relative="route" replace />} />
     </Routes>

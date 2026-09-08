@@ -30,7 +30,6 @@ export function TreasuryPanel({ state }: { state: ProtocolState }) {
             value={fmtNum(treasury.desksOwned)}
             sub={`bought via sweeps · ${treasuryDeskProgressPct(treasury.desksOwned)}% of ${fmtNum(TREASURY_DESK_TARGET)} target`}
           />
-          <Stat label="desks consigned" value={fmtNum(treasury.desksConsigned)} sub="in vault" />
           <Stat label="sweeps" value={fmtNum(treasury.totalSweeps)} sub="floor buys executed" />
           <Stat label="exits" value={fmtNum(treasury.totalExits)} sub="desks sold back" />
           <Stat
@@ -42,7 +41,6 @@ export function TreasuryPanel({ state }: { state: ProtocolState }) {
         </div>
         <div className="mt-3 flex flex-wrap gap-2">
           <Flag on={!config.paused} label="LIVE" />
-          <Flag on={config.consignmentEnabled} label="CONSIGNMENT" />
           <Flag on={config.lpEnabled} label="LP" />
         </div>
       </Panel>
@@ -121,7 +119,7 @@ export function TreasuryPanel({ state }: { state: ProtocolState }) {
           <Row k="pot (system PDA)" v={<AddressLink address={pdas.pot} />} />
           <Row k="burn state" v={<AddressLink address={pdas.burn} />} />
           <Row k="treasury state" v={<AddressLink address={pdas.treasury} />} />
-          <Row k="vault (consigned custody)" v={<AddressLink address={pdas.vault} />} />
+          <Row k="vault (LP custody)" v={<AddressLink address={pdas.vault} />} />
           <Row k="treasury multisig" v={<AddressLink address={config.treasury} />} />
           <Row k="ops wallet" v={<AddressLink address={config.opsWallet} />} />
           <Row k="authority" v={<AddressLink address={config.authority} />} />
@@ -134,7 +132,6 @@ export function TreasuryPanel({ state }: { state: ProtocolState }) {
           <Row k="tier weights" v={config.tierWeightsBp.map((w) => `${w / 100}%`).join(" · ")} />
           <Row k="round threshold" v={fmtSol(config.minPotThresholdLamports, 2)} />
           <Row k="genesis" v={fmtUtc(config.genesisTs)} />
-          <Row k="consignor share" v={fmtBp(config.consignorShareBp, 0)} />
           <Row k="pot balance / liability" v={potVsLiability} />
         </CollapsibleCard>
       </div>

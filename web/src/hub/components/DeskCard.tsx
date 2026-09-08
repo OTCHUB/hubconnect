@@ -2,7 +2,7 @@ import { TIER_NAMES, TIER_WEIGHTS_BP, type ProtocolState } from "@hub-sdk";
 import type { DeskLookupResult } from "../hooks/useDeskTier";
 import { fmtNum, fmtSol, fmtWeight } from "../lib/format";
 import { magicEdenItemUrl } from "../lib/marketplace";
-import { CONSIGN_WARN_LAMPORTS, yieldBoostPctOverBase } from "../lib/yield";
+import { UNCLAIMED_WARN_LAMPORTS, yieldBoostPctOverBase } from "../lib/yield";
 import { AddressLink } from "./ui/AddressLink";
 import { Panel, Row } from "./ui/Panel";
 import { Notice } from "./ui/StateBox";
@@ -10,7 +10,7 @@ import { Notice } from "./ui/StateBox";
 type Props = { asset: string; data: DeskLookupResult; state: ProtocolState };
 
 export function DeskCard({ asset, data, state }: Props) {
-  const { tier, consignment, pending, art } = data;
+  const { tier, pending, art } = data;
 
   const thumb = art?.image ? (
     <img
@@ -52,7 +52,7 @@ export function DeskCard({ asset, data, state }: Props) {
 
   const weightBp = TIER_WEIGHTS_BP[tier.tier - 1] ?? 0;
   const boostPct = yieldBoostPctOverBase(tier.tier);
-  const warn = pending !== null && pending.lamports >= CONSIGN_WARN_LAMPORTS;
+  const warn = pending !== null && pending.lamports >= UNCLAIMED_WARN_LAMPORTS;
   const roundsSince = pending
     ? pending.rounds === 0
       ? "current — nothing closed since last claim"
@@ -64,13 +64,13 @@ export function DeskCard({ asset, data, state }: Props) {
       {warn && (
         <Notice tone="amber">
           <div className="tracking-widest">
-            [ UNCLAIMED YIELD ≥ {fmtSol(CONSIGN_WARN_LAMPORTS, 2)} ]
+            [ UNCLAIMED YIELD ≥ {fmtSol(UNCLAIMED_WARN_LAMPORTS, 2)} ]
           </div>
           <div className="mt-1 text-amber-200/80">
             <div>
               {fmtSol(pending!.lamports)} is claimable by the owner-at-activation in one tx.
             </div>
-            <div>Claim before listing or consigning — a transfer voids the tier (§A6.1).</div>
+            <div>Claim before listing or transferring — a transfer voids the tier.</div>
           </div>
         </Notice>
       )}
@@ -125,17 +125,6 @@ export function DeskCard({ asset, data, state }: Props) {
           pending = ⌊(acc − stamp) × w / 10¹²⌋ — exact program math, settles every closed round in a
           single claim_yield.
         </div>
-      </Panel>
-      <Panel title="CONSIGNMENT">
-        {consignment ? (
-          <>
-            <Row k="status" v={consignment.active ? "ACTIVE (in vault)" : "RETURNED"} />
-            <Row k="consignor" v={<AddressLink address={consignment.consignor} />} />
-            <Row k="consigned round" v={`#${fmtNum(consignment.consignedEpoch)}`} />
-          </>
-        ) : (
-          <div className="text-xs text-green-700">not consigned to the treasury.</div>
-        )}
       </Panel>
     </div>
   );

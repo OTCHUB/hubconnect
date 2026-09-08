@@ -38,14 +38,12 @@ export const FEE_FLOW_DIAGRAM = `flowchart TD
         B1["B - Treasury desk yield\\nowned desks' desk-pot claims"]
         C1["C - Treasury OTC-stock claims\\nHUB float <=2% supply, pro-rata OTC -> pot"]
         D1["D - Discount-exit SOL leg\\n50% of every treasury desk sale"]
-        E1["E - Consigned desks\\nowner-sent desks' desk-pot claims"]
         F1["F - LP swap fees\\nharvested HUB/SOL + HUB/OTC fees"]
     end
     A1 --> G["register_*_inflow\\nEpoch.inflow_lamports += amount"]
     B1 --> G
     C1 --> G
     D1 --> G
-    E1 --> G
     F1 --> G
     G --> H{"inflow + dust_scaled carry\\n>= min_pot_threshold_lamports (0.1 SOL)?"}
     H -->|no, keep accumulating| G
@@ -68,18 +66,9 @@ export const TREASURY_DIAGRAM = `flowchart TD
         B -->|no| D["Mint (policy: never)\\ndilutes desk-pot, burns 100k OTC"]
         C --> E["TreasuryState.desks_owned += 1"]
     end
-    subgraph CONSIGN["Voluntary consignment"]
-        F["Owner calls consign_desk"] --> G["NFT -> treasury vault PDA\\nConsignedDesk{asset_id, consignor, epoch, active}"]
-        G --> H["TreasuryState.desks_consigned += 1\\nowner keeps withdrawal right"]
-        H --> H2["Guardrail: ConsignedDesk record blocks\\nany treasury transfer/sale - never in the exit pool"]
-    end
-    E --> I["Treasury claims OTC desk-pot rounds\\nfor every owned + consigned desk"]
-    H --> I
-    I --> J["register_treasury_inflow (source B)\\nregister_consigned_inflow (source E)"]
-    J --> K{"consignor_share_bp > 0?\\n(default 0%)"}
-    K -->|yes| L["credit consignor StakerAccrual.owed_lamports\\n(claim_accrual, claimable any time)"]
-    K -->|"no (default)"| M["100% of desk proceeds -> pot inflow"]
-    L --> M
+    E --> I["Treasury claims OTC desk-pot rounds\\nfor every owned desk"]
+    I --> J["register_treasury_inflow (source B)"]
+    J --> M["100% of desk proceeds -> pot inflow"]
     M --> N["Epoch.inflow_lamports rises\\n-> larger distributable each round\\n-> larger per_weight for every activated tier"]
     N --> O["Yield boost = shared pro-rata across\\nT1 1.00x / T2 1.25x / T3 1.60x / T4 2.00x\\n(no per-tier multiplier changes - just a bigger pool)"]
     E --> P["Discount exit"]

@@ -90,8 +90,8 @@ export const baseInputs = (e: EpochView, config: ConfigView): ScenarioInputs => 
   burnPctBp: config.burnPctBp,
 });
 
-/** §A6.1: warn owners before listing/consigning when unclaimed yield is material. */
-export const CONSIGN_WARN_LAMPORTS = 20_000_000;
+/** Warn owners before listing/transferring when unclaimed yield is material. */
+export const UNCLAIMED_WARN_LAMPORTS = 20_000_000;
 
 /**
  * Yield boost vs the base (T1 TRADER, 1.00x) tier weight, as a whole percent — e.g. T3 DEALER

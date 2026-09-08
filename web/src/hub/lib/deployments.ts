@@ -117,7 +117,7 @@ const PDA_ROWS: [string, string, string, PdaFn][] = [
   ["pot", "POT PDA", "System-owned SOL pot; yield liability is paid from here.", potPda],
   ["burn", "BURN STATE PDA", "Burn-slice accounting for the $HUB burn leg.", burnPda],
   ["treasury", "TREASURY PDA", "Desk custody / exits / sweeps counters.", treasuryPda],
-  ["vault", "VAULT PDA", "Program-signed custody for consigned desks.", vaultPda],
+  ["vault", "VAULT PDA", "Program-signed custody for treasury LP token positions.", vaultPda],
   [
     "otc-pay",
     "OTC PAY PDA",

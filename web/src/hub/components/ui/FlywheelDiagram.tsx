@@ -54,13 +54,13 @@ const NODES: DNode[] = [
   {
     id: "pot",
     label: "POT",
-    sub: "6 revenue sources",
+    sub: "5 revenue sources",
     tone: "cyan",
     angle: 54,
     ring: true,
     title: "3 · Protocol Revenue Fills the Pot",
     body: [
-      "Activation fees, treasury-owned desk earnings, treasury OTC claims, discount-exit proceeds, consigned-desk earnings, and LP swap fees all register here.",
+      "Activation fees, treasury-owned desk earnings, treasury OTC claims, discount-exit proceeds, and LP swap fees all register here.",
       "The pot is just SOL held in a program PDA — Config.pot_liability_lamports tracks what's owed.",
     ],
   },
@@ -119,14 +119,14 @@ const NODES: DNode[] = [
   {
     id: "treasury",
     label: "TREASURY FLYWHEEL",
-    sub: "sweep · consign · exit",
+    sub: "sweep · exit",
     tone: "cyan",
     angle: 10,
     ring: false,
     title: "Treasury desk flywheel",
     body: [
-      "The treasury sweeps listed desks whenever that's cheaper than minting (zero dilution) and can hold desks consigned by their owners.",
-      "Every treasury-owned or consigned desk's yield claim registers as pot inflow — a bigger treasury means a bigger pool for everyone.",
+      "The treasury sweeps listed desks whenever that's cheaper than minting (zero dilution).",
+      "Every treasury-owned desk's yield claim registers as pot inflow — a bigger treasury means a bigger pool for everyone.",
       "Discount exits resell treasury desks at a 10% floor discount: 50% of the sale burns $HUB, 50% returns to the pot.",
     ],
   },

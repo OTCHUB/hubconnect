@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { ProtocolState } from "@hub-sdk";
 import { useWalletPortfolio } from "../hooks/useWalletPortfolio";
 import { shortKey } from "../lib/format";
-import { silentReconnect } from "../lib/wallets";
+import { useWallet } from "../WalletProvider";
 import { ActivatePanel } from "./ActivatePanel";
 import { ClaimPanel } from "./ClaimPanel";
 import { SwapPanel } from "./SwapPanel";
@@ -10,63 +10,38 @@ import { Panel } from "./ui/Panel";
 import { WalletConnect } from "./WalletConnect";
 import { WalletPortfolio } from "./WalletPortfolio";
 
-const STORAGE_KEY = "hub:wallet";
-
 type Props = {
   state: ProtocolState;
   /** Host-supplied address (otchub passes its connected wallet); hides the connect UI. */
   walletAddress?: string;
 };
 
-const readStored = () => {
-  try {
-    return localStorage.getItem(STORAGE_KEY);
-  } catch {
-    return null;
-  }
-};
-
-/** WALLET_CONNECT → collapses to a `[ CONNECTED ✓ ]` bar + portfolio once an address is known. */
+/** WALLET_CONNECT → collapses to a `[ CONNECTED ✓ ]` bar + portfolio once an address is known.
+ * Reads/writes the app-wide `WalletProvider` context, so connecting here (or from the header, or
+ * from the airdrop checker) shows up everywhere else too. */
 export function WalletPanel({ state, walletAddress }: Props) {
-  const [address, setAddress] = useState<string | null>(() => walletAddress ?? readStored());
+  const wallet = useWallet();
+  const address = walletAddress ?? wallet.address;
   const [open, setOpen] = useState(false);
   // Same query key as WalletPortfolio → one fetch, shared by portfolio + claim rows.
   const portfolio = useWalletPortfolio(address, state);
 
-  useEffect(() => {
-    if (walletAddress) setAddress(walletAddress);
-  }, [walletAddress]);
-
-  // Prompt-free restore after reload; the stored address stays visible read-only either way.
-  useEffect(() => {
-    const stored = readStored();
-    if (!walletAddress && stored) void silentReconnect(stored);
-  }, [walletAddress]);
-
   const connect = (pk: string) => {
-    setAddress(pk);
+    wallet.connect(pk);
     setOpen(false);
-    try {
-      localStorage.setItem(STORAGE_KEY, pk);
-    } catch {
-      /* private mode */
-    }
-    window.dispatchEvent(new Event("hub:wallet-changed"));
   };
   const clear = () => {
-    setAddress(null);
-    try {
-      localStorage.removeItem(STORAGE_KEY);
-    } catch {
-      /* private mode */
-    }
-    window.dispatchEvent(new Event("hub:wallet-changed"));
+    wallet.disconnect();
   };
 
   if (!address) {
     return (
       <div className="space-y-2">
         <Panel title="WALLET_CONNECT :: HUB_PORTFOLIO">
+          <p className="mb-2 text-[10px] text-green-500/50">
+            tip: [CONNECT_WALLET] at the top of the page works from any tab — connect once, use it
+            everywhere.
+          </p>
           <WalletConnect onConnected={connect} />
         </Panel>
         <SwapPanel state={state} address={null} />
