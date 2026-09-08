@@ -336,8 +336,8 @@ hand-seed day-one liquidity. The LP program then deepens beyond the curve:
   graduation depth already clears those bars — likely — the LP manager stays
   passive: harvest fees (source F) and monitor. Any top-up pairs **founding
   $HUB allocation + treasury SOL (ops surplus)** — never market-buy HUB for LP.
-- **Phase 2 — $HUB/OTC**: opens only after $HUB price has been stable ≥ 14
-  days post-launch. Seed ≈ **25–50 SOL-equivalent per side**, pairing treasury
+- **Phase 2 — $HUB/OTC**: opens only after $HUB price has been stable ≥ 24
+  hours post-launch. Seed ≈ **25–50 SOL-equivalent per side**, pairing treasury
   OTC (from source C claims) with treasury HUB float. Rationale: OTC is the
   reward stock — stakers rotate OTC ↔ HUB without two SOL hops, tightening the
   flywheel.
@@ -943,7 +943,7 @@ treasury ATA is the only locked holder.
 | CONSIGNOR_SHARE | 0% of consigned desk yield (parameterized; see A9.5) |
 | UPGRADE_TIMELOCK | 48h, multisig-held upgrade authority (not immutable) |
 | LP_TARGET_SOL_DEPTH ($HUB/SOL) | 100–200 SOL-side — conditional top-up ceiling only; curve graduation already seeds the pool |
-| HUB_OTC_LP_SEED | 25–50 SOL-eq per side, phase-2 gated (SOL pool at target + ≥14d stable) |
+| HUB_OTC_LP_SEED | 25–50 SOL-eq per side, phase-2 gated (SOL pool at target + ≥24h stable) |
 | LP_CUSTODY | Phase 1 ($HUB/SOL): LP tokens in treasury PDA vault, HODL both legs. Phase 2 ($HUB/OTC): `lock_cp_liquidity`-**burned** LP mint (no custody, no rug), permanent `LockedLiquidity` fee-claim right retained by the treasury PDA. Both legs' fees → pot (source F) |
 | CREATOR_FEE_DESK_POT_BP / BURN_BP / LP_BP / STACK_BP / OPS_BP | 8000 / 500 / 500 / 500 / 500 — §A6.3 second flywheel split of the treasury's launcher holder-leg $OTC claim; desk-pot leg is a direct swap-free injection, the other four each swap off-chain before landing |
 | CREATOR_FEE_CLEAR_THRESHOLD | 1,000 $OTC default (6 decimals assumed), authority-adjustable at `init_creator_fee_state` — mirrors `MIN_POT_THRESHOLD`'s no-clock, size-gated clearing |
