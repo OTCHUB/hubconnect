@@ -49,8 +49,16 @@ pub fn init_hub_pot(
     anthropic_mint: Pubkey,
 ) -> Result<()> {
     require_token_account(&ctx.accounts.otc_vault, &otc_mint, ctx.accounts.vault.key)?;
-    require_token_account(&ctx.accounts.crclx_vault, &crclx_mint, ctx.accounts.vault.key)?;
-    require_token_account(&ctx.accounts.openai_vault, &openai_mint, ctx.accounts.vault.key)?;
+    require_token_account(
+        &ctx.accounts.crclx_vault,
+        &crclx_mint,
+        ctx.accounts.vault.key,
+    )?;
+    require_token_account(
+        &ctx.accounts.openai_vault,
+        &openai_mint,
+        ctx.accounts.vault.key,
+    )?;
     require_token_account(
         &ctx.accounts.anthropic_vault,
         &anthropic_mint,
@@ -388,7 +396,11 @@ pub fn distribute_hub_pot_reward(
         &ctx.accounts.desk_asset,
         &ctx.accounts.config.desk_collection,
     )?;
-    require_token_account(&ctx.accounts.owner_otc, &ctx.accounts.hub_pot.otc_mint, &asset.owner)?;
+    require_token_account(
+        &ctx.accounts.owner_otc,
+        &ctx.accounts.hub_pot.otc_mint,
+        &asset.owner,
+    )?;
     require_token_account(
         &ctx.accounts.owner_crclx,
         &ctx.accounts.hub_pot.crclx_mint,
@@ -444,7 +456,12 @@ pub fn distribute_hub_pot_reward(
     let vault_bump = ctx.accounts.treasury_state.vault_bump;
     let seeds: &[&[&[u8]]] = &[&[SEED_VAULT, &[vault_bump]]];
     let legs: [(u64, &UncheckedAccount, &UncheckedAccount, &UncheckedAccount); 4] = [
-        (otc_amount, &ctx.accounts.otc_vault, &ctx.accounts.otc_mint, &ctx.accounts.owner_otc),
+        (
+            otc_amount,
+            &ctx.accounts.otc_vault,
+            &ctx.accounts.otc_mint,
+            &ctx.accounts.owner_otc,
+        ),
         (
             crclx_amount,
             &ctx.accounts.crclx_vault,

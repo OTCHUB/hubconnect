@@ -234,7 +234,10 @@ pub fn draw_creator_fee_leg(
         CreatorFeeLeg::Stack => &mut s.stack_pending_otc,
         CreatorFeeLeg::Ops => &mut s.ops_pending_otc,
     };
-    require!(otc_amount <= *pending, HubError::CreatorFeeLegExceedsPending);
+    require!(
+        otc_amount <= *pending,
+        HubError::CreatorFeeLegExceedsPending
+    );
     *pending -= otc_amount;
     let pending_after = *pending;
     match leg {
@@ -287,7 +290,10 @@ pub fn record_creator_fee_burn_result(
 ) -> Result<()> {
     require!(hub_burned > 0, HubError::ZeroAmount);
     let s = &mut ctx.accounts.creator_fee_state;
-    require!(burn_tx != s.last_burn_result_tx, HubError::InvariantViolated);
+    require!(
+        burn_tx != s.last_burn_result_tx,
+        HubError::InvariantViolated
+    );
     s.last_burn_result_tx = burn_tx;
     s.total_burn_hub = add(s.total_burn_hub, hub_burned)?;
     let b = &mut ctx.accounts.burn;
@@ -351,10 +357,18 @@ pub struct RecordCreatorFeeOps<'info> {
 
 /// Enforced (not attested) — the keeper's post-swap SOL lands in `ops_wallet` in the same tx
 /// as the ledger update, refilling the reserve the sweeper's arbitrage logic never drains.
-pub fn record_creator_fee_ops(ctx: Context<RecordCreatorFeeOps>, otc_spent: u64, sol_amount: u64) -> Result<()> {
+pub fn record_creator_fee_ops(
+    ctx: Context<RecordCreatorFeeOps>,
+    otc_spent: u64,
+    sol_amount: u64,
+) -> Result<()> {
     require!(sol_amount > 0, HubError::ZeroAmount);
     invoke(
-        &system_instruction::transfer(ctx.accounts.keeper.key, ctx.accounts.ops_wallet.key, sol_amount),
+        &system_instruction::transfer(
+            ctx.accounts.keeper.key,
+            ctx.accounts.ops_wallet.key,
+            sol_amount,
+        ),
         &[
             ctx.accounts.keeper.to_account_info(),
             ctx.accounts.ops_wallet.to_account_info(),
@@ -384,8 +398,11 @@ mod tests {
         let lp = bps_of(cleared, CREATOR_FEE_LP_BP).unwrap();
         let stack = bps_of(cleared, CREATOR_FEE_STACK_BP).unwrap();
         let ops = bps_of(cleared, CREATOR_FEE_OPS_BP).unwrap();
-        let desk_pot = sub(sub(sub(sub(cleared, burn).unwrap(), lp).unwrap(), stack).unwrap(), ops)
-            .unwrap();
+        let desk_pot = sub(
+            sub(sub(sub(cleared, burn).unwrap(), lp).unwrap(), stack).unwrap(),
+            ops,
+        )
+        .unwrap();
         assert_eq!(burn, 50_000_000);
         assert_eq!(lp, 50_000_000);
         assert_eq!(stack, 50_000_000);
@@ -400,8 +417,11 @@ mod tests {
         let lp = bps_of(odd, CREATOR_FEE_LP_BP).unwrap();
         let stack = bps_of(odd, CREATOR_FEE_STACK_BP).unwrap();
         let ops = bps_of(odd, CREATOR_FEE_OPS_BP).unwrap();
-        let desk_pot =
-            sub(sub(sub(sub(odd, burn).unwrap(), lp).unwrap(), stack).unwrap(), ops).unwrap();
+        let desk_pot = sub(
+            sub(sub(sub(odd, burn).unwrap(), lp).unwrap(), stack).unwrap(),
+            ops,
+        )
+        .unwrap();
         assert_eq!(desk_pot + burn + lp + stack + ops, odd);
     }
 }

@@ -237,10 +237,7 @@ pub mod hub {
         burn_tx: [u8; 64],
     ) -> Result<()> {
         instructions::creator_fee::record_creator_fee_burn_result(
-            ctx,
-            otc_spent,
-            hub_burned,
-            burn_tx,
+            ctx, otc_spent, hub_burned, burn_tx,
         )
     }
 
@@ -308,7 +305,13 @@ pub mod hub {
         openai_amount: u64,
         anthropic_amount: u64,
     ) -> Result<()> {
-        instructions::hub_pot::fund_hub_pot(ctx, otc_amount, crclx_amount, openai_amount, anthropic_amount)
+        instructions::hub_pot::fund_hub_pot(
+            ctx,
+            otc_amount,
+            crclx_amount,
+            openai_amount,
+            anthropic_amount,
+        )
     }
 
     /// §A5.1 #35 — permissionless: snapshots all 4 pending bucket balances across the live Σw
@@ -332,10 +335,7 @@ pub mod hub {
     /// `HubPotRound` buckets ("M.I.M ETF" — $OTC/CRCLx/OpenAI/Anthropic), self-signed; shares the
     /// same `HubPotClaim` PDA as `distribute_hub_pot_reward` so a desk can only ever be paid once
     /// per round regardless of which path is used (mirrors `claim_airdrop`/`distribute_airdrop`).
-    pub fn claim_hub_pot_reward(
-        ctx: Context<ClaimHubPotReward>,
-        round_index: u32,
-    ) -> Result<()> {
+    pub fn claim_hub_pot_reward(ctx: Context<ClaimHubPotReward>, round_index: u32) -> Result<()> {
         instructions::hub_pot::claim_hub_pot_reward(ctx, round_index)
     }
 }

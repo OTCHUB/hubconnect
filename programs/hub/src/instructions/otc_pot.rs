@@ -86,10 +86,7 @@ pub fn record_otc_buy(
     lamports_spent: u64,
     buy_tx: [u8; 64],
 ) -> Result<()> {
-    require!(
-        otc_bought > 0 && lamports_spent > 0,
-        HubError::ZeroAmount
-    );
+    require!(otc_bought > 0 && lamports_spent > 0, HubError::ZeroAmount);
     let p = &mut ctx.accounts.otc_pot;
     require!(
         lamports_spent <= p.otc_pending_lamports,

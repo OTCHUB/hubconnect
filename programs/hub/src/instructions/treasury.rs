@@ -55,7 +55,10 @@ pub fn build_lp(
             require!(!ts.lp_hub_otc_active, HubError::LpPositionExists);
         }
     }
-    require!(!ctx.remaining_accounts.is_empty(), HubError::LpAccountsMissing);
+    require!(
+        !ctx.remaining_accounts.is_empty(),
+        HubError::LpAccountsMissing
+    );
 
     match pair {
         LpPair::HubSol => ts.lp_hub_sol_active = true,
@@ -110,7 +113,10 @@ pub fn build_lp_otc_locked(
     deposit_account_count: u8,
     with_metadata: bool,
 ) -> Result<()> {
-    require!(hub_amount > 0 && otc_amount > 0 && lp_token_amount > 0, HubError::ZeroAmount);
+    require!(
+        hub_amount > 0 && otc_amount > 0 && lp_token_amount > 0,
+        HubError::ZeroAmount
+    );
     let now = Clock::get()?.unix_timestamp;
     require!(
         ctx.accounts.config.lp_phase2_open_ts > 0 && now >= ctx.accounts.config.lp_phase2_open_ts,
@@ -126,7 +132,13 @@ pub fn build_lp_otc_locked(
     let vault_bump = ctx.accounts.treasury_state.vault_bump;
     let seeds: &[&[u8]] = &[SEED_VAULT, &[vault_bump]];
 
-    raydium_cpswap::deposit(pool_accounts, lp_token_amount, hub_amount, otc_amount, &[seeds])?;
+    raydium_cpswap::deposit(
+        pool_accounts,
+        lp_token_amount,
+        hub_amount,
+        otc_amount,
+        &[seeds],
+    )?;
     raydium_cpswap::lock_cp_liquidity(lock_accounts, lp_token_amount, with_metadata, &[seeds])?;
 
     let ts = &mut ctx.accounts.treasury_state;

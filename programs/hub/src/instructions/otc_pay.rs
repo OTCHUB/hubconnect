@@ -132,7 +132,11 @@ pub fn burn_checked<'info>(
         ],
         data,
     };
-    invoke_signed(&ix, &[account.clone(), mint.clone(), authority.clone()], &[])?;
+    invoke_signed(
+        &ix,
+        &[account.clone(), mint.clone(), authority.clone()],
+        &[],
+    )?;
     Ok(())
 }
 

@@ -112,7 +112,8 @@ const _: () = assert!(
 /// mirroring the "adapter-specific, lands once the launch AMM is known" note this instruction
 /// already carried — verify on devnet before mainnet, same discipline as every other external
 /// program this contract touches.
-pub const RAYDIUM_CP_SWAP_PROGRAM_ID: Pubkey = pubkey!("CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C");
+pub const RAYDIUM_CP_SWAP_PROGRAM_ID: Pubkey =
+    pubkey!("CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C");
 /// Raydium's dedicated CP-Swap liquidity-locking program: burns the LP mint outright and mints
 /// back a permanent fee-claim NFT to the caller — the "lock + burn, fees keep accruing, no rug"
 /// primitive this flywheel's LP leg relies on.
