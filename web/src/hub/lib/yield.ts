@@ -103,3 +103,19 @@ export function yieldBoostPctOverBase(tier: number): number {
   if (!base || w == null) return 0;
   return Math.round(((w - base) / base) * 100);
 }
+
+/** Fixed collection size — the Core collection never mints past this (deployments.ts, spec §A2). */
+export const MAX_DESK_SUPPLY = 5_000;
+
+/**
+ * Next planned circulating-desk checkpoint used for the tokenomics progress display. Desk count
+ * itself is always read live from the on-chain collection (never hardcoded) — this is only a
+ * forward-looking target, bumped by hand as the collection approaches it.
+ */
+export const NEXT_DESK_SUPPLY_MILESTONE = 2_500;
+
+/** 0–100 progress of `deskCount` toward `NEXT_DESK_SUPPLY_MILESTONE`, clamped. */
+export function deskMilestoneProgressPct(deskCount: number): number {
+  if (NEXT_DESK_SUPPLY_MILESTONE <= 0) return 0;
+  return Math.max(0, Math.min(100, Math.round((deskCount / NEXT_DESK_SUPPLY_MILESTONE) * 100)));
+}

@@ -51,6 +51,7 @@ export function WalletPanel({ state, walletAddress }: Props) {
     } catch {
       /* private mode */
     }
+    window.dispatchEvent(new Event("hub:wallet-changed"));
   };
   const clear = () => {
     setAddress(null);
@@ -59,6 +60,7 @@ export function WalletPanel({ state, walletAddress }: Props) {
     } catch {
       /* private mode */
     }
+    window.dispatchEvent(new Event("hub:wallet-changed"));
   };
 
   if (!address) {

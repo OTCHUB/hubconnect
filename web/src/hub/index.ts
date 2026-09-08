@@ -40,7 +40,12 @@ export {
   DEFAULT_COLLECTION_URL,
   MAGIC_EDEN_COLLECTION_SLUG,
 } from "./lib/marketplace";
-export { yieldBoostPctOverBase } from "./lib/yield";
+export {
+  yieldBoostPctOverBase,
+  MAX_DESK_SUPPLY,
+  NEXT_DESK_SUPPLY_MILESTONE,
+  deskMilestoneProgressPct,
+} from "./lib/yield";
 export { DEPLOYMENTS, type Deployment } from "./lib/deployments";
 export type { Scenario } from "./lib/yield";
 export { ESTIMATE_LABEL } from "./components/YieldTable";

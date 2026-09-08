@@ -1,8 +1,10 @@
-import { TIER_NAMES, type ProtocolState } from "@hub-sdk";
+import { TIER_NAMES, cumulativeFeeLamports, type ProtocolState } from "@hub-sdk";
 import { fmtBp, fmtSol, fmtWeight } from "../lib/format";
+import { yieldBoostPctOverBase } from "../lib/yield";
 import {
   ACTIVATION_DIAGRAM,
   BUYBACK_LP_DIAGRAM,
+  CYCLE_DIAGRAM,
   FEE_FLOW_DIAGRAM,
   TREASURY_DIAGRAM,
 } from "../lib/mechanicsDiagrams";
@@ -13,11 +15,11 @@ const li = "ml-4 list-disc text-xs leading-relaxed text-green-400/90";
 
 /** Raw Mermaid.js source, rendered as text (no mermaid runtime bundled) — paste into mermaid.live
  * or any Markdown host that renders Mermaid to view the graphic. */
-function MermaidBlock({ source }: { source: string }) {
+function MermaidBlock({ source, title }: { source: string; title?: string }) {
   return (
     <div className="mt-2">
       <div className="mb-1 text-[10px] uppercase tracking-widest text-green-600">
-        mermaid.js source — paste into mermaid.live to render
+        {title ?? "diagram"} — paste into mermaid.live to view
       </div>
       <pre className="max-h-80 overflow-auto whitespace-pre border border-green-500/20 bg-black p-2 text-[10px] leading-snug text-green-500/80">
         {source}
@@ -26,189 +28,158 @@ function MermaidBlock({ source }: { source: string }) {
   );
 }
 
-/** §A4-A7 mechanics explainer — activation, fee split, treasury flywheel, buyback/LP — grounded in
- * ConfigView / EpochView / DeskTierView (sdk/src/reader.ts) and docs/hubconnect-spec.md. */
+/** Investor-facing mechanics explainer — the Buy → Activate → Earn → Burn cycle, activation
+ * costs, and reward flow — in plain terms, grounded in ConfigView (sdk/src/reader.ts). Full
+ * technical detail (instructions, PDAs, accumulator math) is intentionally left out here; see
+ * docs/hubconnect-spec.md §A4-A7 for that level of detail. */
 export function MechanicsPanel({ state }: { state: ProtocolState }) {
   const { config } = state;
   return (
     <div className="space-y-2">
       <Panel title="HOW $HUB WORKS">
         <p className={p}>
-          Four mechanics tie every $HUB flow together: activation turns SOL (or $OTC) into a
-          weighted claim on the pot; the pot splits into burn + staker yield every round; the
-          treasury grows its own desk stack to feed extra yield into that same pot; and burn + LP
-          policy keep supply shrinking while depth grows. Nothing here is taken from other OTC
-          participants — only added buy pressure and pot funding (spec §A1).
+          $HUB turns every OTC desk NFT into a yield-earning position. Activate a desk and it starts
+          collecting a share of Protocol Revenue every reward round — funded entirely by protocol
+          activity, never taken from other holders. A slice of that same revenue buys back and burns
+          $HUB every round, permanently shrinking the supply that's left.
         </p>
         <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
-          <Row k="burn / round" v={fmtBp(config.burnPctBp)} />
-          <Row k="ops / step fee" v={fmtBp(config.opsPctBp)} />
-          <Row k="round threshold" v={fmtSol(config.minPotThresholdLamports)} />
-          <Row k="consignor share" v={fmtBp(config.consignorShareBp)} />
+          <Row k="burn rate / round" v={fmtBp(config.burnPctBp)} />
+          <Row k="protocol fee" v={fmtBp(config.opsPctBp)} />
+          <Row k="reward round trigger" v={fmtSol(config.minPotThresholdLamports)} />
+          <Row k="referral share" v={fmtBp(config.consignorShareBp)} />
         </div>
+        <MermaidBlock source={CYCLE_DIAGRAM} title="the $HUB cycle: buy → activate → earn → burn" />
       </Panel>
 
-      <CollapsibleCard title="1. $HUB ACTIVATION LIFECYCLE" defaultOpen>
+      <CollapsibleCard title="1. ACTIVATE YOUR DESK" defaultOpen>
         <ul className="space-y-1">
           <li className={li}>
-            Tiers bind to a specific desk NFT asset id (Metaplex Core), not a wallet — burn-based,
-            never lock-based, so it never conflicts with the launcher's per-wallet OTC stream.
-            <code className="ml-1 text-green-300">activate_tier</code> /{" "}
-            <code className="text-green-300">activate_tier_otc</code> re-verify current desk
-            ownership on-chain inside the instruction, then stamp{" "}
-            <code className="text-green-300">DeskTier.stamp_acc_per_weight</code> to{" "}
-            <code className="text-green-300">Config.acc_per_weight</code> at that instant — only
-            rounds closed after the stamp are owed to this desk.
+            Every desk NFT can be activated into one of four tiers. Activation is tied to the desk
+            itself, not your wallet — sell the desk and the new owner keeps earning immediately, no
+            re-activation needed.
           </li>
           <li className={li}>
-            {config.tierWeightsBp.map((w, i) => `${TIER_NAMES[i]} ${fmtWeight(w)}`).join(" · ")} —
-            each step costs {fmtSol(config.stepFeeLamports)}, split 90% → pot (source A) / 10% → ops
-            wallet.
+            Pay the Activation Cost in SOL, or in $OTC at a fixed 2.00x premium — $OTC payments go
+            straight into the protocol's liquidity reserve rather than the reward pool.
           </li>
           <li className={li}>
-            Steps can instead be paid in $OTC at a fixed 2.00x premium of the SOL value (
-            <code className="text-green-300">OTC_PREMIUM_BP</code>, not updatable), using the
-            authority-refreshed <code className="text-green-300">OtcPayConfig.otc_per_sol</code>{" "}
-            (rejected if stale &gt; 24h). 100% of that $OTC lands in the POL reserve (the{" "}
-            <code className="text-green-300">["vault"]</code> PDA's $OTC ATA) — never the pot or ops
-            wallet — and can only leave via <code className="text-green-300">build_lp</code>. An
-            $OTC-paid step adds weight without adding SOL inflow to the round.
+            Rewards start accruing the instant you activate — only reward rounds closed after that
+            moment count, so there's no way to backdate earnings or dilute existing holders.
           </li>
           <li className={li}>
-            <code className="text-green-300">claim_yield</code> applies <b>lazy revocation</b>: it
-            re-checks ownership right now; a transferred desk is voided (no refund) and drops out of
-            Σw. Otherwise it pays{" "}
-            <code className="text-green-300">floor((acc_per_weight − stamp) × w / 1e12)</code> for
-            every round closed since the stamp in one transaction, then resets the stamp.{" "}
-            <code className="text-green-300">upgrade_tier(_otc)</code> only charges the step
-            difference under the same rules.
+            Upgrading to a higher tier later only costs the difference between your current and
+            target tier — you never pay for the same step twice.
           </li>
         </ul>
-        <MermaidBlock source={ACTIVATION_DIAGRAM} />
+        <div className="mt-3 overflow-x-auto">
+          <table className="w-full min-w-[420px] border-collapse text-xs">
+            <thead>
+              <tr className="border-b border-green-500/30 text-left text-green-500/60">
+                <th className="py-1 pr-3 font-normal">TIER</th>
+                <th className="py-1 pr-3 font-normal">ACTIVATION COST</th>
+                <th className="py-1 pr-3 font-normal">YIELD BOOST</th>
+              </tr>
+            </thead>
+            <tbody>
+              {config.tierWeightsBp.map((w, i) => {
+                const tier = i + 1;
+                return (
+                  <tr key={tier} className="border-b border-green-500/10 last:border-0">
+                    <td className="py-1 pr-3 text-green-300">{TIER_NAMES[i]}</td>
+                    <td className="py-1 pr-3">{fmtSol(cumulativeFeeLamports(tier))}</td>
+                    <td className="py-1 pr-3 text-emerald-300">
+                      {tier === 1 ? "base rate" : `+${yieldBoostPctOverBase(tier)}%`}
+                      <span className="ml-1 text-green-500/50">({fmtWeight(w)})</span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <MermaidBlock source={ACTIVATION_DIAGRAM} title="activation flow (technical detail)" />
       </CollapsibleCard>
 
-      <CollapsibleCard title="2. FEE DISTRIBUTION FLOW">
+      <CollapsibleCard title="2. HOW DAILY REWARDS ARE PAID">
         <ul className="space-y-1">
           <li className={li}>
-            Six channels feed the open round's <code className="text-green-300">Epoch</code>
-            .inflow_lamports: <b>A</b> activation fees (the 90% pot leg of every step payment),{" "}
-            <b>B</b> treasury-owned desks' desk-pot claims, <b>C</b> the treasury's OTC-stock
-            proceeds from its ≤2%-of-supply $HUB float, <b>D</b> the 50% SOL leg of every discount
-            exit, <b>E</b> consigned desks' desk-pot claims, and <b>F</b> harvested LP swap fees.
+            Protocol Revenue comes from six sources: desk activation fees, earnings from the
+            treasury's own desks, the treasury's OTC trading profits, half of every discounted
+            treasury desk sale, earnings from desks donated to the treasury, and trading fees from
+            the $HUB liquidity pool.
           </li>
           <li className={li}>
-            Distribution is <b>threshold-gated, not clocked</b>:{" "}
-            <code className="text-green-300">finalize_epoch</code> reverts until inflow plus whole
-            lamports of <code className="text-green-300">dust_scaled</code> carried from earlier
-            rounds reaches {fmtSol(config.minPotThresholdLamports)}, and succeeds the instant that's
-            true — a round can close in seconds or take days depending on flow.
+            Revenue collects continuously until it crosses the reward-round trigger (
+            {fmtSol(config.minPotThresholdLamports)}) — rounds close purely on activity, never a
+            fixed schedule, so a round can settle in seconds or take days.
           </li>
           <li className={li}>
-            At finalize:{" "}
-            <code className="text-green-300">
-              burn = floor({fmtBp(config.burnPctBp, 0)} × inflow)
-            </code>{" "}
-            is set aside for the buyback-burn keeper; the remainder is spread across every basis
-            point of activated weight as{" "}
-            <code className="text-green-300">per_weight = floor(distributable × 1e12 / Σw)</code>,
-            and <code className="text-green-300">Config.acc_per_weight</code> (lifetime u128) rises
-            by that amount. Sub-lamport remainders accumulate in{" "}
-            <code className="text-green-300">dust_scaled</code> and re-enter the very next round —
-            no lamport is ever silently lost.
+            When a round closes, {fmtBp(config.burnPctBp, 0)} of it is set aside for buyback & burn,
+            and the rest is split across every active desk in proportion to its tier — Market Makers
+            earn the largest share, Traders the base share. No revenue is ever lost to rounding —
+            any leftover simply rolls into the next round.
           </li>
           <li className={li}>
-            Because the accumulator is lifetime and cumulative, one{" "}
-            <code className="text-green-300">claim_yield</code> settles every round closed since a
-            desk's last claim in a single transaction — there is no per-round claiming to catch up.
+            Claiming pays out every reward round you've earned since your last claim in a single
+            transaction — there's no need to claim round by round.
           </li>
         </ul>
-        <MermaidBlock source={FEE_FLOW_DIAGRAM} />
+        <MermaidBlock source={FEE_FLOW_DIAGRAM} title="revenue distribution (technical detail)" />
       </CollapsibleCard>
 
-      <CollapsibleCard title="3. TREASURY DESK ACQUISITION & YIELD BOOST">
+      <CollapsibleCard title="3. TREASURY-BOOSTED YIELD">
         <ul className="space-y-1">
           <li className={li}>
-            Acquisition follows a strict <b>sweep, never dilute</b> rule: sweep_cost (Magic Eden
-            list price × 1.07 for taker fee + royalty) is compared against mint_cost (100,000 $OTC
-            in SOL + 0.5 SOL); the treasury only sweeps when sweep_cost &lt; mint_cost — minting is
-            policy-disabled because it burns 100k $OTC and dilutes the desk-pot for everyone. Every
-            sweep is capped at ≤10% of treasury SOL per desk and only targets verified non-empty
-            vault stock; <code className="text-green-300">TreasuryState.desks_owned</code>{" "}
-            increments on success.
+            The protocol treasury buys desks on the open market whenever that's cheaper than minting
+            a new one — so a growing treasury desk stack never dilutes existing holders. Purchases
+            are capped at 10% of treasury SOL per desk and only target verified sellers.
           </li>
           <li className={li}>
-            Any owner can also volunteer a desk without selling it:{" "}
-            <code className="text-green-300">consign_desk</code> moves the NFT into the treasury
-            vault PDA and writes a <code className="text-green-300">ConsignedDesk</code> record
-            (asset_id → consignor, consigned_epoch, active);{" "}
-            <code className="text-green-300">desks_consigned</code> increments and the owner keeps
-            the withdrawal right via <code className="text-green-300">unconsign_desk</code> once the
-            consignment round finalizes (never double-counted).
+            Any holder can also donate a desk to the treasury without giving up ownership — they
+            keep the right to withdraw it later, and can optionally route a share of its earnings
+            back to themselves as a referral share ({fmtBp(config.consignorShareBp)} default).
           </li>
           <li className={li}>
-            The treasury claims OTC desk-pot rounds for every owned + consigned desk, then books the
-            SOL via <code className="text-green-300">register_treasury_inflow</code> (source B) or{" "}
-            <code className="text-green-300">register_consigned_inflow</code> (source E). Consignor
-            share ({fmtBp(config.consignorShareBp)}, default 0%) can route a cut of consigned
-            proceeds to the consignor's <code className="text-green-300">StakerAccrual</code>
-            (claimable via <code className="text-green-300">claim_accrual</code>); the remainder
-            becomes ordinary pot inflow.
+            Every desk the treasury owns or holds for a donor earns rewards exactly like any other
+            desk, and that income feeds straight back into the same reward pool everyone shares
+            from. A bigger treasury desk stack means a bigger reward pool for every activated desk —{" "}
+            {config.tierWeightsBp.map((w, i) => `${TIER_NAMES[i]} ${fmtWeight(w)}`).join(" / ")}—
+            with zero dilution to any holder.
           </li>
           <li className={li}>
-            <b>The "yield boost"</b>: every treasury or consigned desk's take is folded into the
-            same round inflow that feeds <code className="text-green-300">acc_per_weight</code>, so
-            it raises per_weight for every activated tier proportional to its fixed weight —{" "}
-            {config.tierWeightsBp.map((w, i) => `${TIER_NAMES[i]} ${fmtWeight(w)}`).join(" / ")}.
-            The boost is shared pro-rata, not tier-specific: a bigger treasury desk stack means
-            larger yield for all activated desks, with zero dilution.
-          </li>
-          <li className={li}>
-            Discount exits are a release valve, not a business model: sale_value = 0.90 × live
-            floor, split 50/50 — the HUB leg burns in the sale transaction, the SOL leg becomes pot
-            inflow (source D). The treasury claims all accrued vault yield before listing so the
-            buyer receives the desk clean; consigned desks are permanently excluded from the exit
-            pool — the <code className="text-green-300">ConsignedDesk</code> record blocks any
-            transfer/sale attempt at the program level.
+            Occasionally the treasury sells a desk back to the market at a 10% discount to manage
+            its holdings: half the sale burns $HUB immediately, the other half tops up the reward
+            pool. Donated desks are permanently excluded from ever being sold.
           </li>
         </ul>
-        <MermaidBlock source={TREASURY_DIAGRAM} />
+        <MermaidBlock source={TREASURY_DIAGRAM} title="treasury yield boost (technical detail)" />
       </CollapsibleCard>
 
-      <CollapsibleCard title="4. BUYBACK & LP PROVISIONING">
+      <CollapsibleCard title="4. BUYBACK, BURN & LIQUIDITY">
         <ul className="space-y-1">
           <li className={li}>
-            Buyback-burn is deterministic on-chain math with an off-chain executor: every{" "}
-            <code className="text-green-300">finalize_epoch</code> earmarks{" "}
-            {fmtBp(config.burnPctBp, 0)} of round inflow into{" "}
-            <code className="text-green-300">BurnState.burn_pending_lamports</code>. A keeper (spec
-            M4, not yet deployed) converts that pending balance into a TWAP'd market buy of $HUB and
-            executes an spl-token <code className="text-green-300">Burn</code> — the mint's own
-            supply drop is the burn proof, cross-checked against{" "}
-            <code className="text-green-300">BurnState.total_hub_burned</code> for drift.
+            Every reward round automatically earmarks {fmtBp(config.burnPctBp, 0)} of its revenue
+            for buyback & burn — an automated process that market-buys $HUB and destroys it forever,
+            permanently shrinking what's left. The token's own on-chain supply drop is the proof —
+            nothing to take on faith.
           </li>
           <li className={li}>
-            A second, immediate sink runs outside that loop: every treasury discount exit burns 50%
-            of its sale value directly in the sale transaction, independent of the per-round 10%
-            burn.
+            A second burn happens immediately whenever the treasury sells a desk at a discount: half
+            of that sale is burned on the spot, independent of the round-based burn above.
           </li>
           <li className={li}>
-            <b>Phase 1 ($HUB/SOL) is free by construction</b>: launching through the OTC launcher
-            means bonding-curve graduation migrates the curve's accumulated SOL + $HUB straight into
-            a protocol-owned AMM pool — the treasury seeds nothing on day one. The LP manager stays
-            passive (harvesting swap fees into the pot as source F) unless live impact degrades past
-            the reference ceiling (~100 SOL-side depth: keep a 5 SOL trade under ~5% impact and the
-            hourly 10%-burn chunk under ~1%); any top-up pairs the founding $HUB allocation with
-            treasury SOL (ops surplus) only — never a market buy of $HUB for LP.
+            The first liquidity pool ($HUB/SOL) costs the protocol nothing to launch — it's seeded
+            automatically the moment a desk graduates through the OTC launch curve, and its trading
+            fees flow back into the reward pool too.
           </li>
           <li className={li}>
-            <b>Phase 2 ($HUB/OTC)</b> opens only once price has held stable ≥14 days post-launch. It
-            seeds ~25–50 SOL-equivalent per side by pairing treasury OTC (claimed via source C from
-            the treasury's ≤2%-of-supply $HUB float) with treasury HUB float — tightening the
-            OTC↔HUB rotation stakers already earn without an extra SOL hop. Every LP position is
-            treasury-PDA-custodied and HODL-only; the treasury never sells $HUB out of LP.
+            A second pool ($HUB/$OTC) opens once price has held steady for at least 14 days —
+            deepened using treasury OTC and $HUB holdings, never a market buy. Every dollar the
+            treasury puts into liquidity stays locked there; it's never sold.
           </li>
         </ul>
-        <MermaidBlock source={BUYBACK_LP_DIAGRAM} />
+        <MermaidBlock source={BUYBACK_LP_DIAGRAM} title="buyback & liquidity (technical detail)" />
       </CollapsibleCard>
     </div>
   );

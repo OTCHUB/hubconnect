@@ -34,7 +34,9 @@ export function Dashboard({ rawDeskDailyLamports, walletAddress }: DashboardProp
                 </Link>
               </span>
             </div>
-            <WalletPanel state={state} walletAddress={walletAddress} />
+            <div id="hub-wallet">
+              <WalletPanel state={state} walletAddress={walletAddress} />
+            </div>
           </>
         )}
       </ProtocolGate>

@@ -3,6 +3,11 @@ import { tokenomicsPda, type ProtocolState } from "@hub-sdk";
 import { useHub } from "../HubProvider";
 import { useTokenomics } from "../hooks/useTokenomics";
 import { fmtBpPct, fmtHub, fmtNum, fmtTokens, fmtUtc } from "../lib/format";
+import {
+  MAX_DESK_SUPPLY,
+  NEXT_DESK_SUPPLY_MILESTONE,
+  deskMilestoneProgressPct,
+} from "../lib/yield";
 import { AddressLink } from "./ui/AddressLink";
 import { PieChart, type PieSlice } from "./ui/PieChart";
 import { CollapsibleCard, Flag, Panel, Row, Stat } from "./ui/Panel";
@@ -53,7 +58,7 @@ export function TokenomicsPanel({ state }: { state: ProtocolState }) {
   return (
     <div className="space-y-2">
       <Panel title="TOKENOMICS" right={source}>
-        <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+        <div className="grid grid-cols-2 gap-2 md:grid-cols-3 lg:grid-cols-5">
           <Stat
             label="max supply"
             value={fmtHub(plan.maxUnits, d, 0)}
@@ -69,6 +74,11 @@ export function TokenomicsPanel({ state }: { state: ProtocolState }) {
                   ? `live · ${fmtNum(collection?.numMinted ?? 0)} minted lifetime`
                   : "collection unreadable"
             }
+          />
+          <Stat
+            label="supply milestone"
+            value={`${deskMilestoneProgressPct(deskCount)}%`}
+            sub={`${fmtNum(deskCount)} → ${fmtNum(NEXT_DESK_SUPPLY_MILESTONE)} next · ${fmtNum(MAX_DESK_SUPPLY)} max`}
           />
           <Stat
             label="airdrop pool"

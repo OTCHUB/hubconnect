@@ -3,6 +3,15 @@
 // mermaid.live or a Markdown host that renders Mermaid (GitHub, Notion, etc.) to view it graphically.
 // Grounded in sdk/src/reader.ts (ConfigView/EpochView/DeskTierView) and docs/hubconnect-spec.md §A4-A7.
 
+// Investor-facing overview — the deflationary loop in four steps, no technical detail.
+export const CYCLE_DIAGRAM = `flowchart LR
+    A["BUY\\nGet a Desk NFT\\n(mint or secondary market)"] --> B["ACTIVATE\\nPay the Activation Cost\\nchoose your tier"]
+    B --> C["EARN\\nDaily Rewards flow in\\nfrom Protocol Revenue"]
+    C --> D["BURN\\nA slice of every reward round\\nbuys back & burns $HUB, forever"]
+    D --> E["Supply shrinks\\nwhile activated desks keep earning"]
+    E -.->|"scarcer supply supports value"| A
+`;
+
 export const ACTIVATION_DIAGRAM = `flowchart TD
     A["Desk owner holds Desk NFT\\n(Metaplex Core asset)"] --> B{"Choose payment leg"}
     B -->|SOL| C["activate_tier / upgrade_tier\\npay step fee (0.5 SOL/step)"]

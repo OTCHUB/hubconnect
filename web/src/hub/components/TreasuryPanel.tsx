@@ -42,6 +42,26 @@ export function TreasuryPanel({ state }: { state: ProtocolState }) {
         </div>
       </Panel>
 
+      <Panel title="TREASURY LOCKS" right="what the treasury's holdings are earmarked for">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+          <Stat
+            label="LP provisioning"
+            value={config.lpEnabled ? "ACTIVE" : "PENDING"}
+            sub="liquidity for the $HUB / $OTC pair — seeded from treasury OTC + $HUB once price holds ≥14 days"
+          />
+          <Stat
+            label="buyback reserve"
+            value={fmtSol(burn.burnPendingLamports)}
+            sub="SOL earmarked each round, awaiting the buyback-burn keeper — automated floor support"
+          />
+          <Stat
+            label="yield buffer"
+            value={fmtHub(supply.lockedUnits, d)}
+            sub="treasury-held $HUB + swept desks that keep tier payouts sustainable as Σw grows"
+          />
+        </div>
+      </Panel>
+
       <Panel title="$HUB SUPPLY" right={`max ${fmtHub(supply.maxUnits, d, 0)}`}>
         <div className="grid grid-cols-2 gap-2 md:grid-cols-3 lg:grid-cols-5">
           <Stat
