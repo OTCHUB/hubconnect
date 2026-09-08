@@ -9,23 +9,38 @@ import {
   Transaction,
   type TransactionInstruction,
 } from "@solana/web3.js";
-import { configPda, potPda, tierPda, type HubProgram } from "@hub-sdk";
+import {
+  ataPda,
+  configPda,
+  createAtaIdempotentIx,
+  otcPotPda,
+  potPda,
+  tierPda,
+  TOKEN_PROGRAM_ID,
+  type HubProgram,
+} from "@hub-sdk";
 import type { TxLog } from "./swap";
 import type { WalletSigner } from "./wallets";
 
 export type ClaimPhase = "build" | "sim" | "sign" | "send" | "confirm";
 export type ClaimResult = { asset: string; ok: boolean; sig?: string; reason?: string };
 
-const CU_LIMIT = 200_000;
+const CU_LIMIT = 300_000;
 const CU_PRICE_MICRO = 10_000;
-/** Legacy tx message budget; claim_yield is ~6 accounts so 4 per tx stays well under 1232 B. */
-const MAX_IXS_PER_TX = 4;
+/**
+ * Legacy tx message budget; claim_yield now pays the $OTC leg via `transfer_checked` (11
+ * accounts, incl. the token program), so a smaller batch than the old SOL-only path keeps
+ * every packed tx well under 1232 B once the shared accounts (config/pot/otcPot/otcMint/
+ * otcVault/claimerOtc) are deduped by the message compiler.
+ */
+const MAX_IXS_PER_TX = 3;
 
 /** Unsigned `claim_yield` instruction — built through the read-only Anchor reader (no provider wallet). */
 export async function buildClaimYieldIx(
   program: HubProgram,
   claimer: PublicKey,
   deskAsset: PublicKey,
+  otc: { mint: PublicKey; vault: PublicKey },
 ): Promise<TransactionInstruction> {
   const id = program.programId;
   return program.methods
@@ -36,18 +51,34 @@ export async function buildClaimYieldIx(
       config: configPda(id)[0],
       deskTier: tierPda(id, deskAsset)[0],
       pot: potPda(id)[0],
+      otcPot: otcPotPda(id)[0],
+      otcMint: otc.mint,
+      otcVault: otc.vault,
+      claimerOtc: ataPda(claimer, otc.mint)[0],
+      tokenProgram: new PublicKey(TOKEN_PROGRAM_ID),
       systemProgram: new PublicKey("11111111111111111111111111111111"),
     })
     .instruction();
 }
 
-function packTxs(ixs: TransactionInstruction[], payer: PublicKey, blockhash: string) {
+/**
+ * The claimer's $OTC ATA is never created by the program (§B3, `require_token_account` only
+ * checks mint/owner on an existing account) — prepend a `CreateIdempotent` to EVERY packed tx
+ * (not just the first) since all txs are simulated against the same pre-landing state.
+ */
+function packTxs(
+  ixs: TransactionInstruction[],
+  payer: PublicKey,
+  blockhash: string,
+  ataIx: TransactionInstruction,
+) {
   const txs: Transaction[] = [];
   for (let i = 0; i < ixs.length; i += MAX_IXS_PER_TX) {
     const tx = new Transaction({ feePayer: payer, recentBlockhash: blockhash });
     tx.add(
       ComputeBudgetProgram.setComputeUnitLimit({ units: CU_LIMIT }),
       ComputeBudgetProgram.setComputeUnitPrice({ microLamports: CU_PRICE_MICRO }),
+      ataIx,
       ...ixs.slice(i, i + MAX_IXS_PER_TX),
     );
     txs.push(tx);
@@ -56,7 +87,7 @@ function packTxs(ixs: TransactionInstruction[], payer: PublicKey, blockhash: str
 }
 
 /**
- * Claim yield for `assets` (one ix each, packed 4 per tx). Sim → one signAll prompt → send →
+ * Claim yield for `assets` (one ix each, packed per tx). Sim → one signAll prompt → send →
  * confirm. Results are per asset; a dropped tx marks all of its assets failed.
  */
 export async function executeClaimYield(opts: {
@@ -73,11 +104,20 @@ export async function executeClaimYield(opts: {
   if (!assets.length) return results;
 
   onPhase?.("build");
+  const id = program.programId;
+  const [configKey] = configPda(id);
+  const [otcPotKey] = otcPotPda(id);
+  const [config, otcPot] = await Promise.all([
+    program.account.config.fetch(configKey),
+    program.account.otcPotState.fetch(otcPotKey),
+  ]);
+  const otc = { mint: config.otcMint as PublicKey, vault: otcPot.otcVault as PublicKey };
+  const ataIx = createAtaIdempotentIx(claimer, claimer, otc.mint);
   const ixs = await Promise.all(
-    assets.map((a) => buildClaimYieldIx(program, claimer, new PublicKey(a))),
+    assets.map((a) => buildClaimYieldIx(program, claimer, new PublicKey(a), otc)),
   );
   const bh = await connection.getLatestBlockhash("confirmed");
-  const txs = packTxs(ixs, claimer, bh.blockhash);
+  const txs = packTxs(ixs, claimer, bh.blockhash, ataIx);
   const assetsOf = (i: number) => assets.slice(i * MAX_IXS_PER_TX, (i + 1) * MAX_IXS_PER_TX);
   onLog({ type: "info", msg: `CLAIM :: ${assets.length} desk(s) in ${txs.length} tx(s)` });
 

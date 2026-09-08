@@ -31,6 +31,7 @@ import {
   tierPda,
 } from "../sdk/src";
 import {
+  TOKEN_PROGRAM_ID,
   ata,
   claimAllOwned,
   devnetCtx,
@@ -129,6 +130,9 @@ async function setTier(ctx: Ctx, asset: PublicKey, target: number) {
     epoch,
     pot,
     opsWallet: cfg.opsWallet,
+    hubMint: cfg.hubMint,
+    payerHub: ata(ctx.payer.publicKey, cfg.hubMint),
+    tokenProgram: TOKEN_PROGRAM_ID,
     deskTier,
   };
   const ixs = [await ctx.program.methods.activateTier(1).accountsPartial(accounts).instruction()];

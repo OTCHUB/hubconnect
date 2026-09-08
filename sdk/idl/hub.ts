@@ -5,7 +5,7 @@
  * IDL can be found at `target/idl/hub.json`.
  */
 export type Hub = {
-  "address": "5tCDEazUAkRjrkasup1uWcYo3t1C2ht76LmQva5rewQv",
+  "address": "3S2K4q9Kk9xkSSjqDb5jgp1cGC3mbqU2NfpCa3wJateL",
   "metadata": {
     "name": "hub",
     "version": "0.1.0",

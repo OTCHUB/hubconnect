@@ -1,9 +1,11 @@
 import { useState } from "react";
+import { TIER_NAMES } from "@hub-sdk";
 import { useHub } from "../HubProvider";
 import { Disclaimer } from "../components/Disclaimer";
 import { BackLink } from "../components/ui/BackLink";
-import { Panel } from "../components/ui/Panel";
+import { Flag, Panel, Row } from "../components/ui/Panel";
 import { useProtocolState } from "../hooks/useProtocolState";
+import { fmtBp, fmtNum, fmtSol, fmtUtc, fmtWeight } from "../lib/format";
 import {
   DEPLOYMENTS,
   liveDeployments,
@@ -182,6 +184,52 @@ export function DeploymentsPage() {
                 Config rows appear once the protocol state loads.
               </div>
             )}
+          </div>
+        )}
+      </Panel>
+
+      <Panel
+        title="CONFIG PARAMETERS (LIVE)"
+        right="raw Config values, straight off-chain — verify against the source"
+      >
+        {!showLive || !config ? (
+          <div className="text-xs text-green-700">
+            Parameters appear once the protocol state loads on {cluster}.
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <div className="flex flex-wrap gap-2">
+              <Flag on={!config.paused} label="LIVE" />
+              <Flag on={config.consignmentEnabled} label="CONSIGNMENT" />
+              <Flag on={config.lpEnabled} label="LP" />
+            </div>
+            <div className="grid grid-cols-1 gap-x-4 sm:grid-cols-2">
+              <Row k="burn split (round)" v={fmtBp(config.burnPctBp, 2)} />
+              <Row k="lp split (round)" v={fmtBp(config.lpPctBp, 2)} />
+              <Row k="ops split (step fee)" v={fmtBp(config.opsPctBp, 2)} />
+              <Row k="consignor share" v={fmtBp(config.consignorShareBp, 2)} />
+              <Row k="round-close threshold" v={fmtSol(config.minPotThresholdLamports)} />
+              <Row k="tier step fee" v={fmtSol(config.stepFeeLamports)} />
+              <Row k="lp target (phase-2)" v={fmtSol(config.lpTargetSolLamports)} />
+              <Row
+                k="lp phase-2 opens"
+                v={config.lpPhase2OpenTs > 0 ? fmtUtc(config.lpPhase2OpenTs) : "closed"}
+              />
+              <Row k="current epoch" v={fmtNum(config.currentEpoch)} />
+              <Row k="genesis" v={fmtUtc(config.genesisTs)} />
+              <Row k="Σ weight (active tiers)" v={fmtWeight(config.totalWeightBp)} />
+              <Row k="pot liability" v={fmtSol(config.potLiabilityLamports)} />
+            </div>
+            <div className="border-t border-green-500/10 pt-2">
+              <div className="mb-1 text-[10px] uppercase tracking-widest text-green-600">
+                tier weights
+              </div>
+              <div className="grid grid-cols-2 gap-x-4 sm:grid-cols-4">
+                {config.tierWeightsBp.map((w, i) => (
+                  <Row key={i} k={TIER_NAMES[i]} v={fmtWeight(w)} />
+                ))}
+              </div>
+            </div>
           </div>
         )}
       </Panel>

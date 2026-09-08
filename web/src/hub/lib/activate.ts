@@ -19,10 +19,12 @@ import {
   TOKEN_PROGRAM_ID,
   ataPda,
   configPda,
+  createAtaIdempotentIx,
   epochPda,
   hubCostDeltaUnits,
   otcPayPda,
   otcPayable,
+  otcPotPda,
   otcStepFeeUnits,
   potPda,
   tierPda,
@@ -116,8 +118,19 @@ export async function buildTierChangeIxs(opts: {
   assertTierRange(fromTier, toTier);
   const id = program.programId;
   const ixs: TransactionInstruction[] = [];
-  if (fromTier > 0 && opts.pendingLamports > 0)
-    ixs.push(await buildClaimYieldIx(program, payer, deskAsset));
+  if (fromTier > 0 && opts.pendingLamports > 0) {
+    // `upgrade_tier` rejects a desk with pending yield, so the $OTC-leg `claim_yield` (and the
+    // ATA it pays into, never created by the program — see claim.ts) is prepended in this tx.
+    const otcMint = new PublicKey(config.otcMint);
+    const otcPot = await program.account.otcPotState.fetch(otcPotPda(id)[0]);
+    ixs.push(createAtaIdempotentIx(payer, payer, otcMint));
+    ixs.push(
+      await buildClaimYieldIx(program, payer, deskAsset, {
+        mint: otcMint,
+        vault: otcPot.otcVault,
+      }),
+    );
+  }
   const hubMint = new PublicKey(config.hubMint);
   const common = {
     payer,

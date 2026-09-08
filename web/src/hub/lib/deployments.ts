@@ -37,7 +37,7 @@ export type Deployment = {
 // consumer reads them live off the on-chain Config singleton once initialize_config sets them.
 const HUB_MAINNET: string | null = null;
 /** Anchor 1.x writes the IDL to a Program Metadata account — written at devnet deploy. */
-const HUB_IDL_DEVNET = "CnSKvxwKb3eNS6oF6GaAyAn8m3B8axXSCQYeBYrjdQfS";
+const HUB_IDL_DEVNET = "GSw7mRX3gsHEYsEvH8Gr8vWoDYkabT3PzAUsznqx7dxi";
 const OTC_PROGRAM_MAINNET = "AjMx5My4YUDHMiCtLpTAtgkiUJgrpJnQqd5AcQnddHQW";
 /** "OTC Desks" Core collection — read from the OTC Config (9b5V…REU4) on mainnet, 2026-09-07. */
 const OTC_DESKS_COLLECTION_MAINNET = "D7sLW9uKZG3G7bNbWfMHvKSgVhU9nXdv7huTfepF5Jrh";

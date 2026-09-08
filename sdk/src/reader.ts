@@ -77,6 +77,10 @@ export type ConfigView = {
   consignmentEnabled: boolean;
   consignorShareBp: number;
   lpEnabled: boolean;
+  /** §A6.2 phase-2 LP target (lamport-equivalent value) — mirrors `Config.lp_target_sol_lamports`. */
+  lpTargetSolLamports: number;
+  /** §A6.2 phase-2 gate: HUB/OTC LP opens only after this ts (0 = closed). */
+  lpPhase2OpenTs: number;
   paused: boolean;
   currentEpoch: number;
   genesisTs: number;
@@ -293,6 +297,8 @@ export function toConfigView(
     consignmentEnabled: c.consignmentEnabled,
     consignorShareBp: c.consignorShareBp,
     lpEnabled: c.lpEnabled,
+    lpTargetSolLamports: n(c.lpTargetSolLamports),
+    lpPhase2OpenTs: n(c.lpPhase2OpenTs),
     paused: c.paused,
     currentEpoch: n(c.currentEpoch),
     genesisTs: n(c.genesisTs),

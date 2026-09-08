@@ -13,7 +13,7 @@ pub mod state;
 use instructions::*;
 use state::*;
 
-declare_id!("5tCDEazUAkRjrkasup1uWcYo3t1C2ht76LmQva5rewQv");
+declare_id!("3S2K4q9Kk9xkSSjqDb5jgp1cGC3mbqU2NfpCa3wJateL");
 
 // https://github.com/neodyme-labs/solana-security-txt — embedded in the .so so explorers and
 // researchers can find the disclosure channel from the on-chain binary alone.
