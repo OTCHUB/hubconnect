@@ -3,15 +3,15 @@
 //   npx ts-node -T scripts/devnet-hub-metadata.ts [--uri URL] [--name "HUB Protocol"] [--symbol HUB]
 // Idempotent: creates the metadata account if missing, otherwise updates it. The payer must be
 // the mint authority (create) and the metadata update authority (update). The URI must serve
-// the JSON in assets/hub-token.json (image → PNG); raw.githubusercontent.com only works once
-// the repo is public. Mainnet: pin JSON + PNG on Arweave/IPFS and pass --uri.
+// the JSON in assets/hub-token.json (image → PNG), permanently pinned on Arweave/IPFS — see
+// assets/security.json for the matching PMP program-metadata "security" seed content (logo only,
+// written via `npx @solana-program/program-metadata write security <program> assets/security.json`).
 import { PublicKey, SystemProgram, TransactionInstruction } from "@solana/web3.js";
 import { TOKEN_PROGRAM_ID, devnetCtx, explorer, sendIxs, type Ctx } from "./lib/devnet";
 
 export const METADATA_PROGRAM_ID = new PublicKey("metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s");
 const MINT_SIZE = 82;
-const DEFAULT_URI =
-  "https://raw.githubusercontent.com/OTCHUB/hubconnect/main/assets/hub-token.json";
+const DEFAULT_URI = "https://gateway.irys.xyz/B1fk41U4tmaBcLN1puY9iVqnka5Gfevq7cz9EYbRJqoV";
 // Metaplex string limits (bytes, before the u32 length prefix).
 const LIMITS = { name: 32, symbol: 10, uri: 200 };
 
