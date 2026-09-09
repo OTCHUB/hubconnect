@@ -18,7 +18,9 @@ type Props = {
  * (`liveDeskCount`/`liveCirculatingHub`, threaded down from `TokenomicsPanel.tsx`) so the chart's
  * edge never lags the page's own "Current" stats by up to the 6h ingest interval. Mirrors
  * otchub's `SupplyChart.jsx` role: desk-mint growth vs token supply drawdown, but for the $HUB
- * buyback-burn model (no per-desk deposit-burn like $OTC — supply only moves via `record_burn`).
+ * buyback-burn model (no per-desk deposit-burn like $OTC — supply only moves via on-chain
+ * `BurnChecked` calls: the synchronous Jupiter-CPI buyback burn inside `finalize_epoch`, tier
+ * activation/upgrade cost burns, and treasury discount-exit burns).
  */
 export function HubSupplyChart({ liveDeskCount, liveCirculatingHub }: Props) {
   const q = useHubHistory();

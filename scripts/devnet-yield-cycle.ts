@@ -31,9 +31,9 @@
 // 4. `claim_yield` ONCE per owned tier: payout == ⌊(acc − stamp) × w / 10¹²⌋ — every round
 //    closed since the desk's stamp in a single tx; the stamp catches up to `acc`.
 // 5. Burn verification: `BurnState.total_hub_burned` already reflects step 3's synchronous
-//    CPI burn; `record_burn` (the pre-Jupiter-refactor keeper-reimbursement path keyed off
-//    `BurnState.burn_pending_lamports`) is now permanently inert — asserted here as a
-//    negative-path check (`ZeroAmount`), not exercised as a live mechanic.
+//    CPI burn. The old `record_burn` keeper-reimbursement instruction (keyed off
+//    `BurnState.burn_pending_lamports`) has been removed from the program entirely — the
+//    Jupiter-CPI refactor made it permanently dead code.
 //
 // --quick is the streamlined path (no sweep/mint): inflow → finalize → claim → burn on whatever
 // treasury-owned desks already exist.
@@ -603,27 +603,13 @@ async function main() {
     check("second claim in the same round rejected", r.ok, r.detail);
   }
 
-  console.log("\n[5] BURN VERIFICATION — record_burn is now retired by the Jupiter-CPI refactor");
+  console.log("\n[5] BURN VERIFICATION — synchronous Jupiter-CPI burn inside finalize_epoch");
   const burnStateEnd = await ctx.program.account.burnState.fetch(burnKey);
   check(
-    "BurnState.burn_pending_lamports stays 0 (no longer credited by finalize_epoch)",
-    burnStateEnd.burnPendingLamports.isZero(),
+    "BurnState.total_hub_burned grew (burned synchronously inside finalize_epoch, no keeper step)",
+    burnStateEnd.totalHubBurned.gtn(0),
     `total_hub_burned so far: ${burnStateEnd.totalHubBurned.toString()} units`,
   );
-  {
-    // record_burn's only remaining funding source (BurnState.burn_pending_lamports) is
-    // permanently 0 post-refactor, so any call — even with a nonzero lamports_spent — fails
-    // BurnExceedsPending; lamports_spent === 0 fails ZeroAmount first. Assert the mechanic is
-    // inert rather than exercising it as a live path.
-    const r = await expectErr(
-      ctx.program.methods
-        .recordBurn(new BN(0), new BN(0), new Array(64).fill(0))
-        .accountsPartial({ keeper: ctx.payer.publicKey, config: ctx.config, burn: burnKey, pot: potKey })
-        .rpc(),
-      "ZeroAmount",
-    );
-    check("record_burn rejected — retired mechanic (no pending balance to draw)", r.ok, r.detail);
-  }
   const cfgEnd = await ctx.program.account.config.fetch(ctx.config);
   const potLamports = await ctx.connection.getBalance(potKey);
   const floor = await ctx.connection.getMinimumBalanceForRentExemption(0);

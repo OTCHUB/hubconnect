@@ -30,8 +30,6 @@ pub enum HubError {
     EpochNotCurrent,
     #[msg("Amount must be greater than zero")]
     ZeroAmount,
-    #[msg("Burn spend exceeds burn-pending")]
-    BurnExceedsPending,
     #[msg("LP position for this pair already exists (one per pair)")]
     LpPositionExists,
     #[msg("Tier has been voided by an ownership change; re-activate")]

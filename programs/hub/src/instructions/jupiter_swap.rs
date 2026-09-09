@@ -119,6 +119,6 @@ pub fn sync_native<'info>(
         accounts: vec![AccountMeta::new(*account.key, false)],
         data: vec![TOKEN_IX_SYNC_NATIVE],
     };
-    invoke_signed(&ix, &[account.clone()], &[])?;
+    invoke_signed(&ix, std::slice::from_ref(account), &[])?;
     Ok(())
 }

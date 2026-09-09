@@ -101,7 +101,6 @@ pub fn initialize_config(ctx: Context<InitializeConfig>, args: InitializeConfigA
     let b = &mut ctx.accounts.burn;
     b.authority = ctx.accounts.payer.key();
     b.total_hub_burned = 0;
-    b.burn_pending_lamports = 0;
     b.last_burn_tx = [0u8; 64];
     b.bump = ctx.bumps.burn;
 
@@ -195,7 +194,8 @@ pub fn devnet_reset(ctx: Context<DevnetReset>, _epoch_index: u64) -> Result<()> 
     if config_ai.lamports() > 0 {
         let data = config_ai.try_borrow_data()?;
         require!(data.len() >= 40, HubError::Unauthorized);
-        let stored_authority = Pubkey::try_from(&data[8..40]).map_err(|_| HubError::Unauthorized)?;
+        let stored_authority =
+            Pubkey::try_from(&data[8..40]).map_err(|_| HubError::Unauthorized)?;
         drop(data);
         require_keys_eq!(
             stored_authority,

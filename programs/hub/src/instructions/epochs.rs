@@ -1,4 +1,4 @@
-//! §B3 #4 finalize_epoch, #6 register_treasury_inflow, #7 record_burn.
+//! §B3 #4 finalize_epoch, #6 register_treasury_inflow.
 //!
 //! Rounds are threshold-gated, not clock-gated: `finalize_epoch` is callable the moment the open
 //! epoch's inflow reaches `Config.min_pot_threshold_lamports` (OTC desk-pot semantics). §A5
@@ -175,10 +175,9 @@ pub fn finalize_epoch<'info>(
 
         // Split the received $HUB in the same proportion as the SOL legs that funded the swap
         // (burn : lp : float), so a future re-tune of the bp splits carries through automatically.
-        let hub_burn = u64::try_from(
-            (hub_received as u128) * (burn as u128) / (swap_total as u128),
-        )
-        .map_err(|_| error!(HubError::MathOverflow))?;
+        let hub_burn =
+            u64::try_from((hub_received as u128) * (burn as u128) / (swap_total as u128))
+                .map_err(|_| error!(HubError::MathOverflow))?;
         let hub_lp = u64::try_from((hub_received as u128) * (lp as u128) / (swap_total as u128))
             .map_err(|_| error!(HubError::MathOverflow))?;
         // Float absorbs the floor-rounding remainder — mirrors the pot-leg dust pattern above.
@@ -315,61 +314,6 @@ pub fn register_treasury_inflow(
         epoch: config.current_epoch,
         source: source as u8,
         lamports,
-    });
-    Ok(())
-}
-
-#[derive(Accounts)]
-pub struct RecordBurn<'info> {
-    /// Must be `burn.authority`: fronts SOL for the market buy, reimbursed here on proof of burn.
-    #[account(mut)]
-    pub keeper: Signer<'info>,
-    #[account(mut, seeds = [SEED_CONFIG], bump = config.bump, constraint = !config.paused @ HubError::Paused)]
-    pub config: Account<'info, Config>,
-    #[account(
-        mut, seeds = [SEED_BURN], bump = burn.bump,
-        constraint = burn.authority == keeper.key() @ HubError::Unauthorized
-    )]
-    pub burn: Account<'info, BurnState>,
-    /// CHECK: system-owned lamport vault PDA.
-    #[account(mut, seeds = [SEED_POT], bump = config.pot_bump)]
-    pub pot: UncheckedAccount<'info>,
-    pub system_program: Program<'info, System>,
-}
-
-/// Idempotency is the keeper's job (it checks `last_burn_tx` before resubmitting);
-/// on-chain we refuse to spend past burn-pending, so a replay can never over-draw.
-pub fn record_burn(
-    ctx: Context<RecordBurn>,
-    hub_burned: u64,
-    lamports_spent: u64,
-    burn_tx: [u8; 64],
-) -> Result<()> {
-    require!(lamports_spent > 0, HubError::ZeroAmount);
-    let b = &mut ctx.accounts.burn;
-    require!(
-        lamports_spent <= b.burn_pending_lamports,
-        HubError::BurnExceedsPending
-    );
-    require!(burn_tx != b.last_burn_tx, HubError::InvariantViolated);
-    b.burn_pending_lamports = sub(b.burn_pending_lamports, lamports_spent)?;
-    b.total_hub_burned = add(b.total_hub_burned, hub_burned)?;
-    b.last_burn_tx = burn_tx;
-
-    let config = &mut ctx.accounts.config;
-    config.pot_liability_lamports = sub(config.pot_liability_lamports, lamports_spent)?;
-    pay_from_pot(
-        &ctx.accounts.system_program,
-        &ctx.accounts.pot,
-        &ctx.accounts.keeper,
-        config.pot_bump,
-        lamports_spent,
-    )?;
-    assert_pot_solvent(config, &ctx.accounts.pot)?;
-    emit!(BurnRecorded {
-        hub_burned,
-        lamports_spent,
-        burn_pending_after: b.burn_pending_lamports
     });
     Ok(())
 }

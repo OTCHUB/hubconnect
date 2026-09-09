@@ -221,8 +221,7 @@ pub fn set_otc_payments_enabled(ctx: Context<SetOtcPaymentsEnabled>, enabled: bo
 /// even 50/50) carries through without touching call sites.
 fn otc_pot_leg(otc_swap_amount: u64) -> Result<(u64, u64)> {
     let otc_paid_total = u64::try_from(
-        (otc_swap_amount as u128) * (BPS_DENOMINATOR as u128)
-            / (OTC_PAY_SWAP_BURN_PCT_BP as u128),
+        (otc_swap_amount as u128) * (BPS_DENOMINATOR as u128) / (OTC_PAY_SWAP_BURN_PCT_BP as u128),
     )
     .map_err(|_| error!(HubError::MathOverflow))?;
     let to_otc_pot = sub(otc_paid_total, otc_swap_amount)?;

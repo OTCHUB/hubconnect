@@ -41,7 +41,7 @@ describe("M1 — initialize_config", () => {
     expect(t.hubFloatCapBp).to.eq(K.TREASURY_HUB_FLOAT_CAP_BP);
 
     const b = await h.program.account.burnState.fetch(f.burn);
-    expect(b.burnPendingLamports.toNumber()).to.eq(0);
+    expect(b.totalHubBurned.toNumber()).to.eq(0);
 
     const [e0] = epochPda(h.program.programId, 0);
     const e = await h.program.account.epoch.fetch(e0);

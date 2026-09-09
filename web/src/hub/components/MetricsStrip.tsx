@@ -10,7 +10,7 @@ import { Stat } from "./ui/Panel";
 
 /** §C3 — live metrics strip across the top of the panel. */
 export function MetricsStrip({ state }: { state: ProtocolState }) {
-  const { config, currentEpoch, potLamports, burn, supply } = state;
+  const { config, currentEpoch, potLamports, supply } = state;
   const surplus = potLamports - config.potLiabilityLamports;
   const pct = Math.round(roundProgress(currentEpoch, config) * 100);
   const ready = canFinalize(currentEpoch, config);
@@ -56,7 +56,7 @@ export function MetricsStrip({ state }: { state: ProtocolState }) {
           <span className={supply.ledgerDrift ? "text-yellow-500" : undefined}>
             {supply.ledgerDrift
               ? `ledger ${fmtHub(supply.ledgerBurnedUnits, d)} · drift`
-              : `pending ${fmtSol(burn.burnPendingLamports)}`}
+              : "ledger synced"}
           </span>
         }
       />

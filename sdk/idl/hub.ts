@@ -1208,116 +1208,6 @@ export type Hub = {
       "args": []
     },
     {
-      "name": "devnetReset",
-      "docs": [
-        "Devnet-only: closes `config`/`burn`/`treasury_state`/`epoch(epoch_index)` so",
-        "`initialize_config` can re-`init` the same PDAs after a layout change. Compiled only",
-        "under the `mock-jupiter` feature — absent from every mainnet build."
-      ],
-      "discriminator": [
-        52,
-        226,
-        240,
-        25,
-        105,
-        131,
-        41,
-        28
-      ],
-      "accounts": [
-        {
-          "name": "authority",
-          "writable": true,
-          "signer": true
-        },
-        {
-          "name": "config",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  99,
-                  111,
-                  110,
-                  102,
-                  105,
-                  103
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "burn",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  98,
-                  117,
-                  114,
-                  110
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "treasuryState",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  116,
-                  114,
-                  101,
-                  97,
-                  115,
-                  117,
-                  114,
-                  121
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "epoch",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  101,
-                  112,
-                  111,
-                  99,
-                  104
-                ]
-              },
-              {
-                "kind": "arg",
-                "path": "epochIndex"
-              }
-            ]
-          }
-        }
-      ],
-      "args": [
-        {
-          "name": "epochIndex",
-          "type": "u64"
-        }
-      ]
-    },
-    {
       "name": "distributeAirdrop",
       "docs": [
         "§A7.1 #20b — authority pushes a snapshot allocation straight to the desk's current owner",
@@ -3544,107 +3434,6 @@ export type Hub = {
       "args": []
     },
     {
-      "name": "recordBurn",
-      "docs": [
-        "§B3 #7"
-      ],
-      "discriminator": [
-        254,
-        128,
-        98,
-        33,
-        0,
-        74,
-        165,
-        252
-      ],
-      "accounts": [
-        {
-          "name": "keeper",
-          "docs": [
-            "Must be `burn.authority`: fronts SOL for the market buy, reimbursed here on proof of burn."
-          ],
-          "writable": true,
-          "signer": true
-        },
-        {
-          "name": "config",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  99,
-                  111,
-                  110,
-                  102,
-                  105,
-                  103
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "burn",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  98,
-                  117,
-                  114,
-                  110
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "pot",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  112,
-                  111,
-                  116
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "systemProgram",
-          "address": "11111111111111111111111111111111"
-        }
-      ],
-      "args": [
-        {
-          "name": "hubBurned",
-          "type": "u64"
-        },
-        {
-          "name": "lamportsSpent",
-          "type": "u64"
-        },
-        {
-          "name": "burnTx",
-          "type": {
-            "array": [
-              "u8",
-              64
-            ]
-          }
-        }
-      ]
-    },
-    {
       "name": "recordCreatorFee",
       "docs": [
         "§A6.3 #24 — treasury deposits its claimed launcher holder-leg $OTC (enforced deposit)."
@@ -5111,19 +4900,6 @@ export type Hub = {
       ]
     },
     {
-      "name": "burnRecorded",
-      "discriminator": [
-        217,
-        168,
-        29,
-        198,
-        28,
-        67,
-        77,
-        142
-      ]
-    },
-    {
       "name": "creatorFeeBurnRecorded",
       "discriminator": [
         215,
@@ -5548,206 +5324,201 @@ export type Hub = {
     },
     {
       "code": 6014,
-      "name": "burnExceedsPending",
-      "msg": "Burn spend exceeds burn-pending"
-    },
-    {
-      "code": 6015,
       "name": "lpPositionExists",
       "msg": "LP position for this pair already exists (one per pair)"
     },
     {
-      "code": 6016,
+      "code": 6015,
       "name": "tierVoided",
       "msg": "Tier has been voided by an ownership change; re-activate"
     },
     {
-      "code": 6017,
+      "code": 6016,
       "name": "notDeskOwner",
       "msg": "Caller does not own the desk asset"
     },
     {
-      "code": 6018,
+      "code": 6017,
       "name": "wrongCollection",
       "msg": "Desk asset does not belong to the configured collection"
     },
     {
-      "code": 6019,
+      "code": 6018,
       "name": "potBelowThreshold",
       "msg": "Open epoch inflow is below min_pot_threshold_lamports"
     },
     {
-      "code": 6020,
+      "code": 6019,
       "name": "epochAlreadyFinalized",
       "msg": "Epoch already finalized"
     },
     {
-      "code": 6021,
+      "code": 6020,
       "name": "epochNotFinalized",
       "msg": "Epoch is not finalized"
     },
     {
-      "code": 6022,
+      "code": 6021,
       "name": "nothingToClaim",
       "msg": "Nothing to claim"
     },
     {
-      "code": 6023,
+      "code": 6022,
       "name": "potBelowLiability",
       "msg": "Pot lamports below liability"
     },
     {
-      "code": 6024,
+      "code": 6023,
       "name": "invariantViolated",
       "msg": "Inflow accounting invariant violated"
     },
     {
-      "code": 6025,
+      "code": 6024,
       "name": "lpDisabled",
       "msg": "LP building is disabled"
     },
     {
-      "code": 6026,
+      "code": 6025,
       "name": "lpPhase2Gated",
       "msg": "HUB/OTC LP is gated until phase-2 conditions hold"
     },
     {
-      "code": 6027,
+      "code": 6026,
       "name": "floorStale",
       "msg": "Floor moved more than the staleness guard since tx build"
     },
     {
-      "code": 6028,
+      "code": 6027,
       "name": "treasurySelfDeal",
       "msg": "Treasury may not buy its own exit"
     },
     {
-      "code": 6029,
+      "code": 6028,
       "name": "burnPendingUnderflow",
       "msg": "Burn-pending underflow"
     },
     {
-      "code": 6030,
+      "code": 6029,
       "name": "mathOverflow",
       "msg": "Arithmetic overflow"
     },
     {
-      "code": 6031,
+      "code": 6030,
       "name": "otcPaymentsDisabled",
       "msg": "$OTC payments are disabled"
     },
     {
-      "code": 6032,
+      "code": 6031,
       "name": "otcRateStale",
       "msg": "$OTC reference rate is stale; authority must refresh it"
     },
     {
-      "code": 6033,
+      "code": 6032,
       "name": "invalidTokenAccount",
       "msg": "Account is not an SPL token account for the expected mint/owner"
     },
     {
-      "code": 6034,
+      "code": 6033,
       "name": "wrongTokenProgram",
       "msg": "Token program does not match the configured mint"
     },
     {
-      "code": 6035,
+      "code": 6034,
       "name": "allocationExceedsSupply",
       "msg": "Airdrop + treasury lock + team allocations exceed the max supply"
     },
     {
-      "code": 6036,
+      "code": 6035,
       "name": "airdropClosed",
       "msg": "Airdrop claims are not open"
     },
     {
-      "code": 6037,
+      "code": 6036,
       "name": "airdropInvalidProof",
       "msg": "Merkle proof does not match the published airdrop root"
     },
     {
-      "code": 6038,
+      "code": 6037,
       "name": "airdropLocked",
       "msg": "Airdrop root cannot change once claims have been paid"
     },
     {
-      "code": 6039,
+      "code": 6038,
       "name": "notImplemented",
       "msg": "Not implemented in this milestone"
     },
     {
-      "code": 6040,
+      "code": 6039,
       "name": "otcBuyExceedsPending",
       "msg": "OTC buy spend exceeds otc_pending_lamports"
     },
     {
-      "code": 6041,
+      "code": 6040,
       "name": "noOtcPurchased",
       "msg": "No $OTC has been purchased yet; nothing claimable"
     },
     {
-      "code": 6042,
+      "code": 6041,
       "name": "creatorFeeBelowThreshold",
       "msg": "Creator-fee pending balance is below the clearing threshold"
     },
     {
-      "code": 6043,
+      "code": 6042,
       "name": "creatorFeeLegExceedsPending",
       "msg": "Creator-fee leg draw exceeds that leg's pending balance"
     },
     {
-      "code": 6044,
+      "code": 6043,
       "name": "lpAccountsMissing",
       "msg": "build_lp requires AMM CPI accounts in remaining_accounts"
     },
     {
-      "code": 6045,
+      "code": 6044,
       "name": "airdropCapExceeded",
       "msg": "Airdrop snapshot desk count exceeds the 2,500-desk cap"
     },
     {
-      "code": 6046,
+      "code": 6045,
       "name": "noRewardPending",
       "msg": "No treasury reward pending; call fund_treasury_reward first"
     },
     {
-      "code": 6047,
+      "code": 6046,
       "name": "rewardRoundExceeded",
       "msg": "Reward round payout would exceed the round's snapshotted amount"
     },
     {
-      "code": 6048,
+      "code": 6047,
       "name": "deskNotActive",
       "msg": "Desk is not an active tier holder"
     },
     {
-      "code": 6049,
+      "code": 6048,
       "name": "noHubPotPending",
       "msg": "No HUB Pot bucket has a pending balance; call fund_hub_pot first"
     },
     {
-      "code": 6050,
+      "code": 6049,
       "name": "hubPotRoundExceeded",
       "msg": "HUB Pot round payout would exceed a bucket's snapshotted amount"
     },
     {
-      "code": 6051,
+      "code": 6050,
       "name": "slippageExceeded",
       "msg": "Jupiter swap returned less than the required minimum output"
     },
     {
-      "code": 6052,
+      "code": 6051,
       "name": "wrongJupiterProgram",
       "msg": "CPI target does not match the configured Jupiter program id"
     },
     {
-      "code": 6053,
+      "code": 6052,
       "name": "swapAccountsMissing",
       "msg": "Jupiter route requires accounts in remaining_accounts"
     },
     {
-      "code": 6054,
+      "code": 6053,
       "name": "treasuryFloatNotInitialized",
       "msg": "Treasury float vault has not been initialized"
     }
@@ -5897,26 +5668,6 @@ export type Hub = {
       }
     },
     {
-      "name": "burnRecorded",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "hubBurned",
-            "type": "u64"
-          },
-          {
-            "name": "lamportsSpent",
-            "type": "u64"
-          },
-          {
-            "name": "burnPendingAfter",
-            "type": "u64"
-          }
-        ]
-      }
-    },
-    {
       "name": "burnState",
       "docs": [
         "`Pot` is a system-owned PDA (`[\"pot\"]`); balance = account lamports. It has",
@@ -5931,10 +5682,6 @@ export type Hub = {
           },
           {
             "name": "totalHubBurned",
-            "type": "u64"
-          },
-          {
-            "name": "burnPendingLamports",
             "type": "u64"
           },
           {
@@ -6493,7 +6240,7 @@ export type Hub = {
           {
             "name": "lastBurnResultTx",
             "docs": [
-              "Replay guard for `record_creator_fee_burn_result` (trust-attested like `record_burn`)."
+              "Replay guard for `record_creator_fee_burn_result` (trust-attested)."
             ],
             "type": {
               "array": [
@@ -7294,8 +7041,8 @@ export type Hub = {
     {
       "name": "otcBuyRecorded",
       "docs": [
-        "Keeper-attested $OTC buy, reimbursed from the pot up to `otc_pending_lamports` (mirrors",
-        "`BurnRecorded`). `otc_bought` is deposited into `otc_vault` in the same tx."
+        "Keeper-attested $OTC buy, reimbursed from the pot up to `otc_pending_lamports`.",
+        "`otc_bought` is deposited into `otc_vault` in the same tx."
       ],
       "type": {
         "kind": "struct",

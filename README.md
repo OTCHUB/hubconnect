@@ -108,7 +108,7 @@ in the spec. `hub_mint`, `otc_mint`, `desk_collection`, `otc_desk_pot`, `ops_wal
 - **Audit status**: `auditors: "None"` (declared in the embedded security.txt). No third-party audit has been performed; treat the program as unaudited until this changes.
 - **Arithmetic policy**: every accounting counter (`total_weight_bp`, `pot_liability_lamports`, `total_exits`, all `*_pending_*` balances) uses checked `add()`/`sub()` helpers that error on overflow/underflow — no `saturating_*` on state that must never silently clamp.
 - **Split invariants**: the 90/5/2.5/2.5 round split and 80/5/5/5/5 creator-fee split are asserted to sum to exactly 10,000 bp at **compile time** (`programs/hub/src/constants.rs`), not just at runtime.
-- **Emergency pause (`Config.paused`, authority-only)**: gates new value-creating actions (`activate_tier`, `upgrade_tier`, `claim_yield`) and every keeper reimbursement draw that pays protocol-custodied funds out to an externally-controlled wallet (`record_burn`, `record_otc_buy`, `draw_creator_fee_leg`) — the fastest stop available against a compromised keeper key, since those keepers' authorities aren't independently rotatable. Inbound deposits, internal PDA-signed bookkeeping (`clear_creator_fees`), and pure off-chain attestations stay open under pause so a keeper mid-recovery isn't stranded. Full instruction-level gating: [`§B3`](docs/hubconnect-spec.md#b3-on-chain-program--instructions).
+- **Emergency pause (`Config.paused`, authority-only)**: gates new value-creating actions (`activate_tier`, `upgrade_tier`, `claim_yield`) and every keeper reimbursement draw that pays protocol-custodied funds out to an externally-controlled wallet (`record_otc_buy`, `draw_creator_fee_leg`) — the fastest stop available against a compromised keeper key, since those keepers' authorities aren't independently rotatable. Inbound deposits, internal PDA-signed bookkeeping (`clear_creator_fees`), and pure off-chain attestations stay open under pause so a keeper mid-recovery isn't stranded. Full instruction-level gating: [`§B3`](docs/hubconnect-spec.md#b3-on-chain-program--instructions).
 - **Verified builds**: reproducible `.so`, SLSA provenance and independent verification steps — see [Verified builds](#verified-builds) below.
 
 ## Layout
@@ -128,7 +128,8 @@ docs/                spec, master prompt, evidence/ (mainnet read-only verificat
 
 `Pot` is a data-less system-owned PDA (`["pot"]`); its lamport balance is the pot.
 Liability is tracked on `Config.pot_liability_lamports` (staker yield via the `acc_per_weight`
-accumulator) and `BurnState.burn_pending_lamports`.
+accumulator); the burn/LP/treasury-float legs are spent synchronously inside `finalize_epoch`,
+so they never sit as pot liability.
 
 Distribution is threshold-gated like the OTC desk pot: inflow fills the open round (`Epoch`);
 `finalize_epoch` is allowed the moment the round reaches `min_pot_threshold_lamports` (0.1 SOL),
@@ -250,8 +251,9 @@ npm run devnet:cycle              # sweep mock (seller → treasury, atomic; cre
                                   # if missing) → gate (finalize/claim rejected below 0.1 SOL) →
                                   # desk-pot rounds (--desk-round, default 0.144 SOL/desk = §A5 mainnet
                                   # take) booked as source B per treasury-owned desk → finalize
-                                  # (⌊inflow×burn_bp⌋ burn, rest → acc_per_weight) → one claim_yield per
-                                  # tier settles every closed round → burn → record_burn
+                                  # (⌊inflow×burn_bp⌋ swapped SOL→$HUB via synchronous Jupiter CPI and
+                                  # burned in the same tx, rest → acc_per_weight) → one claim_yield per
+                                  # tier settles every closed round
 npm run devnet:cycle -- --quick   # streamlined: inflow → finalize → claim → burn on existing desks
 npm run authority -- status       # program upgrade authority vs $HUB mint/freeze authority
 npm run authority -- revoke-mint --yes   # irreversible: mint + freeze authority → None

@@ -421,19 +421,6 @@ export async function txFee(h: Harness, sig: string) {
   return tx.meta.fee;
 }
 
-export async function recordBurn(
-  h: Harness,
-  f: Fixture,
-  hubBurned: number,
-  lamportsSpent: number,
-  sig: number[],
-) {
-  return h.program.methods
-    .recordBurn(bn(hubBurned), bn(lamportsSpent), sig)
-    .accountsPartial({ keeper: h.payer.publicKey, config: f.config, burn: f.burn, pot: f.pot })
-    .rpc();
-}
-
 export async function setConfig(
   h: Harness,
   f: Fixture,

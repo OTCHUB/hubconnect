@@ -1,5 +1,5 @@
-//! §A5 90% leg — `init_otc_pot` (authority, one-time) and `record_otc_buy` (keeper-attested,
-//! mirrors `record_burn`). See `OtcPotState` doc comment in `state/mod.rs` for the full design:
+//! §A5 90% leg — `init_otc_pot` (authority, one-time) and `record_otc_buy` (keeper-attested).
+//! See `OtcPotState` doc comment in `state/mod.rs` for the full design:
 //! the keeper fronts SOL, buys $OTC on the market, deposits it into the program-custodied
 //! `otc_vault` in the same tx (`TransferChecked`, enforced on-chain), then is reimbursed from
 //! the pot up to `otc_pending_lamports`. `claim_yield` (tiers.rs) prices each desk's

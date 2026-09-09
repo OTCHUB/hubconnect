@@ -494,9 +494,10 @@ received (100% $OTC, from the launcher's holders-in-stock leg)
 - **`draw_creator_fee_leg`** (keeper-only): pulls a leg's earmark out of
   `creator_fee_vault` (enforced `TransferChecked`, capped at that leg's
   pending balance) so the keeper can execute the off-chain swap. Then one of
-  three attestation instructions records the result, mirroring `record_burn`'s
-  trust + idempotency-tx-hash model (this program can no more cheaply verify
-  an external swap than it can verify an external burn):
+  three attestation instructions records the result, using the same
+  trust + idempotency-tx-hash model as `record_creator_fee_burn_result`
+  (this program can no more cheaply verify an external swap than it can
+  verify an external burn):
   - **`record_creator_fee_burn_result`** — swap done, $HUB burned; bumps
     `BurnState.total_hub_burned` (same ledger as the §A5/A7 buyback-burn sink)
     and `CreatorFeeState.total_burn_hub`.
@@ -546,10 +547,11 @@ carve-outs total the full 5% treasury figure and public settles at exactly 95%.
 
 ```text
 MAX_SUPPLY   = 1,000,000,000 HUB (× 10⁶ base units), minted once, mint authority revoked
-burned       = MAX_SUPPLY − Mint.supply      # keeper burns with spl-token Burn, so the mint
-                                             # account itself is the burn proof; BurnState.
-                                             # total_hub_burned is the record_burn ledger and
-                                             # must equal it (dashboard flags "drift" if not)
+burned       = MAX_SUPPLY − Mint.supply      # spl-token Burn (mostly synchronous, inside
+                                             # finalize_epoch/activate_tier_otc/upgrade_tier_otc),
+                                             # so the mint account itself is the burn proof;
+                                             # BurnState.total_hub_burned is the on-chain ledger
+                                             # and must equal it (dashboard flags "drift" if not)
 locked       = HUB in treasury-multisig ATA + vault-PDA ATA + TreasuryState.lp_hub_deposited
 circulating  = MAX_SUPPLY − burned − locked
 burn %       = burned / circulating           # headline; also shown as burned / MAX_SUPPLY
@@ -636,7 +638,7 @@ IDL account and singleton PDAs are listed in **Appendix — Deployment addresses
 | `Epoch` (one round) | `["epoch", epoch_index u64]` | index, start_ts, finalized_ts, inflow_lamports, distributed_lamports (credited), burn_pending_lamports, **lp_pending_lamports**, **treasury_float_lamports** (the three swap-leg SOL amounts, §A5 4-way split — informational; spent synchronously, not a keeper-drawn balance), rolled_forward_lamports (floor remainder), total_weight_bp (Σw at close), per_weight_scaled, acc_per_weight_after, finalized |
 | `DeskTier` | `["tier", asset_id]` | asset_id, owner_at_activation, tier 1–4, activated_epoch, **stamp_acc_per_weight**, total_claimed_lamports, voided |
 | `Pot` (SOL escrow) | `["pot"]` | system-owned PDA; balance via lamports (no data) |
-| `BurnState` | `["burn"]` | authority, total_hub_burned (lifetime ledger — bumped directly by `finalize_epoch`'s synchronous swap-burn, `activate_tier_otc`/`upgrade_tier_otc`'s swap-burn, and treasury discount-exit burns), burn_pending_lamports, last_burn_tx[64] (legacy off-chain-buyback fields — `record_burn` is not wired to any producer post-refactor; the round-split burn no longer round-trips through it) |
+| `BurnState` | `["burn"]` | authority, total_hub_burned (lifetime ledger — bumped directly by `finalize_epoch`'s synchronous swap-burn, `activate_tier_otc`/`upgrade_tier_otc`'s swap-burn, and treasury discount-exit burns), last_burn_tx[64] (unused since the Jupiter-CPI refactor — no producer writes it post-refactor; kept for layout stability) |
 | `TreasuryState` | `["treasury"]` | multisig, vault (PDA below), desks_owned, sweep_budget_cap_bp (1000), sweep_payback_cap_lamports (4.2 SOL), exit_discount_bp (1000), exit_hub_leg_bp (5000), floor_staleness_bp (500), **hub_float_cap_bp (500, admin-updatable via `set_treasury_float_cap_bp`)**, total_exits, total_sweeps, **lp_pending_hub_units** (§A5 2.5% LP-build leg, $HUB not lamports, drawn down by phase-2 `build_lp`), **vault_wsol** (vault-owned WSOL scratch ATA, the Jupiter swap's SOL-side input), **vault_hub** (vault-owned $HUB scratch ATA, the swap's destination + `lp_pending_hub_units`'s physical custody), **treasury_float_vault** (vault-owned $HUB buy-and-hold ATA, capped at `hub_float_cap_bp` of supply), **treasury_float_units** (running balance vs. the cap). The three new ATAs are recorded once via `init_treasury_float`; `finalize_epoch` rejects (`TreasuryFloatNotInitialized`) until they are |
 | `Vault` (treasury custody) | `["vault"]` | program-signed PDA that holds treasury-side token positions (LP, §A6.2) and signs the swap-leg transfers/burns above; no data account (derived only) |
 | `OtcPayConfig` | `["otc_pay"]` | §A4.1: enabled, pol_account (vault-owned $OTC ATA reserved for a future POL/`build_lp(HubOtc)` leg — the swap-burn/desk-pot split above no longer routes the per-call $OTC leg through it), total_otc_collected (lifetime $OTC charged across both legs). Created by `init_otc_payments`; optional. No stored rate — every call prices itself off a fresh Jupiter quote |
@@ -666,10 +668,9 @@ the OTC program config on-chain and proposes updates.
 | 4c | `record_otc_buy` | keeper (must be `OtcPotState.authority`), Config, OtcPotState, otc_mint, keeper $OTC ATA, otc_vault, Pot | args: `otc_bought`, `lamports_spent`, `buy_tx`; requires `!Config.paused`; `TransferChecked`-deposits `otc_bought` into `otc_vault` in this tx (enforced, not attested), then reimburses the keeper `lamports_spent` from the pot, capped at `otc_pending_lamports` (`OtcBuyExceedsPending`); updates the lifetime avg buy rate |
 | 5 | `claim_yield` | claimer, desk NFT, DeskTier, Config, OtcPotState, otc_mint, otc_vault, claimer $OTC ATA, Token program, Pot | **lazy revocation**: re-verify desk ownership on-chain NOW; if caller ≠ owner → void tier (voided = true, no refund) and revert; `owed = ⌊(acc − stamp) × w / 10¹²⌋` for every round since the stamp; reverts `NoOtcPurchased` until the first `record_otc_buy`; pays `otc_due = ⌊owed × total_otc_bought_units / total_lamports_spent⌋` in $OTC from `otc_vault`; stamp := acc; `NothingToClaim` when `owed` or `otc_due` rounds to zero |
 | 6 | `register_treasury_inflow` | treasury multisig, Config, Epoch, Pot | record source B/C/D/F inflows into the open round |
-| 7 | `record_burn` | keeper, Config, BurnState, Pot | requires `!Config.paused`; after the keeper buys HUB and burns it: mark burn executed, decrement burn-pending |
 | 8 | `void_tier` (internal path in 3/5) | — | ownership change discovered at claim/upgrade voids the tier |
 | 9 | `update_config` | authority (multisig), Config | only whitelisted fields (incl. `min_pot_threshold_lamports`, must be > 0); rate changes apply to rounds finalized afterwards |
-| 10 | `pause` / `unpause` | authority | halts activate/upgrade/claim and every keeper reimbursement draw that pays protocol-custodied funds out to an EOA (`record_burn`, `record_otc_buy`, `draw_creator_fee_leg`) on anomaly — the only fast stop against a compromised keeper key, since those three authorities aren't independently rotatable. Inbound deposits, permissionless internal bookkeeping (`clear_creator_fees`), and attestation-only instructions stay open so a legitimate keeper can settle in-flight recovery even while paused |
+| 10 | `pause` / `unpause` | authority | halts activate/upgrade/claim and every keeper reimbursement draw that pays protocol-custodied funds out to an EOA (`record_otc_buy`, `draw_creator_fee_leg`) on anomaly — the only fast stop against a compromised keeper key, since those authorities aren't independently rotatable. Inbound deposits, permissionless internal bookkeeping (`clear_creator_fees`), and attestation-only instructions stay open so a legitimate keeper can settle in-flight recovery even while paused |
 | 13 | `build_lp` | treasury multisig, Config, treasury LP vault, AMM pool accounts | `lp_enabled` must be true; deposit paired liquidity per §A6.2 (HUB/SOL top-ups, or bookkeeping-only intent recording); LP tokens custodied in the treasury PDA vault; withdraw path can never sell HUB |
 | 13a | `init_treasury_float` | treasury multisig (one-time), Config, TreasuryState, vault PDA, vault_wsol, vault_hub, treasury_float_vault | records the three vault-owned ATAs `finalize_epoch`'s synchronous Jupiter legs and the $OTC swap-burn leg need (WSOL scratch, $HUB scratch, $HUB buy-and-hold float); `finalize_epoch` rejects (`TreasuryFloatNotInitialized`) until this runs |
 | 13b | `set_treasury_float_cap_bp` | treasury multisig, Config, TreasuryState | args: `hub_float_cap_bp` (≤ 10,000 bp); experimental, admin-updatable — the multisig may retune the float cap at will; excess over the live cap at deposit time is burned, never rejected (§A6.3/§A7.1) |
@@ -705,11 +706,11 @@ why source B was redirected).
 ### B4. Keeper services (off-chain, TypeScript)
 
 1. **Keeper (buyback-burn)** — whenever the open round is at threshold (poll
-   `Epoch.inflow + dust carry ≥ min_pot_threshold`; anyone may call): (a) call `finalize_epoch`;
-   (b) route burn-pending SOL through a public AMM (Jupiter) with slippage caps
-   to buy HUB; (c) burn HUB (send to a published burn address); (d) call
-   `record_burn`. Publishes every tx. Idempotent: resume-safe journal, no
-   double-burn.
+   `Epoch.inflow + dust carry ≥ min_pot_threshold`; anyone may call): assembles a Jupiter
+   SOL→$HUB route (quote + `remaining_accounts`) and calls `finalize_epoch` with it — the
+   swap, burn, LP earmark, and treasury-float deposit all happen **synchronously inside that
+   one instruction** (no separate buy/burn/attest round-trip, nothing left pending). Publishes
+   every tx. Idempotent: resume-safe journal, no double-finalize (`EpochAlreadyFinalized`).
 2. **Sweeper** — watches Magic Eden listings + reads each listed desk's vault
    stock on-chain (non-empty required); applies §A6 formula (resolve OTC-side
    constants from config first); proposes sweeps within budget/payback caps;
@@ -782,8 +783,10 @@ keeper-anyone with a small reward? — start permissioned, open later).
 - Reentrancy/negative scenarios: claim with wrong desk, claim twice, finalize
   twice, inflow/liability invariant after every instruction (assert program
   panic if violated).
-- Keeper: simulate buyback route with a stub AMM; verify burn-pending →
-  record_burn is idempotent across restarts (kill and resume).
+- Keeper: simulate the buyback route with a stub AMM/route builder; verify
+  `finalize_epoch` (which swaps and burns synchronously) is idempotent across
+  restarts (kill and resume) — a re-submit after a confirmed finalize must hit
+  `EpochAlreadyFinalized`, never a double-burn.
 - Sweeper: stub ME + vault reads; verify it never sweeps above payback cap,
   never sweeps empty-vault desks, and resolves OTC constants from config.
 - LP: `build_lp` rejected while `lp_enabled = false`; LP tokens land in the
@@ -820,10 +823,10 @@ same key infrastructure as mainnet) with airdrop-limited test SOL.
   possible — no OTC address is compiled in.
 - **Devnet suite (must pass before mainnet deploy):** the full integration +
   adversarial list above executed against the devnet cluster; plus an
-  end-to-end epoch loop (activate → treasury inflow → finalize → buyback-buy on
-  a devnet AMM or stub → burn → record_burn) with the keeper killed and resumed
-  mid-loop; plus Metaplex Core ownership checks verified against real devnet
-  Core assets.
+  end-to-end epoch loop (activate → treasury inflow → finalize_epoch, which
+  swaps and burns synchronously via a devnet AMM or mock-Jupiter route) with the
+  keeper killed and resumed mid-loop; plus Metaplex Core ownership checks
+  verified against real devnet Core assets.
 - **Airdrops are rate-limited**: the harness maintains a devnet funder wallet
   (faucet + balance guard) and fails loudly when below a minimum, rather than
   producing flaky "insufficient funds" test failures.

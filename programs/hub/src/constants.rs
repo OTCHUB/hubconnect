@@ -24,7 +24,7 @@ pub const OPS_PCT_BP: u16 = 1_000;
 /// of the target tier; a later upgrade burns only the difference from the tier it's already at
 /// (never pays for the same $HUB twice). Burned via spl-token `BurnChecked` at the moment of
 /// activation/upgrade, so every tier change permanently shrinks supply — independent of, and in
-/// addition to, the round-based buyback burn (`record_burn`).
+/// addition to, the round-based buyback burn (the synchronous Jupiter CPI in `finalize_epoch`).
 pub const TIER_HUB_COST_UNITS: [u64; TIER_COUNT] = [
     100_000 * HUB_UNIT,
     125_000 * HUB_UNIT,

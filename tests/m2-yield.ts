@@ -35,13 +35,11 @@ import {
   inflow,
   finalizeCurrent,
   finalizeIdx,
-  recordBurn,
   assertSolvent,
   currentEpoch,
   setConfig,
   balance,
   big,
-  txFee,
 } from "./flows";
 import { epochPda, tierPda, otcPayPda } from "../sdk/src/pda";
 import * as K from "../sdk/src/constants";
@@ -112,9 +110,6 @@ describe("M2 — yield engine", () => {
     await expectFail(finalizeIdx(h, f, e0), "PotBelowThreshold"); // 1 lamport short
     await inflow(h, f, "b", 1);
     const inflowTotal = (await currentEpoch(h, f)).epoch.inflowLamports.toNumber();
-    const burnBefore = (
-      await h.program.account.burnState.fetch(f.burn)
-    ).burnPendingLamports.toNumber();
     const acc0 = big((await h.program.account.config.fetch(f.config)).accPerWeight);
 
     await finalizeIdx(h, f, e0); // exactly at threshold → allowed, no waiting
@@ -136,9 +131,6 @@ describe("M2 — yield engine", () => {
     // Accumulator advanced by exactly this round's per-weight credit.
     expect(big(c.accPerWeight) - acc0).to.eq(big(e.perWeightScaled));
     expect(big(e.accPerWeightAfter)).to.eq(big(c.accPerWeight));
-    expect((await h.program.account.burnState.fetch(f.burn)).burnPendingLamports.toNumber()).to.eq(
-      burnBefore + burn,
-    );
     // Next round opens with the floor remainder only.
     const next = await currentEpoch(h, f);
     expect(next.idx).to.eq(e0 + 1);
@@ -250,27 +242,6 @@ describe("M2 — yield engine", () => {
     await assertSolvent(h, f);
   });
 
-  it("record_burn reimburses keeper up to burn-pending; over-spend and replay rejected", async () => {
-    const pending = (
-      await h.program.account.burnState.fetch(f.burn)
-    ).burnPendingLamports.toNumber();
-    expect(pending).to.be.gt(0);
-    const sig = Array.from(Keypair.generate().secretKey); // unique 64 bytes per run (replay guard)
-    await expectFail(recordBurn(h, f, 1_000, pending + 1, sig), "BurnExceedsPending");
-    const k0 = await balance(h, h.payer.publicKey);
-    const pot0 = await balance(h, f.pot);
-    const tx = await recordBurn(h, f, 1_000_000, pending, sig);
-    // The localnet mint wallet holds 5e8 SOL (> 2^53 lamports), so JS numbers lose ≤ 64 lamports
-    // of precision on the keeper side; the pot side is small and checked exactly.
-    const keeperDelta = (await balance(h, h.payer.publicKey)) - k0;
-    expect(Math.abs(keeperDelta - (pending - (await txFee(h, tx))))).to.be.lte(64);
-    expect(pot0 - (await balance(h, f.pot))).to.eq(pending);
-    const b = await h.program.account.burnState.fetch(f.burn);
-    expect(b.burnPendingLamports.toNumber()).to.eq(0);
-    expect(b.totalHubBurned.toNumber()).to.be.gte(1_000_000);
-    await expectFail(recordBurn(h, f, 1, 1, sig));
-    await assertSolvent(h, f);
-  });
 });
 
 // §A4.1 — $OTC as an alternative step-fee currency. Mock 6-dp mint; 1 SOL = 1,000 OTC, so a

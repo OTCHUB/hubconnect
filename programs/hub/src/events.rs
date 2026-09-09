@@ -132,8 +132,8 @@ pub struct TreasuryFloatCapUpdated {
     pub hub_float_cap_bp: u16,
 }
 
-/// Keeper-attested $OTC buy, reimbursed from the pot up to `otc_pending_lamports` (mirrors
-/// `BurnRecorded`). `otc_bought` is deposited into `otc_vault` in the same tx.
+/// Keeper-attested $OTC buy, reimbursed from the pot up to `otc_pending_lamports`.
+/// `otc_bought` is deposited into `otc_vault` in the same tx.
 #[event]
 pub struct OtcBuyRecorded {
     pub otc_bought: u64,
@@ -148,13 +148,6 @@ pub struct InflowRegistered {
     pub epoch: u64,
     pub source: u8,
     pub lamports: u64,
-}
-
-#[event]
-pub struct BurnRecorded {
-    pub hub_burned: u64,
-    pub lamports_spent: u64,
-    pub burn_pending_after: u64,
 }
 
 #[event]

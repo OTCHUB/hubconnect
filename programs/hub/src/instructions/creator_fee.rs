@@ -6,7 +6,7 @@
 //! it only raises `total_otc_bought_units`, mechanically lifting the lifetime average buy rate
 //! for every desk. The other four 5% legs each need an off-chain swap: the keeper draws its
 //! earmark (`draw_creator_fee_leg`, enforced `TransferChecked` out), executes the swap, then
-//! attests the result (trust + idempotency-tx-hash + pending-cap, mirroring `record_burn`).
+//! attests the result (trust + idempotency-tx-hash + pending-cap).
 
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::{program::invoke, system_instruction};
@@ -279,9 +279,9 @@ pub struct RecordCreatorFeeBurnResult<'info> {
 }
 
 /// Attests a burn already executed off-chain from a drawn `Burn` leg (swap $OTC→$HUB, then
-/// `BurnChecked`) — trust + idempotency-tx-hash + the pending-cap already enforced at draw time,
-/// mirroring `record_burn`'s model exactly (this program cannot cheaply verify an external burn
-/// on-chain any more than it can verify an external swap).
+/// `BurnChecked`) — trust + idempotency-tx-hash + the pending-cap already enforced at draw time
+/// (this program cannot cheaply verify an external burn on-chain any more than it can verify an
+/// external swap).
 pub fn record_creator_fee_burn_result(
     ctx: Context<RecordCreatorFeeBurnResult>,
     otc_spent: u64,

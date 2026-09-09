@@ -112,7 +112,6 @@ pub struct DeskTier {
 pub struct BurnState {
     pub authority: Pubkey,
     pub total_hub_burned: u64,
-    pub burn_pending_lamports: u64,
     pub last_burn_tx: [u8; 64],
     pub bump: u8,
 }
@@ -174,7 +173,7 @@ pub struct CreatorFeeState {
     pub total_ops_otc: u64,
     pub total_ops_sol_lamports: u64,
     pub last_receive_tx: [u8; 64],
-    /// Replay guard for `record_creator_fee_burn_result` (trust-attested like `record_burn`).
+    /// Replay guard for `record_creator_fee_burn_result` (trust-attested).
     pub last_burn_result_tx: [u8; 64],
     /// Replay guard for `record_creator_fee_stack`.
     pub last_stack_tx: [u8; 64],

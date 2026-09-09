@@ -80,16 +80,6 @@ pub mod hub {
         instructions::epochs::register_treasury_inflow(ctx, source, lamports)
     }
 
-    /// §B3 #7
-    pub fn record_burn(
-        ctx: Context<RecordBurn>,
-        hub_burned: u64,
-        lamports_spent: u64,
-        burn_tx: [u8; 64],
-    ) -> Result<()> {
-        instructions::epochs::record_burn(ctx, hub_burned, lamports_spent, burn_tx)
-    }
-
     /// §B3 #9
     pub fn update_config(
         ctx: Context<AuthorityOnly>,

@@ -24,7 +24,7 @@ export function TreasuryPanel({ state }: { state: ProtocolState }) {
   return (
     <div className="space-y-2">
       <Panel title="TREASURY">
-        <div className="grid grid-cols-2 gap-2 md:grid-cols-3 lg:grid-cols-6">
+        <div className="grid grid-cols-2 gap-2 md:grid-cols-3 lg:grid-cols-5">
           <Stat
             label="desks owned"
             value={fmtNum(treasury.desksOwned)}
@@ -37,7 +37,6 @@ export function TreasuryPanel({ state }: { state: ProtocolState }) {
             value={fmtHub(supply.burnedUnits, d)}
             sub={`ledger ${fmtNum(burn.totalHubBurned)} units${supply.ledgerDrift ? " · drift" : ""}`}
           />
-          <Stat label="burn pending" value={fmtSol(burn.burnPendingLamports)} sub="awaiting swap" />
         </div>
         <div className="mt-3 flex flex-wrap gap-2">
           <Flag on={!config.paused} label="LIVE" />
@@ -46,16 +45,11 @@ export function TreasuryPanel({ state }: { state: ProtocolState }) {
       </Panel>
 
       <Panel title="TREASURY LOCKS" right="what the treasury's holdings are earmarked for">
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           <Stat
             label="LP provisioning"
             value={config.lpEnabled ? "ACTIVE" : "PENDING"}
             sub="liquidity for the $HUB / $OTC pair — seeded from treasury OTC + $HUB once price holds ≥14 days"
-          />
-          <Stat
-            label="buyback reserve"
-            value={fmtSol(burn.burnPendingLamports)}
-            sub="SOL earmarked each round, awaiting the buyback-burn keeper — automated floor support"
           />
           <Stat
             label="yield buffer"

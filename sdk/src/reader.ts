@@ -314,7 +314,8 @@ export type SupplyView = SupplyBreakdown & {
   /** Live `Mint.supply`; null when the mint account is missing on this cluster. */
   mintSupplyUnits: bigint | null;
   decimals: number;
-  /** Cumulative `record_burn` ledger — should match `max − mintSupply` once all burns are recorded. */
+  /** Cumulative on-chain burn ledger (`BurnState.total_hub_burned`) — should match
+   * `max − mintSupply` once all burns are recorded. */
   ledgerBurnedUnits: bigint;
   /** True when `BurnState.total_hub_burned` ≠ `max − Mint.supply` (unrecorded / out-of-band burn). */
   ledgerDrift: boolean;
@@ -325,7 +326,7 @@ export type ProtocolState = {
   currentEpoch: EpochView;
   previousEpoch: EpochView | null;
   potLamports: number;
-  burn: { totalHubBurned: number; burnPendingLamports: number };
+  burn: { totalHubBurned: number };
   treasury: {
     desksOwned: number;
     totalExits: number;
@@ -472,7 +473,6 @@ export async function fetchProtocolState(program: HubProgram): Promise<ProtocolS
     potLamports: potInfo?.lamports ?? 0,
     burn: {
       totalHubBurned: n(burn.totalHubBurned),
-      burnPendingLamports: n(burn.burnPendingLamports),
     },
     otcPot: otcPot ? toOtcPotView(otcPot) : null,
     creatorFee: creatorFee ? toCreatorFeeView(creatorFee) : null,
