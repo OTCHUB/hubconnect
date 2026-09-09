@@ -10,15 +10,7 @@ import {
   type EpochView,
 } from "@hub-sdk";
 
-export type Scenario = "conservative" | "current" | "bull";
-
-export const SCENARIOS: { id: Scenario; label: string; hint: string }[] = [
-  { id: "conservative", label: "CONSERVATIVE", hint: "cohort doubles (Σw ×2), same round size" },
-  { id: "current", label: "CURRENT", hint: "round closes at threshold (or live inflow if above)" },
-  { id: "bull", label: "BULL", hint: "rounds close at 2× the size, same cohort" },
-];
-
-export type ScenarioInputs = {
+export type RoundInputs = {
   /** Inflow the next round is projected to close with. */
   roundInflowLamports: number;
   totalWeightBp: number;
@@ -28,12 +20,6 @@ export type ScenarioInputs = {
   /** §A5 2.5% — swapped SOL→$HUB alongside the burn slice, earmarked for the treasury float. */
   treasuryFloatPctBp: number;
 };
-
-export function applyScenario(base: ScenarioInputs, s: Scenario): ScenarioInputs {
-  if (s === "conservative") return { ...base, totalWeightBp: base.totalWeightBp * 2 };
-  if (s === "bull") return { ...base, roundInflowLamports: base.roundInflowLamports * 2 };
-  return base;
-}
 
 /**
  * Distributable share of a round's inflow after the 4-way split's swap legs come off (§A5:
@@ -52,7 +38,7 @@ export const distributableLamports = (
   Math.floor((inflowLamports * treasuryFloatPctBp) / BPS);
 
 /** Per-tier payout for one round under `inputs`; 0 while Σw is empty. */
-export function tierPayoutLamports(tier: number, inputs: ScenarioInputs) {
+export function tierPayoutLamports(tier: number, inputs: RoundInputs) {
   const w = TIER_WEIGHTS_BP[tier - 1] ?? 0;
   if (!w || inputs.totalWeightBp <= 0) return 0;
   const dist = distributableLamports(
@@ -76,16 +62,28 @@ export type TierRow = {
 };
 
 /**
+ * Rounds close permissionlessly the instant inflow crosses `min_pot_threshold_lamports` — no
+ * clock, no fixed cadence. Below this floor, a closed round's duration is almost certainly a
+ * devnet/test artifact (rapid faucet-driven transactions hitting a tiny test threshold in
+ * seconds), not an organic trading cadence — extrapolating a day/week/month rate from it would
+ * show an impossible number (e.g. a single test desk "earning" 60+ SOL/day off a 0.1 SOL round).
+ * Below this floor we refuse to extrapolate at all; callers fall back to /round-only figures
+ * until a real close takes at least this long.
+ */
+export const MIN_REALISTIC_ROUND_SECS = 3_600; // 1 hour
+
+/**
  * Rounds have no clock — they close whenever inflow reaches the threshold. The only on-chain
- * cadence signal is how long the last closed round took; null before the first close.
+ * cadence signal is how long the last closed round took; null before the first close, or when
+ * that close was too fast to trust (see `MIN_REALISTIC_ROUND_SECS`).
  */
 export function roundsPerDay(previous: EpochView | null): number | null {
   if (!previous || !previous.finalized) return null;
   const secs = previous.finalizedTs - previous.startTs;
-  return secs > 0 ? 86400 / secs : null;
+  return secs >= MIN_REALISTIC_ROUND_SECS ? 86400 / secs : null;
 }
 
-export function buildTierRows(inputs: ScenarioInputs, perDay: number | null): TierRow[] {
+export function buildTierRows(inputs: RoundInputs, perDay: number | null): TierRow[] {
   return TIER_WEIGHTS_BP.map((weightBp, i) => {
     const tier = i + 1;
     const roundLamports = tierPayoutLamports(tier, inputs);
@@ -102,11 +100,11 @@ export function buildTierRows(inputs: ScenarioInputs, perDay: number | null): Ti
 }
 
 /**
- * Scenario inputs from the open round + config. A round closes the moment effective inflow
- * reaches the threshold, so the projected round size is the threshold — or the live inflow when
- * a large booking has already pushed it past.
+ * Live projection inputs from the open round + config. A round closes the moment effective
+ * inflow reaches the threshold, so the projected round size is the threshold — or the live
+ * inflow when a large booking has already pushed it past.
  */
-export const baseInputs = (e: EpochView, config: ConfigView): ScenarioInputs => ({
+export const baseInputs = (e: EpochView, config: ConfigView): RoundInputs => ({
   roundInflowLamports: Math.max(config.minPotThresholdLamports, effectiveInflowLamports(e, config)),
   totalWeightBp: config.totalWeightBp,
   burnPctBp: config.burnPctBp,

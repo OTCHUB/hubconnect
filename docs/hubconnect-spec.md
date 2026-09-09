@@ -971,12 +971,13 @@ standalone shell for app.otchub.dev until the domains are consolidated;
 For each tier T1–T4, recomputed live from the open round + config:
 
 ```text
-round_size     = max(min_pot_threshold, effective_inflow_live)
-proj_round_i   = (w_i / Σw_live) × 0.90 × round_size
-rounds_per_day = 86400 / (last_round.finalized_ts − last_round.start_ts)   # null before first close
-proj_daily_i   = proj_round_i × rounds_per_day
-breakeven      = STEP_FEE_LAMPORTS / proj_round_i   # flat SOL fee ÷ payout — same fee at every tier
-vs_raw         = proj_daily_i / D_live              # multiplier vs raw desk take
+round_size       = max(min_pot_threshold, effective_inflow_live)
+proj_round_i     = (w_i / Σw_live) × 0.90 × round_size
+round_secs       = last_round.finalized_ts − last_round.start_ts   # null before first close
+rounds_per_day   = round_secs >= MIN_REALISTIC_ROUND_SECS ? 86400 / round_secs : null
+proj_daily_i     = rounds_per_day === null ? null : proj_round_i × rounds_per_day
+breakeven        = STEP_FEE_LAMPORTS / proj_round_i   # flat SOL fee ÷ payout — same fee at every tier
+vs_raw           = proj_daily_i === null ? null : proj_daily_i / D_live   # multiplier vs raw desk take
 ```
 
 Displayed per tier: flat SOL fee + cumulative $HUB burn (§A4), live weight,
@@ -986,11 +987,23 @@ desk earning (D) so the comparison is unmissable. Breakeven counts only the
 SOL fee (the $HUB burn has no SOL-denominated price on-chain to net against
 it). All projections labeled `ESTIMATE — scales with Σw; not a promise`.
 
-### C5. Scenario toggle
+`MIN_REALISTIC_ROUND_SECS` (1 hour) guards against extrapolating a day-rate
+from an implausibly fast round close — rounds have no clock and close the
+instant inflow crosses the threshold, so on a low-traffic cluster (e.g.
+devnet's 0.1 SOL threshold hit by rapid test transactions) a round can close
+in seconds. Multiplying a near-total-round payout by "seconds-per-day / a
+few seconds" produces an impossible SOL/day figure. Below the floor,
+`proj_daily_i` and everything derived from it (`vs_raw`) is `null` and the UI
+shows `proj_round_i` only, with no fabricated cadence.
 
-Since Σw grows after you activate, a 3-way toggle (conservative / current / bull,
-from §A8) re-projects the table under different cohort sizes — showing honestly
-that yield compresses as adoption grows, while still beating raw desk take.
+### C5. Single live view (no hypothetical scenarios)
+
+The table always reflects the protocol's actual current state — live Σw,
+live round size, live burn/LP/treasury-float split — with no separate
+conservative/current/bull toggle. Σw naturally grows as more desks activate,
+which the live numbers already show without an artificial multiplier; the
+product goal is one trustworthy read of "what does activating right now
+actually get me," not a menu of hypotheticals.
 
 ### C6. Treasury transparency panel
 

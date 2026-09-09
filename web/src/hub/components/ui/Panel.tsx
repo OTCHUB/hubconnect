@@ -66,7 +66,7 @@ export function Stat({ label, value, sub }: { label: string; value: ReactNode; s
   );
 }
 
-export function Row({ k, v }: { k: string; v: ReactNode }) {
+export function Row({ k, v }: { k: ReactNode; v: ReactNode }) {
   return (
     <div className="flex justify-between gap-4 border-b border-green-500/10 py-1 text-xs last:border-0">
       <span className="text-green-600">{k}</span>

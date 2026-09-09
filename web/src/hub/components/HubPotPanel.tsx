@@ -80,7 +80,7 @@ export function HubPotPanel({ desks, address }: Props) {
 
   if (q.isPending) {
     return (
-      <Panel title="M.I.M ETF :: MEMESTOCK BASKET">
+      <Panel title="M.I.M ETF :: MAGIC INTERNET MONEY BASKET">
         <div className="text-xs text-green-700">loading…</div>
       </Panel>
     );
@@ -88,7 +88,7 @@ export function HubPotPanel({ desks, address }: Props) {
 
   if (!pot || !decimals) {
     return (
-      <Panel title="M.I.M ETF :: MEMESTOCK BASKET">
+      <Panel title="M.I.M ETF :: MAGIC INTERNET MONEY BASKET">
         <div className="text-xs text-green-700">
           not provisioned yet — {`init_hub_pot`} has not been called on this cluster.
         </div>
@@ -145,7 +145,7 @@ export function HubPotPanel({ desks, address }: Props) {
 
   return (
     <Panel
-      title="M.I.M ETF :: MEMESTOCK BASKET"
+      title="M.I.M ETF :: MAGIC INTERNET MONEY BASKET"
       right={`round ${fmtNum(pot.roundCount)} · pending fund`}
     >
       <p className="mb-3 text-xs leading-relaxed text-green-400/90">

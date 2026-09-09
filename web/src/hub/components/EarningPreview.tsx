@@ -2,17 +2,14 @@ import { useMemo, useState } from "react";
 import { LAMPORTS_PER_SOL, TIER_HUB_COST_UNITS, TIER_NAMES, type ProtocolState } from "@hub-sdk";
 import { fmtNum, fmtSol, fmtTokens, fmtWeight } from "../lib/format";
 import {
-  applyScenario,
   baseInputs,
   buildTierRows,
   DEFAULT_RAW_DESK_DAILY_LAMPORTS,
   DEFAULT_RAW_DESK_SOL,
   roundsPerDay,
-  type Scenario,
 } from "../lib/yield";
 import { RawDeskInput } from "./RawDeskInput";
-import { ScenarioToggle } from "./ScenarioToggle";
-import { Panel } from "./ui/Panel";
+import { Panel, Row } from "./ui/Panel";
 
 export const ESTIMATE_LABEL = "ESTIMATE — scales with Σw; not a promise";
 
@@ -24,67 +21,23 @@ type Props = {
   rawDeskDailyLamports?: number;
 };
 
-/** Round-based projection: /round, /day, /week, /month. Used for HUB Protocol Boost, which only
- *  exists at round-close cadence. */
-function ProjectionRows({ perRound, perDay }: { perRound: number; perDay: number | null }) {
-  return (
-    <div className="mt-2 space-y-0.5 text-xs">
-      <div className="flex justify-between gap-3">
-        <span className="text-green-700">/ round</span>
-        <span>{fmtSol(perRound, 4)}</span>
-      </div>
-      <div className="flex justify-between gap-3">
-        <span className="text-green-700">/ day</span>
-        <span>{perDay === null ? "—" : fmtSol(perDay, 4)}</span>
-      </div>
-      <div className="flex justify-between gap-3">
-        <span className="text-green-700">/ week</span>
-        <span>{perDay === null ? "—" : fmtSol(perDay * 7)}</span>
-      </div>
-      <div className="flex justify-between gap-3">
-        <span className="text-green-700">/ month</span>
-        <span>{perDay === null ? "—" : fmtSol(perDay * 30)}</span>
-      </div>
-    </div>
-  );
-}
+const NON_CUSTODIAL_HINT =
+  "Non-custodial activation: burning $HUB into a tier never moves, locks, or delegates your desk NFT — it stays in your wallet. There is no protocol escrow or vault. Transfer or sell the desk and the tier is revoked on next claim.";
 
-/** Continuous-accrual projection: /day, /week, /month only — no round concept. Used for Native
- *  Desk Yield (accrues from the desk-pot continuously, not gated by HUB Pot round closes) and for
- *  the combined Total, which is always defined once a daily rate exists. */
-function DailyProjection({ perDay }: { perDay: number | null }) {
-  return (
-    <div className="mt-2 space-y-0.5 text-xs">
-      <div className="flex justify-between gap-3">
-        <span className="text-green-700">/ day</span>
-        <span>{perDay === null ? "—" : fmtSol(perDay, 4)}</span>
-      </div>
-      <div className="flex justify-between gap-3">
-        <span className="text-green-700">/ week</span>
-        <span>{perDay === null ? "—" : fmtSol(perDay * 7)}</span>
-      </div>
-      <div className="flex justify-between gap-3">
-        <span className="text-green-700">/ month</span>
-        <span>{perDay === null ? "—" : fmtSol(perDay * 30)}</span>
-      </div>
-    </div>
-  );
-}
-
-/** §C4 — automated, data-driven earnings simulation. Shows every T1–T4 activation tier at a
- *  glance against the live `ProtocolState` (round size, Σw, burn slice from ../lib/yield.ts), with
- *  no mandatory manual input: the raw-desk baseline defaults to the §A5 protocol-average take
- *  (`DEFAULT_RAW_DESK_DAILY_LAMPORTS`) and every tier's HUB Protocol Boost is precomputed from
- *  `buildTierRows`. Clicking a tier row expands its full decomposition — Native Desk Yield (the
- *  raw baseline) + HUB Protocol Boost (tier weight / Σw × round inflow) = Total Combined — with
- *  daily/weekly/monthly projections for the total. */
+/** §C4 — automated, data-driven earnings simulation against the live `ProtocolState` (round
+ *  size, Σw, burn slice — see ../lib/yield.ts). No manual input required: the raw-desk baseline
+ *  defaults to the §A5 protocol-average take (`DEFAULT_RAW_DESK_DAILY_LAMPORTS`), and every
+ *  tier's HUB Protocol Boost is precomputed from `buildTierRows`. Click a tier row to select it
+ *  for the summary below: Native Desk Yield + HUB Protocol Boost = Total Combined. Day/week/
+ *  month figures only ever come from a real closed round (`roundsPerDay` refuses to extrapolate
+ *  from an implausibly fast round — see `MIN_REALISTIC_ROUND_SECS`); until one exists, only the
+ *  /round figure is shown — never a fabricated day-rate. */
 export function EarningPreview({ state, rawDeskDailyLamports }: Props) {
-  const [scenario, setScenario] = useState<Scenario>("current");
   // Pre-filled with the §A5 protocol-average raw desk-pot take (0.1443 SOL/day) — no mandatory
   // manual entry; the input only exists to let a user override the default with their own desk's
   // live take.
   const [rawSol, setRawSol] = useState(String(DEFAULT_RAW_DESK_SOL));
-  // Which tier's breakdown is expanded below the comparison table — click any row to change it.
+  // Which tier's summary is shown below the comparison table — click any row to change it.
   const [selectedTier, setSelectedTier] = useState(1);
 
   const raw =
@@ -92,32 +45,36 @@ export function EarningPreview({ state, rawDeskDailyLamports }: Props) {
     (rawSol.trim() === ""
       ? DEFAULT_RAW_DESK_DAILY_LAMPORTS
       : Math.max(0, Number(rawSol) || 0) * LAMPORTS_PER_SOL);
-  const inputs = applyScenario(baseInputs(state.currentEpoch, state.config), scenario);
+  const inputs = baseInputs(state.currentEpoch, state.config);
   const perDay = roundsPerDay(state.previousEpoch);
   const rows = useMemo(() => buildTierRows(inputs, perDay), [inputs, perDay]);
   const selected = rows[selectedTier - 1] ?? rows[0];
 
-  // Native Yield always has a day/week/month rate — it accrues from the desk pot continuously,
-  // independent of HUB Pot round closes. HUB Protocol Boost only resolves to day/week/month once
-  // a round cadence is known (perDay !== null); the combined Total inherits that same gate.
+  // Native Yield always has a day rate — it accrues from the desk pot continuously, independent
+  // of HUB Pot round closes. HUB Protocol Boost (and the combined Total) only resolve to a
+  // day rate once a trustworthy round cadence exists (perDay !== null).
   const totalDaily = selected.dailyLamports == null ? null : raw + selected.dailyLamports;
   const upliftPct =
     totalDaily != null && raw > 0 ? Math.round(((totalDaily - raw) / raw) * 100) : null;
 
-  const basis = `round size ${fmtSol(inputs.roundInflowLamports)} · Σw ${fmtNum(inputs.totalWeightBp)} bp`;
+  const basis = `round ${fmtSol(inputs.roundInflowLamports)} SOL · Σw ${fmtNum(inputs.totalWeightBp)} bp`;
   const cadence =
     perDay === null
-      ? "day/week/month need a closed round to infer cadence — none yet."
-      : `cadence ≈ ${perDay.toFixed(1)} rounds/day (from the last closed round); day/week/month extrapolate linearly.`;
+      ? "day/week/month need a longer closed-round history to project safely — /round only for now."
+      : `≈ ${perDay.toFixed(1)} rounds/day, from the last closed round.`;
+  const boostValue =
+    selected.dailyLamports == null
+      ? `${fmtSol(selected.roundLamports, 4)} SOL / round`
+      : `${fmtSol(selected.dailyLamports, 4)} SOL/day (${fmtSol(selected.roundLamports, 4)}/round)`;
+  const totalValue =
+    totalDaily == null
+      ? `${fmtSol(raw, 4)} SOL/day native-only — boost pending real cadence`
+      : `${fmtSol(totalDaily, 4)} SOL/day${upliftPct !== null ? ` (+${upliftPct}%)` : ""}`;
 
   return (
-    <Panel
-      title="EARNING PREVIEW"
-      right={<ScenarioToggle value={scenario} onChange={setScenario} />}
-    >
-      <div className="mb-2 text-[10px] text-amber-400/90">{ESTIMATE_LABEL}</div>
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-        <div className="text-[10px] text-green-600">{basis}</div>
+    <Panel title="EARNING PREVIEW" right={basis}>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <span className="text-[10px] text-amber-400/90">{ESTIMATE_LABEL}</span>
         {rawDeskDailyLamports === undefined && (
           <RawDeskInput valueSol={rawSol} onChange={setRawSol} />
         )}
@@ -173,54 +130,27 @@ export function EarningPreview({ state, rawDeskDailyLamports }: Props) {
         </table>
       </div>
 
-      {/* Yield decomposition for the selected tier: Native Desk Yield + HUB Protocol Boost = Total. */}
-      <div className="mt-3 grid gap-2 sm:grid-cols-3">
-        <div className="border border-green-500/20 p-2">
-          <div className="text-[10px] uppercase tracking-widest text-green-600">
-            NATIVE DESK YIELD
-          </div>
-          <div className="mt-1 text-[10px] text-green-700">
-            raw desk-pot take · un-activated baseline
-          </div>
-          <DailyProjection perDay={raw} />
-        </div>
-
-        <div className="border border-cyan-500/30 p-2">
-          <div className="flex items-center gap-1 text-[10px] uppercase tracking-widest text-cyan-400">
-            HUB PROTOCOL BOOST
-            <span
-              className="cursor-help text-cyan-600"
-              title="Non-custodial activation: burning $HUB into a tier never moves, locks, or delegates your desk NFT. It stays in your wallet the whole time — activate_tier only verifies ownership and burns $HUB; there is no protocol escrow or vault holding user desks. Transfer or sell the desk and the tier is revoked on next claim (see section 1)."
-            >
-              ⓘ
+      {/* Compact decomposition for the selected tier: Native + Boost = Total. */}
+      <div className="mt-3">
+        <Row k="NATIVE DESK YIELD" v={`${fmtSol(raw, 4)} SOL/day`} />
+        <Row
+          k={
+            <span className="flex items-center gap-1">
+              HUB PROTOCOL BOOST · {TIER_NAMES[selected.tier - 1]}
+              <span className="cursor-help text-cyan-600" title={NON_CUSTODIAL_HINT}>
+                ⓘ
+              </span>
             </span>
-          </div>
-          <div className="mt-1 text-[10px] text-green-700">
-            {TIER_NAMES[selected.tier - 1]} · {fmtWeight(selected.weightBp)} ·{" "}
-            {fmtTokens(TIER_HUB_COST_UNITS[selected.tier - 1])} $HUB burned
-          </div>
-          <ProjectionRows perRound={selected.roundLamports} perDay={selected.dailyLamports} />
-        </div>
-
-        <div className="border border-amber-500/30 p-2">
-          <div className="text-[10px] uppercase tracking-widest text-amber-400">TOTAL COMBINED</div>
-          <div className="mt-1 text-[10px] text-green-700">
-            native + boost · {TIER_NAMES[selected.tier - 1]}
-          </div>
-          <DailyProjection perDay={totalDaily} />
-          {upliftPct !== null && (
-            <div className="mt-1 text-[10px] text-amber-400">
-              +{upliftPct}% vs native-only yield
-            </div>
-          )}
-        </div>
+          }
+          v={boostValue}
+        />
+        <Row k="TOTAL COMBINED" v={totalValue} />
       </div>
 
       <div className="mt-2 text-[10px] text-green-700">
         <div>burn slice removed before distribution · {cadence}</div>
         <div className="mt-1 text-cyan-700">
-          non-custodial — activation only burns $HUB and verifies ownership; your desk NFT never
-          leaves your wallet or moves into a protocol escrow/vault.
+          non-custodial — your desk NFT never leaves your wallet.
         </div>
       </div>
     </Panel>
