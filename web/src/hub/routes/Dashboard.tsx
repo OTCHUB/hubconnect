@@ -27,8 +27,12 @@ export function Dashboard({ rawDeskDailyLamports, walletAddress }: DashboardProp
       <ProtocolGate>
         {(state, fetchedAt) => (
           <>
-            {/* Top of the main content area, immediately below the global header — the bonding
-                curve is the first thing a visitor sees. */}
+            {/* Top of the main content area, immediately below the global header — the
+                centralized wallet controller every panel below implicitly depends on.
+                Collapses to a one-line status summary once a wallet is connected. */}
+            <div id="hub-wallet">
+              <WalletPanel state={state} walletAddress={walletAddress} />
+            </div>
             <HubBondingDashboard state={state} address={address} />
             <MetricsStrip state={state} />
             <Panel
@@ -57,9 +61,6 @@ export function Dashboard({ rawDeskDailyLamports, walletAddress }: DashboardProp
                   treasury transparency →
                 </Link>
               </span>
-            </div>
-            <div id="hub-wallet">
-              <WalletPanel state={state} walletAddress={walletAddress} />
             </div>
             <Panel title="DESK LOOKUP">
               <DeskLookupPanel state={state} />

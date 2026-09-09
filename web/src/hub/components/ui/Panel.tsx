@@ -5,26 +5,90 @@ type PanelProps = {
   right?: ReactNode;
   children: ReactNode;
   className?: string;
+  /** Adds a `[+]`/`[-]` toggle to the header and lets the body collapse/expand. */
+  collapsible?: boolean;
+  /** Uncontrolled initial state when `collapsible` is set — ignored once `collapsed` is passed. */
+  defaultCollapsed?: boolean;
+  /** Controlled collapsed state; pairs with `onCollapsedChange`. Omit for uncontrolled (internal
+   *  state, seeded by `defaultCollapsed`). */
+  collapsed?: boolean;
+  onCollapsedChange?: (collapsed: boolean) => void;
+  /** Shown in place of `children` while collapsed (e.g. a one-line status summary) — WalletPanel's
+   *  "Connected · 0x123…abcd" row. Left undefined, the body simply hides with nothing in its
+   *  place. Only ever rendered when `collapsible` is true. */
+  collapsedSummary?: ReactNode;
 };
 
 /** Square-bordered DOS window with a `[ TITLE ]` header bar — 1px border, zero radius, no
- *  drop shadow by default (system-terminal grid, not a UI card). */
-export function Panel({ title, right, children, className = "" }: PanelProps) {
+ *  drop shadow by default (system-terminal grid, not a UI card). Pass `collapsible` to let the
+ *  header toggle the body open/closed (smooth height + opacity transition, CSS-only — see the
+ *  grid-template-rows trick below), optionally showing `collapsedSummary` in its place. */
+export function Panel({
+  title,
+  right,
+  children,
+  className = "",
+  collapsible = false,
+  defaultCollapsed = false,
+  collapsed: collapsedProp,
+  onCollapsedChange,
+  collapsedSummary,
+}: PanelProps) {
+  const [internalCollapsed, setInternalCollapsed] = useState(defaultCollapsed);
+  const isCollapsed = collapsible && (collapsedProp ?? internalCollapsed);
+
+  const toggle = () => {
+    const next = !isCollapsed;
+    if (collapsedProp === undefined) setInternalCollapsed(next);
+    onCollapsedChange?.(next);
+  };
+
   return (
     <section
       className={`rounded-none border border-green-500/30 bg-black font-mono text-green-400 ${className}`}
     >
-      <header className="flex items-center justify-between border-b border-green-500/30 px-3 py-1.5 text-xs">
+      <header className="flex items-center justify-between gap-2 border-b border-green-500/30 px-3 py-1.5 text-xs">
         <span className="tracking-widest text-green-300">[ {title} ]</span>
-        {right && <span className="text-green-600">{right}</span>}
+        <span className="flex items-center gap-2">
+          {right && <span className="text-green-600">{right}</span>}
+          {collapsible && (
+            <button
+              type="button"
+              onClick={toggle}
+              aria-expanded={!isCollapsed}
+              title={isCollapsed ? "expand" : "collapse"}
+              className="text-green-500 hover:text-green-300"
+            >
+              [{isCollapsed ? "+" : "-"}]
+            </button>
+          )}
+        </span>
       </header>
-      <div className="p-3">{children}</div>
+      {isCollapsed && collapsedSummary !== undefined && (
+        <div className="border-b border-green-500/10 px-3 py-2 text-xs">{collapsedSummary}</div>
+      )}
+      <div
+        className={`grid transition-[grid-template-rows] duration-300 ease-in-out ${
+          isCollapsed ? "grid-rows-[0fr]" : "grid-rows-[1fr]"
+        }`}
+      >
+        <div className="overflow-hidden">
+          <div
+            className={`p-3 transition-opacity duration-200 ${isCollapsed ? "opacity-0" : "opacity-100"}`}
+          >
+            {children}
+          </div>
+        </div>
+      </div>
     </section>
   );
 }
 
 type CollapsibleProps = PanelProps & { defaultOpen?: boolean };
 
+/** Thin `Panel` wrapper for call sites written against the old `defaultOpen` API — same
+ *  `[+]`/`[-]` header toggle and collapse transition, now backed by `Panel`'s own `collapsible`
+ *  machinery instead of a bespoke implementation. */
 export function CollapsibleCard({
   defaultOpen = false,
   title,
@@ -32,27 +96,15 @@ export function CollapsibleCard({
   children,
   className,
 }: CollapsibleProps) {
-  const [open, setOpen] = useState(defaultOpen);
   return (
     <Panel
       title={title}
+      right={right}
       className={className}
-      right={
-        <button
-          type="button"
-          onClick={() => setOpen((o) => !o)}
-          className="text-green-500 hover:text-green-300"
-          aria-expanded={open}
-        >
-          {right} [{open ? "-" : "+"}]
-        </button>
-      }
+      collapsible
+      defaultCollapsed={!defaultOpen}
     >
-      {open ? (
-        children
-      ) : (
-        <div className="text-xs text-green-700">collapsed — click [+] to expand</div>
-      )}
+      {children}
     </Panel>
   );
 }

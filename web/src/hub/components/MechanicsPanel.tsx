@@ -11,7 +11,13 @@ import { useHub } from "../HubProvider";
 import { useWallet } from "../WalletProvider";
 import { fmtBp, fmtSol, fmtUnits, fmtWeight, shortKey } from "../lib/format";
 import { yieldBoostPctOverBase } from "../lib/yield";
-import { FaucetHttpError, mintMockDesk, type MintDeskResult } from "../lib/faucet";
+import {
+  FaucetHttpError,
+  mintMockDesk,
+  TURNSTILE_SITE_KEY,
+  type MintDeskResult,
+} from "../lib/faucet";
+import { Turnstile } from "./ui/Turnstile";
 import { OFFICIAL_MINT_URL } from "../lib/marketplace";
 import {
   ACTIVATION_DIAGRAM,
@@ -52,13 +58,18 @@ function MintMockDeskButton() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [result, setResult] = useState<MintDeskResult | null>(null);
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  const requireTurnstile = !!TURNSTILE_SITE_KEY;
 
   const run = async () => {
     if (!wallet.address) return setErr("connect a wallet first");
+    if (requireTurnstile && !turnstileToken) {
+      return setErr("complete the verification challenge below first");
+    }
     setBusy(true);
     setErr(null);
     try {
-      setResult(await mintMockDesk(wallet.address));
+      setResult(await mintMockDesk(wallet.address, turnstileToken ?? undefined));
     } catch (e) {
       setErr(e instanceof FaucetHttpError ? e.message : "mint failed — try again");
     } finally {
@@ -72,7 +83,18 @@ function MintMockDeskButton() {
         Devnet has no secondary market — mint a free Mock OTC Desk NFT (Metaplex Core, real
         collection PDA) straight to your wallet instead.
       </div>
-      <button type="button" onClick={run} disabled={busy || !wallet.address} className={btn}>
+      <Turnstile
+        siteKey={TURNSTILE_SITE_KEY}
+        onVerify={setTurnstileToken}
+        onExpire={() => setTurnstileToken(null)}
+        className="mb-2"
+      />
+      <button
+        type="button"
+        onClick={run}
+        disabled={busy || !wallet.address || (requireTurnstile && !turnstileToken)}
+        className={btn}
+      >
         {busy ? "[MINTING…]" : "[MINT MOCK OTC DESK]"}
       </button>
       {!wallet.address && (
@@ -114,7 +136,7 @@ export function MechanicsPanel({ state }: { state: ProtocolState }) {
   const { programId, marketplaceCollectionUrl, cluster } = useHub();
   return (
     <div className="space-y-2">
-      <Panel title="HOW $HUB WORKS">
+      <Panel title="HOW $HUB WORKS" collapsible>
         <p className={p}>
           $HUB turns every OTC desk NFT into a yield-earning position: own a desk → activate it into
           a tier → the treasury's own desk stack boosts the pot everyone shares from → every round
@@ -159,8 +181,8 @@ export function MechanicsPanel({ state }: { state: ProtocolState }) {
           ) : (
             <>
               <li className={li}>
-                <span className="text-green-300">Official mint</span> — mint fresh on the OTC
-                launch curve at{" "}
+                <span className="text-green-300">Official mint</span> — mint fresh on the OTC launch
+                curve at{" "}
                 <a
                   href={OFFICIAL_MINT_URL}
                   target="_blank"
@@ -189,12 +211,12 @@ export function MechanicsPanel({ state }: { state: ProtocolState }) {
             </>
           )}
           <li className={li}>
-            Once activated, a desk starts accruing weight in every reward round from that moment
-            on — no backdating, no waiting period. But activation is a promise tied to the{" "}
+            Once activated, a desk starts accruing weight in every reward round from that moment on
+            — no backdating, no waiting period. But activation is a promise tied to the{" "}
             <span className="text-amber-300">current owner</span>, not the NFT alone: transfer or
             sell it out of the activating wallet and HUB activation is revoked the instant the new
-            owner (or you) next tries to claim. The buyer inherits an NFT, not a live yield
-            position — they'd need to activate it themselves to start earning again.
+            owner (or you) next tries to claim. The buyer inherits an NFT, not a live yield position
+            — they'd need to activate it themselves to start earning again.
           </li>
         </ul>
       </CollapsibleCard>
@@ -212,8 +234,8 @@ export function MechanicsPanel({ state }: { state: ProtocolState }) {
             The $HUB burn leg for your target tier can instead be paid in $OTC: the app quotes a
             live Jupiter route, swaps half of it to $HUB and burns it, and sends an equal amount of
             $OTC straight into the desk-pot vault — a dynamic ~2.00x premium priced fresh every
-            call, never a stored rate. Either way the $HUB burned is permanently destroyed, not
-            sent to the pool.
+            call, never a stored rate. Either way the $HUB burned is permanently destroyed, not sent
+            to the pool.
           </li>
           <li className={li}>
             Rewards start accruing the instant you activate — only reward rounds closed after that
@@ -316,7 +338,10 @@ export function MechanicsPanel({ state }: { state: ProtocolState }) {
             bulk across every desk a wallet owns, in a single self-serve transaction.
           </li>
         </ul>
-        <MermaidBlock source={ETF_FLOW_DIAGRAM} title="HUB Pot / M.I.M ETF flow (technical detail)" />
+        <MermaidBlock
+          source={ETF_FLOW_DIAGRAM}
+          title="HUB Pot / M.I.M ETF flow (technical detail)"
+        />
       </CollapsibleCard>
 
       <CollapsibleCard title="5. HUB ROUND SPLIT — 90 / 5 / 2.5 / 2.5">
@@ -330,18 +355,25 @@ export function MechanicsPanel({ state }: { state: ProtocolState }) {
           </li>
           <li className={li}>
             Every round then splits four ways, all in one on-chain transaction:{" "}
-            <span className="text-emerald-300">{fmtBp(10000 - config.burnPctBp - config.lpPctBp - config.treasuryFloatPctBp, 0)} → desk-staker yield</span>{" "}
+            <span className="text-emerald-300">
+              {fmtBp(10000 - config.burnPctBp - config.lpPctBp - config.treasuryFloatPctBp, 0)} →
+              desk-staker yield
+            </span>{" "}
             (paid pro-rata by tier, section 6) ·{" "}
-            <span className="text-amber-300">{fmtBp(config.burnPctBp, 0)} → buy &amp; burn $HUB</span>{" "}
+            <span className="text-amber-300">
+              {fmtBp(config.burnPctBp, 0)} → buy &amp; burn $HUB
+            </span>{" "}
             (permanently destroyed) ·{" "}
-            <span className="text-cyan-300">{fmtBp(config.treasuryFloatPctBp, 0)} → $HUB Treasury</span>{" "}
+            <span className="text-cyan-300">
+              {fmtBp(config.treasuryFloatPctBp, 0)} → $HUB Treasury
+            </span>{" "}
             (buy-and-hold float, capped as a share of supply — anything over the cap is burned too)
-            ·{" "}
-            <span className="text-cyan-300">{fmtBp(config.lpPctBp, 0)} → $HUB/$OTC LP</span> (seeds
-            the phase-2 liquidity pool). The burn/treasury/LP legs come off first via a synchronous
-            SOL→$HUB Jupiter swap; the remaining {fmtBp(10000 - config.burnPctBp - config.lpPctBp - config.treasuryFloatPctBp, 0)}{" "}
-            never touches $HUB at all. No revenue is ever lost to rounding — any sub-lamport
-            leftover simply rolls into the next round.
+            · <span className="text-cyan-300">{fmtBp(config.lpPctBp, 0)} → $HUB/$OTC LP</span>{" "}
+            (seeds the phase-2 liquidity pool). The burn/treasury/LP legs come off first via a
+            synchronous SOL→$HUB Jupiter swap; the remaining{" "}
+            {fmtBp(10000 - config.burnPctBp - config.lpPctBp - config.treasuryFloatPctBp, 0)} never
+            touches $HUB at all. No revenue is ever lost to rounding — any sub-lamport leftover
+            simply rolls into the next round.
           </li>
           <li className={li}>
             A second, independent burn fires whenever the treasury exits a desk at a discount: half
@@ -358,7 +390,10 @@ export function MechanicsPanel({ state }: { state: ProtocolState }) {
           </li>
         </ul>
         <MermaidBlock source={FEE_FLOW_DIAGRAM} title="revenue → round split (technical detail)" />
-        <MermaidBlock source={BUYBACK_LP_DIAGRAM} title="burn & liquidity legs (technical detail)" />
+        <MermaidBlock
+          source={BUYBACK_LP_DIAGRAM}
+          title="burn & liquidity legs (technical detail)"
+        />
       </CollapsibleCard>
 
       <CollapsibleCard title="6. YOUR YIELD — PRO-RATA BY TIER">
@@ -384,7 +419,10 @@ export function MechanicsPanel({ state }: { state: ProtocolState }) {
             activated it themselves.
           </li>
         </ul>
-        <MermaidBlock source={ACTIVATION_DIAGRAM} title="activation → claim lifecycle (technical detail)" />
+        <MermaidBlock
+          source={ACTIVATION_DIAGRAM}
+          title="activation → claim lifecycle (technical detail)"
+        />
       </CollapsibleCard>
     </div>
   );

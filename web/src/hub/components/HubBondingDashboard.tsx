@@ -117,11 +117,16 @@ export function CurveHeroPanel({
   mint,
   dec,
   solUsd,
+  collapsible = true,
 }: {
   curve: CurveState;
   mint: string;
   dec: number;
   solUsd: number | null;
+  /** Disabled by the graduation FX backdrop (HubBondingDashboard/GraduationFxTestPage) — a
+   *  collapse toggle sitting behind the blurred "GRADUATED" overlay would be confusing/clickable
+   *  through the blur, so that one render stays fixed open. */
+  collapsible?: boolean;
 }) {
   const spotPriceSol = Number(curve.spotPriceLamportsPerHub) / LAMPORTS_PER_SOL;
   const spotPriceUsd = solUsd != null ? spotPriceSol * solUsd : null;
@@ -131,6 +136,7 @@ export function CurveHeroPanel({
     <Panel
       title="OTC LAUNCHER :: BONDING CURVE"
       right={<span className="text-emerald-400">{(curve.progressBp / 100).toFixed(2)}%</span>}
+      collapsible={collapsible}
     >
       {mint && (
         <div className="flex flex-wrap items-center gap-2 text-[11px] font-mono">
@@ -178,6 +184,7 @@ function GraduatedPanel({
       <Panel
         title="🎓 CURVE GRADUATED :: LIVE ON AMM"
         right={curve.graduatedAt ? new Date(curve.graduatedAt).toLocaleString() : undefined}
+        collapsible
       >
         <p className="text-xs text-green-400/90">
           The bonding curve raised {raised} SOL and migrated its liquidity into a Raydium CP-Swap
@@ -381,6 +388,7 @@ function BondingCurvePanel({
             ]
           </button>
         }
+        collapsible
       >
         {settingsOpen && (
           <div className="mb-2 border border-green-500/20 p-2">
@@ -547,7 +555,7 @@ function BondingCurvePanel({
         </div>
       </Panel>
 
-      <Panel title="LIVE ACTIVITY" right={`${trades.length} recent`}>
+      <Panel title="LIVE ACTIVITY" right={`${trades.length} recent`} collapsible>
         {trades.length === 0 ? (
           <div className="text-xs text-green-700">
             no trades yet — be the first to buy the curve.
@@ -651,6 +659,7 @@ export function HubBondingDashboard({ state, address }: Props) {
               mint={state.config.hubMint}
               dec={state.supply.decimals}
               solUsd={solUsdQuery.data ?? null}
+              collapsible={false}
             />
           </GraduationSequence>
         )}

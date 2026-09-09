@@ -3,11 +3,19 @@ import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useHub } from "../HubProvider";
 import { useWallet } from "../WalletProvider";
+import { parsePubkey } from "../hooks/useDeskTier";
 import { WalletConnect } from "../components/WalletConnect";
 import { Panel } from "../components/ui/Panel";
 import { AddressLink } from "../components/ui/AddressLink";
+import { Turnstile } from "../components/ui/Turnstile";
 import { shortKey } from "../lib/format";
-import { FaucetHttpError, dripTokens, fetchFaucetStatus, type DripResult } from "../lib/faucet";
+import {
+  FaucetHttpError,
+  dripTokens,
+  fetchFaucetStatus,
+  TURNSTILE_SITE_KEY,
+  type DripResult,
+} from "../lib/faucet";
 
 const btn =
   "border px-3 py-1.5 text-xs font-bold disabled:opacity-30 border-emerald-500/60 text-emerald-300 hover:bg-emerald-500/10";
@@ -24,6 +32,10 @@ export function DripPage() {
   const [dripBusy, setDripBusy] = useState(false);
   const [dripErr, setDripErr] = useState<string | null>(null);
   const [dripResult, setDripResult] = useState<DripResult | null>(null);
+  // Manual override: drip to any pasted devnet address without connecting a wallet at all. When
+  // empty, falls back to the connected wallet (if any) — see `targetAddress` below.
+  const [manualAddress, setManualAddress] = useState("");
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
 
   const status = useQuery({
     queryKey: ["faucet", "status"],
@@ -32,10 +44,17 @@ export function DripPage() {
     staleTime: 30_000,
   });
 
+  const trimmedManual = manualAddress.trim();
+  const manualKey = trimmedManual ? parsePubkey(trimmedManual) : null;
+  const manualInvalid = trimmedManual !== "" && !manualKey;
+  const targetAddress = trimmedManual ? (manualKey?.toBase58() ?? null) : wallet.address;
+  const requireTurnstile = !!TURNSTILE_SITE_KEY;
+
   useEffect(() => {
     setDripResult(null);
     setDripErr(null);
-  }, [wallet.address]);
+    setTurnstileToken(null);
+  }, [wallet.address, manualAddress]);
 
   if (cluster !== "devnet") {
     return (
@@ -58,11 +77,14 @@ export function DripPage() {
   }
 
   const runDrip = async () => {
-    if (!wallet.address) return setDripErr("connect a wallet first");
+    if (!targetAddress) return setDripErr("connect a wallet or paste a valid devnet address first");
+    if (requireTurnstile && !turnstileToken) {
+      return setDripErr("complete the verification challenge below first");
+    }
     setDripBusy(true);
     setDripErr(null);
     try {
-      setDripResult(await dripTokens(wallet.address));
+      setDripResult(await dripTokens(targetAddress, turnstileToken ?? undefined));
     } catch (e) {
       setDripErr(e instanceof FaucetHttpError ? e.message : "drip failed — try again");
     } finally {
@@ -81,7 +103,7 @@ export function DripPage() {
         </span>
       </div>
 
-      <Panel title="1 · WALLET">
+      <Panel title="1 · WALLET" collapsible>
         {wallet.address ? (
           <div className="flex items-center justify-between text-xs">
             <span>
@@ -107,6 +129,25 @@ export function DripPage() {
             [CONNECT WALLET]
           </button>
         )}
+        <div className="mt-3 border-t border-green-500/10 pt-2">
+          <label className="mb-1 block text-[10px] uppercase tracking-widest text-green-600">
+            or paste a devnet address to drip to — no wallet connection needed
+          </label>
+          <input
+            value={manualAddress}
+            onChange={(e) => setManualAddress(e.target.value)}
+            placeholder="paste a base58 Solana address..."
+            spellCheck={false}
+            className={`w-full border bg-black px-2 py-1.5 text-xs text-green-400 outline-none placeholder:text-green-500/30 focus:border-green-400 ${
+              manualInvalid ? "border-amber-500/60" : "border-green-500/30"
+            }`}
+          />
+          {manualInvalid && (
+            <div className="mt-1 text-[10px] text-amber-400">
+              ERR: not a valid base58 Solana address
+            </div>
+          )}
+        </div>
       </Panel>
 
       <Panel title="2 · GET DEVNET SOL FIRST">
@@ -151,10 +192,21 @@ export function DripPage() {
           after claiming and activate it yourself with the $HUB this faucet just gave you — the same
           flow a real desk owner follows on mainnet.
         </div>
+        {targetAddress && (
+          <div className="mb-2 text-[11px] text-green-600">
+            dripping to: <AddressLink address={targetAddress} full />
+          </div>
+        )}
+        <Turnstile
+          siteKey={TURNSTILE_SITE_KEY}
+          onVerify={setTurnstileToken}
+          onExpire={() => setTurnstileToken(null)}
+          className="mb-2"
+        />
         <button
           type="button"
           onClick={runDrip}
-          disabled={dripBusy || !wallet.address}
+          disabled={dripBusy || !targetAddress || (requireTurnstile && !turnstileToken)}
           className={btn}
         >
           {dripBusy ? "[CLAIMING…]" : "[GET STARTER KIT]"}

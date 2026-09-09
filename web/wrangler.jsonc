@@ -23,7 +23,7 @@
   "assets": {
     "directory": "./dist",
     "not_found_handling": "single-page-application",
-    "html_handling": "auto-trailing-slash"
+    "html_handling": "auto-trailing-slash",
   },
   "routes": [{ "pattern": "app.otchub.dev", "custom_domain": true }],
   "observability": { "enabled": true },
@@ -36,10 +36,10 @@
       "assets": {
         "directory": "./dist",
         "not_found_handling": "single-page-application",
-        "html_handling": "auto-trailing-slash"
+        "html_handling": "auto-trailing-slash",
       },
       "routes": [{ "pattern": "app.otchub.dev", "custom_domain": true }],
-      "observability": { "enabled": true }
+      "observability": { "enabled": true },
     },
     // Devnet sandbox — separate Worker, separate bundle, separate domain. Requires
     // `devnet.otchub.dev` to exist in the same Cloudflare zone as `otchub.dev` (one-time
@@ -57,7 +57,7 @@
         "directory": "./dist-devnet",
         "binding": "ASSETS",
         "not_found_handling": "single-page-application",
-        "html_handling": "auto-trailing-slash"
+        "html_handling": "auto-trailing-slash",
       },
       "routes": [{ "pattern": "devnet.otchub.dev", "custom_domain": true }],
       "observability": { "enabled": true },
@@ -69,8 +69,8 @@
       // faucet's rate-limit bucket. Created via `wrangler kv namespace create CURVE_KV --env devnet`.
       "kv_namespaces": [
         { "binding": "FAUCET_KV", "id": "877e6b420c51440d83e1a9fabfd6c0d4" },
-        { "binding": "CURVE_KV", "id": "261211c9d7844bc0ac73a35223f8b808" }
-      ]
+        { "binding": "CURVE_KV", "id": "261211c9d7844bc0ac73a35223f8b808" },
+      ],
       // HUB_RPC_URL is a `wrangler secret` (not a `vars` entry — Cloudflare rejects a secret and
       // a var sharing one binding name), set to a Helius devnet URL: the plain public
       // api.devnet.solana.com endpoint 403s Cloudflare Workers' egress IPs. faucet.ts falls back
@@ -80,6 +80,14 @@
       // CURVE_KEY is the curve treasury's own devnet keypair (JSON secret-key array), isolated
       // from FAUCET_KEY — holds the real ≥95% $HUB public float + collected SOL. Set with:
       //   wrangler secret put CURVE_KEY --env devnet
-    }
-  }
+      //
+      // TURNSTILE_SECRET_KEY gates /api/faucet/drip and /api/faucet/mint-desk behind a Cloudflare
+      // Turnstile challenge (bot-abuse guard, independent of the IP/wallet cooldowns above).
+      // Optional: verification is skipped when unset, so the faucet keeps working before it's
+      // provisioned. Pair with VITE_TURNSTILE_SITE_KEY (web/.env.devnet(.local)) for the client
+      // widget. Create a widget in the Cloudflare dash (Turnstile) pointed at devnet.otchub.dev,
+      // then:
+      //   wrangler secret put TURNSTILE_SECRET_KEY --env devnet
+    },
+  },
 }

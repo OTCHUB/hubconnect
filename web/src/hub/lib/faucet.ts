@@ -5,6 +5,12 @@
 // gates on `cluster === "devnet"` before importing/using this (see DripPage.tsx / OwnDeskPanel.tsx).
 export const FAUCET_BASE_URL = "https://devnet.otchub.dev";
 
+/** Public Turnstile site key (safe to ship in the bundle — pairs with the Worker-side
+ *  TURNSTILE_SECRET_KEY, see workers/faucet.ts). Empty until `VITE_TURNSTILE_SITE_KEY` is set in
+ *  `.env.devnet(.local)`, in which case the widget doesn't render and the server skips
+ *  verification too — devnet keeps working before the challenge is provisioned. */
+export const TURNSTILE_SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY ?? "";
+
 export type FaucetError = { error: string };
 
 export type FaucetStatus = {
@@ -73,11 +79,14 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const fetchFaucetStatus = () => call<FaucetStatus>("/api/faucet/status");
 
-export const dripTokens = (wallet: string) =>
-  call<DripResult>("/api/faucet/drip", { method: "POST", body: JSON.stringify({ wallet }) });
+export const dripTokens = (wallet: string, turnstileToken?: string) =>
+  call<DripResult>("/api/faucet/drip", {
+    method: "POST",
+    body: JSON.stringify({ wallet, turnstileToken }),
+  });
 
-export const mintMockDesk = (wallet: string) =>
+export const mintMockDesk = (wallet: string, turnstileToken?: string) =>
   call<MintDeskResult>("/api/faucet/mint-desk", {
     method: "POST",
-    body: JSON.stringify({ wallet }),
+    body: JSON.stringify({ wallet, turnstileToken }),
   });

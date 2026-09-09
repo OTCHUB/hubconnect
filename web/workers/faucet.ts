@@ -70,6 +70,9 @@ export interface Env extends CurveEnv {
   /** JSON secret-key array (`solana-keygen`/`Keypair.generate().secretKey` format). */
   FAUCET_KEY: string;
   HUB_RPC_URL?: string;
+  /** Cloudflare Turnstile secret key — pairs with VITE_TURNSTILE_SITE_KEY (web's `.env.devnet`).
+   *  Optional: unset skips verification entirely so devnet keeps working pre-provisioning. */
+  TURNSTILE_SECRET_KEY?: string;
 }
 
 const HUB_PROGRAM_ID_PK = new PublicKey(HUB_PROGRAM_ID);
@@ -138,6 +141,31 @@ function buildCtx(env: Env) {
   const payer = loadFaucetKeypair(env.FAUCET_KEY);
   const program = createReader(connection, HUB_PROGRAM_ID_PK);
   return { connection, payer, program };
+}
+
+/**
+ * Cloudflare Turnstile server-side check (siteverify) — the bot-abuse gate in front of
+ * `/api/faucet/drip` and `/api/faucet/mint-desk`, independent of the IP/wallet cooldowns below.
+ * Returns `null` on success (or when `TURNSTILE_SECRET_KEY` isn't configured yet — skips rather
+ * than hard-fails, so devnet keeps working before a widget is provisioned), or an error string.
+ */
+async function verifyTurnstile(token: unknown, env: Env, request: Request): Promise<string | null> {
+  if (!env.TURNSTILE_SECRET_KEY) return null;
+  if (typeof token !== "string" || !token) {
+    return "verification challenge required — complete the checkbox and try again";
+  }
+  const form = new URLSearchParams();
+  form.set("secret", env.TURNSTILE_SECRET_KEY);
+  form.set("response", token);
+  const ip = request.headers.get("cf-connecting-ip");
+  if (ip) form.set("remoteip", ip);
+  const res = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: form,
+  });
+  const data = (await res.json().catch(() => null)) as { success?: boolean } | null;
+  return data?.success ? null : "verification failed — refresh the page and try again";
 }
 
 /** Cheap secondary abuse guard, independent of the per-wallet cooldowns below. */
@@ -258,6 +286,8 @@ async function handleDrip(request: Request, env: Env): Promise<Response> {
   const body = await safeJson(request);
   const wallet = parsePubkey(body?.wallet);
   if (!wallet) return json({ error: "wallet must be a base58 Solana public key" }, 400);
+  const turnstileErr = await verifyTurnstile(body?.turnstileToken, env, request);
+  if (turnstileErr) return json({ error: turnstileErr }, 403);
 
   const rlKey = `drip:${wallet.toBase58()}`;
   if (await env.FAUCET_KV.get(rlKey)) {
@@ -335,6 +365,8 @@ async function handleMintDesk(request: Request, env: Env): Promise<Response> {
   const body = await safeJson(request);
   const wallet = parsePubkey(body?.wallet);
   if (!wallet) return json({ error: "wallet must be a base58 Solana public key" }, 400);
+  const turnstileErr = await verifyTurnstile(body?.turnstileToken, env, request);
+  if (turnstileErr) return json({ error: turnstileErr }, 403);
 
   const rlKey = `desk:${wallet.toBase58()}`;
   if (await env.FAUCET_KV.get(rlKey)) {

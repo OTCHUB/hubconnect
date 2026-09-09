@@ -66,7 +66,7 @@ export function TokenomicsPanel({ state }: { state: ProtocolState }) {
 
   return (
     <div className="space-y-2">
-      <Panel title="TOKENOMICS" right={source}>
+      <Panel title="TOKENOMICS" right={source} collapsible>
         <div className="grid grid-cols-2 gap-2 md:grid-cols-3 lg:grid-cols-6">
           <Stat
             label="max supply"
@@ -128,7 +128,7 @@ export function TokenomicsPanel({ state }: { state: ProtocolState }) {
         liveCirculatingHub={chartLiveCirculatingHub}
       />
 
-      <Panel title="AIRDROP">
+      <Panel title="AIRDROP" collapsible>
         <Row
           k="mechanism"
           v="Merkle claim · one claim per desk asset · paid to the desk's current owner"
@@ -179,7 +179,7 @@ export function TokenomicsPanel({ state }: { state: ProtocolState }) {
         />
       </Panel>
 
-      <Panel title="TREASURY LOCK">
+      <Panel title="TREASURY LOCK" collapsible>
         <Row
           k="floor"
           v={onChain ? `${fmtHub(onChain.treasuryLockUnits, d)} · 2.5% of max supply` : "—"}
