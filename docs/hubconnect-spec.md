@@ -155,6 +155,22 @@ things at once:
    `BurnChecked` at the moment of activation/upgrade — permanent, independent
    of the round-based buyback burn (§A7 below).
 
+**Non-custodial activation ("wallet-native yield")** — `activate_tier` /
+`activate_tier_otc` / `upgrade_tier` / `upgrade_tier_otc` never move, freeze,
+or delegate the desk NFT. The instruction reads the caller's ownership of the
+Metaplex Core asset via the Core plugin/DAS check baked into the instruction
+itself (see instruction #2 in the table below), then writes tier state to a
+`DeskTier` PDA keyed off the asset id — the NFT stays exactly where it was,
+in the activating wallet, for the entire lifetime of the tier. There is no
+protocol-owned escrow, vault, or custody account that ever holds a user's
+desk (contrast `Vault` / `TreasuryState.vault`, §A6.2 below, which only ever
+custody *treasury*-owned positions, never a user's). Only the $HUB burn leg
+(point 2 above) moves tokens out of the wallet, and it is destroyed
+(`BurnChecked`), not deposited anywhere. This is also why the desk stays
+freely transferable and listable on secondary at any time — see §A4's
+revocation-on-transfer note in the UI (`MechanicsPanel.tsx`) for what happens
+to the tier when it is.
+
 **Burn-based, never lock-based** — the launcher's 70% leg pays per-wallet
 pro-rata on HUB held, so locked HUB would miss it; burned tiers never conflict.
 

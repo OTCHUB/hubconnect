@@ -129,7 +129,15 @@ export function EarningPreview({ state, rawDeskDailyLamports }: Props) {
         </div>
 
         <div className="border border-cyan-500/30 p-2">
-          <div className="text-[10px] uppercase tracking-widest text-cyan-400">BOOSTED YIELD</div>
+          <div className="flex items-center gap-1 text-[10px] uppercase tracking-widest text-cyan-400">
+            BOOSTED YIELD
+            <span
+              className="cursor-help text-cyan-600"
+              title="Non-custodial activation: burning $HUB into a tier never moves, locks, or delegates your desk NFT. It stays in your wallet the whole time — activate_tier only verifies ownership and burns $HUB; there is no protocol escrow or vault holding user desks. Transfer or sell the desk and the tier is revoked on next claim (see section 1)."
+            >
+              ⓘ
+            </span>
+          </div>
           <div className="mt-1 text-[10px] text-green-700">
             {targetTier > 0 ? (
               <>
@@ -154,6 +162,10 @@ export function EarningPreview({ state, rawDeskDailyLamports }: Props) {
       <div className="mt-2 text-[10px] text-green-700">
         <div>{basis}</div>
         <div>burn slice removed before distribution · {cadence}</div>
+        <div className="mt-1 text-cyan-700">
+          non-custodial — activation only burns $HUB and verifies ownership; your desk NFT never
+          leaves your wallet or moves into a protocol escrow/vault.
+        </div>
       </div>
     </Panel>
   );
