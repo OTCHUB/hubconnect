@@ -5,6 +5,8 @@ export const MAGIC_EDEN_ITEM = "https://magiceden.io/item-details";
 export const MAGIC_EDEN_COLLECTION_SLUG = "otc_desks";
 /** OTC desks collection page on Magic Eden (mainnet slug). Hosts may override via HubProvider. */
 export const DEFAULT_COLLECTION_URL = `https://magiceden.io/marketplace/${MAGIC_EDEN_COLLECTION_SLUG}`;
+/** Official OTC Desks launch-curve mint (mainnet only — no devnet equivalent, see faucet.ts). */
+export const OFFICIAL_MINT_URL = "https://otcdesks.cash/mint";
 
 export const magicEdenItemUrl = (asset: string) =>
   `${MAGIC_EDEN_ITEM}/${encodeURIComponent(asset)}`;

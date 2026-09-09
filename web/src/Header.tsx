@@ -171,6 +171,21 @@ export function Header() {
         <NavLink to="/hub/deployments" className={linkCls}>
           DEPLOYMENTS
         </NavLink>
+        {cluster === "devnet" && (
+          <NavLink
+            to="/drip"
+            className={({ isActive }) =>
+              `inline-flex items-center whitespace-nowrap border px-2 py-1 text-[10px] font-bold tracking-widest sm:px-2.5 ${
+                isActive
+                  ? "border-amber-400 bg-amber-500/15 text-amber-200"
+                  : "border-amber-500/60 text-amber-400 hover:bg-amber-500/10"
+              }`
+            }
+            title="devnet-only faucet — get test $HUB/$OTC + mint a Mock OTC Desk"
+          >
+            💧 DRIP
+          </NavLink>
+        )}
       </nav>
       <div className="flex flex-wrap items-center gap-x-4 px-3 py-1 text-[10px] text-green-500/50">
         <span>cluster: {cluster}</span>

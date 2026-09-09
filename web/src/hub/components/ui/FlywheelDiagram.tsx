@@ -67,14 +67,14 @@ const NODES: DNode[] = [
   {
     id: "split",
     label: "ROUND SPLIT",
-    sub: "90 / 5 / 5",
+    sub: "90 / 5 / 2.5 / 2.5",
     tone: "amber",
     angle: 126,
     ring: true,
-    title: "4 · finalize_epoch — 90/5/5",
+    title: "4 · finalize_epoch — 90 / 5 / 2.5 / 2.5",
     body: [
       "The instant the open round crosses 0.1 SOL, anyone can finalize it — no clock, no keeper required.",
-      "90% → desk-staker yield · 5% → buy & burn $HUB · 5% → phase-2 $HUB/$OTC liquidity.",
+      "90% → desk-staker yield · 5% → buy & burn $HUB · 2.5% → $HUB Treasury float · 2.5% → $HUB/$OTC LP.",
     ],
   },
   {

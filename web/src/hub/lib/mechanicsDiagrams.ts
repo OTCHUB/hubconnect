@@ -34,7 +34,7 @@ export const ACTIVATION_DIAGRAM = `flowchart TD
 
 export const FEE_FLOW_DIAGRAM = `flowchart TD
     subgraph SOURCES["Pot inflow sources"]
-        A1["A - Activation fees\\n0.45 / 0.90 / 1.35 / 1.80 SOL per step"]
+        A1["A - Activation fees\\nFlat 0.5 SOL per step (90% pot / 10% ops)"]
         B1["B - Treasury desk yield\\nowned desks' desk-pot claims"]
         C1["C - Treasury OTC-stock claims\\nHUB float <=2% supply, pro-rata OTC -> pot"]
         D1["D - Discount-exit SOL leg\\n50% of every treasury desk sale"]

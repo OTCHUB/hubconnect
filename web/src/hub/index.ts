@@ -41,6 +41,7 @@ export {
   dexscreenerTokenUrl,
   DEFAULT_COLLECTION_URL,
   MAGIC_EDEN_COLLECTION_SLUG,
+  OFFICIAL_MINT_URL,
 } from "./lib/marketplace";
 export {
   yieldBoostPctOverBase,

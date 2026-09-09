@@ -1,6 +1,7 @@
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { HubProvider, HubRoutes, useHub } from "./hub";
 import { WalletProvider } from "./hub/WalletProvider";
+import { DripPage } from "./hub/routes/DripPage";
 import { Header } from "./Header";
 import { Footer } from "./Footer";
 import { TerminalBottomBar, TerminalTopBar } from "./TerminalBars";
@@ -19,6 +20,7 @@ function AppShell() {
         <main className="mt-3">
           <Routes>
             <Route path="/hub/*" element={<HubRoutes />} />
+            <Route path="/drip" element={<DripPage />} />
             <Route path="*" element={<Navigate to="/hub" replace />} />
           </Routes>
         </main>
