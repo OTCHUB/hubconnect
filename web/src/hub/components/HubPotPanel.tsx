@@ -9,18 +9,21 @@ import { executeClaimHubPotReward, type HubPotClaimPhase } from "../lib/hubPotCl
 import { fmtNum, fmtUnits } from "../lib/format";
 import type { TxLog } from "../lib/swap";
 import { AddressLink } from "./ui/AddressLink";
-import { Panel, Row, Stat } from "./ui/Panel";
+import { GlassPanel, GlassRow, GlassStat } from "./ui/GlassPanel";
 import { TxLogView } from "./ui/TxLogView";
 
 const BUCKET_LABELS = {
   otc: "$OTC",
-  crclx: "CRCLx",
-  openai: "OpenAI",
-  anthropic: "Anthropic",
+  crclx: "CRCLX",
+  openai: "OPENAI",
+  anthropic: "ANTHROPIC",
 } as const;
 type BucketKey = keyof typeof BUCKET_LABELS;
 const BUCKET_KEYS = Object.keys(BUCKET_LABELS) as BucketKey[];
-const btn = "border px-2.5 py-1 text-[12px] disabled:opacity-30";
+const primaryBtn =
+  "rounded-full bg-emerald-400 px-4 py-1.5 text-xs font-semibold text-black transition hover:bg-emerald-300 disabled:opacity-30";
+const ghostBtn =
+  "rounded-full border border-white/15 px-3 py-1.5 text-xs text-emerald-100 transition hover:bg-white/5 disabled:opacity-30";
 
 /** Sums an active desk's `hubPotShareUnits` estimate across every bucket, for every desk owned
  *  by the wallet — mirrors the on-chain per-desk `reward_share` floor-division exactly. */
@@ -80,19 +83,19 @@ export function HubPotPanel({ desks, address }: Props) {
 
   if (q.isPending) {
     return (
-      <Panel title="M.I.M ETF :: MAGIC INTERNET MONEY BASKET">
-        <div className="text-xs text-green-700">loading…</div>
-      </Panel>
+      <GlassPanel title="M.I.M ETF" icon="🧺">
+        <div className="text-sm text-emerald-200/40">loading…</div>
+      </GlassPanel>
     );
   }
 
   if (!pot || !decimals) {
     return (
-      <Panel title="M.I.M ETF :: MAGIC INTERNET MONEY BASKET">
-        <div className="text-xs text-green-700">
-          not provisioned yet — {`init_hub_pot`} has not been called on this cluster.
+      <GlassPanel title="M.I.M ETF" icon="🧺">
+        <div className="text-sm text-emerald-200/40">
+          Not live yet on this cluster — the pot hasn't been initialized.
         </div>
-      </Panel>
+      </GlassPanel>
     );
   }
 
@@ -143,84 +146,84 @@ export function HubPotPanel({ desks, address }: Props) {
     }
   };
 
+  const potAddress = hubPotPda(programId)[0].toBase58();
+
   return (
-    <Panel
-      title="M.I.M ETF :: MAGIC INTERNET MONEY BASKET"
-      right={`round ${fmtNum(pot.roundCount)} · pending fund`}
-    >
-      <p className="mb-3 text-xs leading-relaxed text-green-400/90">
-        The <span className="text-green-300">M.I.M ETF</span> pays every activated desk a
-        tier-weighted share of a fixed 4-token basket — $OTC, CRCLx, and two on-chain "MemeStock"
-        tickers branded OPENAI and ANTHROPIC. These four are tokenized tickers native to the OTC
-        Desks ecosystem — <span className="text-amber-300">not</span> shares, equity, or any claim
-        on the real companies OpenAI or Anthropic. The basket is funded entirely by the treasury's
-        own 13-stock desk-pot yield and rebalanced every round: the 4 native basket stocks pass
-        straight through untouched, while the other 9 are swapped to SOL and split evenly
-        25/25/25/25 back into the 4 basket tokens — consolidating a diversified treasury yield into
-        one claimable basket, at zero cost to other holders.
+    <GlassPanel title="M.I.M ETF" icon="🧺">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-emerald-300/60">
+        Magic Internet Money Basket
       </p>
-      <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+      <p className="mt-1.5 text-sm leading-relaxed text-white/80">
+        A tier-weighted basket of $OTC, CRCLx, OPENAI, and ANTHROPIC. Funded by treasury yield
+        rebalancing: 13 stocks consolidated into 4 native tickers. Pure yield, zero cost.
+      </p>
+
+      <div className="mt-3">
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/30 bg-emerald-400/10 px-3 py-1 text-xs font-semibold text-emerald-300">
+          Round {fmtNum(pot.roundCount)} · {round ? "Live" : "Pending Fund"}
+        </span>
+      </div>
+
+      <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
         {BUCKET_KEYS.map((b) => (
-          <Stat
+          <GlassStat
             key={b}
             label={BUCKET_LABELS[b]}
             value={fmtUnits(pot[`${b}PendingUnits` as const], decimals[b])}
-            sub={`lifetime ${fmtUnits(pot[`${b}DepositedUnits` as const], decimals[b])}`}
+            sub={`Lifetime ${fmtUnits(pot[`${b}DepositedUnits` as const], decimals[b])}`}
           />
         ))}
       </div>
 
       {round ? (
-        <div className="mt-3">
-          <div className="mb-1 text-[10px] uppercase tracking-widest text-green-600">
-            latest round #{fmtNum(round.index)}
+        <div className="mt-4">
+          <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-emerald-200/40">
+            Round #{fmtNum(round.index)}
           </div>
-          <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             {BUCKET_KEYS.map((b) => (
-              <Stat
+              <GlassStat
                 key={b}
                 label={BUCKET_LABELS[b]}
                 value={fmtUnits(round[`${b}Units` as const], decimals[b])}
-                sub={`paid ${fmtUnits(round[`${b}DistributedUnits` as const], decimals[b])} · ${fmtNum(round.claims)} claims`}
+                sub={`Paid ${fmtUnits(round[`${b}DistributedUnits` as const], decimals[b])} · ${fmtNum(round.claims)} claims`}
               />
             ))}
           </div>
         </div>
       ) : (
-        <div className="mt-3 text-[11px] text-green-700">
-          no round opened yet — {`open_hub_pot_round`} snapshots pending balances once funded.
-        </div>
+        <div className="mt-4 text-xs text-emerald-200/40">No active round — snapshots pending.</div>
       )}
 
       {myShare && round && (
-        <div className="mt-3">
-          <div className="mb-1 text-[10px] uppercase tracking-widest text-green-600">
-            your total share — round #{fmtNum(round.index)} ({fmtNum(activeDesks.length)} active
-            desk{activeDesks.length === 1 ? "" : "s"})
+        <div className="mt-4">
+          <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-emerald-200/40">
+            Your share · round #{fmtNum(round.index)} ({fmtNum(activeDesks.length)} desk
+            {activeDesks.length === 1 ? "" : "s"})
           </div>
           {BUCKET_KEYS.map((b) => (
-            <Row key={b} k={BUCKET_LABELS[b]} v={fmtUnits(myShare[b], decimals[b])} />
+            <GlassRow key={b} k={BUCKET_LABELS[b]} v={fmtUnits(myShare[b], decimals[b])} />
           ))}
         </div>
       )}
 
       {address && round && (
-        <div className="mt-3">
-          <div className="mb-1 text-[10px] uppercase tracking-widest text-green-600">
-            claim per desk or in bulk — {fmtNum(claimRows.length)} unclaimed this round
+        <div className="mt-4">
+          <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-emerald-200/40">
+            Claim · {fmtNum(claimRows.length)} unclaimed
           </div>
           {claimRows.length === 0 ? (
-            <div className="text-xs text-green-700">
-              nothing unclaimed for round #{fmtNum(round.index)} — either no active desk has a share
-              yet, or it's already been paid (self-claim or authority push).
+            <div className="text-xs text-emerald-200/40">
+              Nothing unclaimed this round — no active desk has a share yet, or it's already been
+              paid.
             </div>
           ) : (
-            <div className="max-h-52 overflow-y-auto border border-green-500/20">
+            <div className="max-h-52 divide-y divide-white/5 overflow-y-auto rounded-2xl border border-white/5">
               {claimRows.map((r) => (
                 <label
                   key={r.asset}
-                  className={`flex cursor-pointer items-center gap-2 border-b border-green-500/10 px-2 py-1.5 text-xs last:border-0 ${
-                    selected.has(r.asset) ? "bg-emerald-500/10" : "hover:bg-green-500/5"
+                  className={`flex cursor-pointer items-center gap-2 px-3 py-2 text-xs transition ${
+                    selected.has(r.asset) ? "bg-emerald-400/10" : "hover:bg-white/5"
                   }`}
                 >
                   <input
@@ -228,7 +231,7 @@ export function HubPotPanel({ desks, address }: Props) {
                     checked={selected.has(r.asset)}
                     disabled={busy}
                     onChange={() => toggle(r.asset)}
-                    className="accent-emerald-500"
+                    className="accent-emerald-400"
                   />
                   <span className="min-w-0 flex-1">
                     <AddressLink address={r.asset} />
@@ -247,38 +250,48 @@ export function HubPotPanel({ desks, address }: Props) {
               type="button"
               onClick={run}
               disabled={busy || !claimRows.length}
-              className={`${btn} border-emerald-500/60 font-bold text-emerald-300 hover:bg-emerald-500/10`}
+              className={primaryBtn}
             >
               {busy
-                ? `${(phase ?? "prep").toUpperCase()}…`
+                ? `${phase ?? "prep"}…`
                 : selected.size
-                  ? `[CLAIM_SELECTED (${selected.size})]`
-                  : "[CLAIM_ALL]"}
+                  ? `Claim selected (${selected.size})`
+                  : "Claim all"}
             </button>
             <button
               type="button"
               onClick={() => setSelected(new Set())}
               disabled={busy || !selected.size}
-              className={`${btn} border-green-500/30 text-green-500/70`}
+              className={ghostBtn}
             >
-              [CLEAR]
+              Clear
             </button>
           </div>
           {!signer && (
-            <div className="mt-1 text-[10px] text-amber-400/80">
-              read-only address — connect the wallet itself (WALLET_CONNECT) to sign claims.
+            <div className="mt-1 text-[10px] text-amber-300/80">
+              Read-only address — connect the wallet itself (Wallet Connect) to sign claims.
             </div>
           )}
-          {err && <div className="mt-2 text-[11px] text-amber-400">ERR: {err}</div>}
+          {err && <div className="mt-2 text-xs text-amber-300">{err}</div>}
           <TxLogView logs={logs} />
         </div>
       )}
 
-      <div className="mt-3 text-[10px] text-green-700">
-        pot config <AddressLink address={hubPotPda(programId)[0].toBase58()} /> · self-claim via{" "}
-        {`claim_hub_pot_reward`}, or wait for the authority-run {`distribute_hub_pot_reward`} push —
-        same one-payout-per-desk-per-round guard either way.
+      <div className="mt-4 flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-white/5 pt-3 font-mono text-[10px] text-emerald-200/30">
+        <span>
+          pot config <AddressLink address={potAddress} />
+        </span>
+        <span aria-hidden>·</span>
+        <span>claim_hub_pot_reward / distribute_hub_pot_reward</span>
       </div>
-    </Panel>
+
+      <div className="mt-2 flex items-start gap-1.5 text-[10px] leading-relaxed text-emerald-200/30">
+        <span aria-hidden>ⓘ</span>
+        <span>
+          OPENAI and ANTHROPIC are Pre-IPO tickers native to the OTC Desks ecosystem — not equity,
+          shares, or any claim on the real companies OpenAI or Anthropic.
+        </span>
+      </div>
+    </GlassPanel>
   );
 }
