@@ -437,6 +437,23 @@ export async function claimAllOwned(ctx: Ctx) {
   if (!otcPotState || otcPotState.totalLamportsSpent.isZero()) {
     return { claims: 0, desks: desks.length, received: 0n, blocked: true };
   }
+  // `total_lamports_spent` is a lifetime counter that survives a `devnet_reset` of the
+  // singleton PDAs (only Config/Burn/TreasuryState/Epoch are wiped) — so it can be non-zero
+  // purely from history while the vault itself sits at 0 (everything previously bought was
+  // already claimed out). Guard on the ACTUAL vault balance covering what this batch would
+  // pull, not just on the lifetime totals looking non-zero, or `claim_yield` fails on-chain
+  // with SPL "insufficient funds" instead of being skipped as `blocked`.
+  const totalOwed = due.reduce(
+    (sum, { tier }) => sum + BigInt(pendingYieldLamports(tier, cfg)),
+    0n,
+  );
+  const totalOtcDue =
+    (totalOwed * BigInt(otcPotState.totalOtcBoughtUnits.toString())) /
+    BigInt(otcPotState.totalLamportsSpent.toString());
+  const vaultBal = (await tokenAmount(ctx, otcPotState.otcVault)) ?? 0n;
+  if (totalOtcDue > vaultBal) {
+    return { claims: 0, desks: desks.length, received: 0n, blocked: true };
+  }
   const otcMint = new PublicKey(cfg.otcMint);
   const claimerOtc = ata(ctx.payer.publicKey, otcMint);
   const preamble = await otcAtaIx(ctx, ctx.payer.publicKey, otcMint);
