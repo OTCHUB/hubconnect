@@ -1,5 +1,5 @@
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
-import { HubProvider, HubRoutes, useHub } from "./hub";
+import { HubProvider, HubRoutes, UIThemeProvider, useHub } from "./hub";
 import { WalletProvider } from "./hub/WalletProvider";
 import { DripPage } from "./hub/routes/DripPage";
 import { GraduationFxTestPage } from "./hub/routes/GraduationFxTestPage";
@@ -38,16 +38,18 @@ function AppShell() {
 /** Standalone shell — mounts at `/hub/*`, the same path otchub will use inside its own router. */
 export function App() {
   return (
-    <HubProvider
-      rpcUrl={shellConfig.rpcUrl}
-      programId={shellConfig.programId}
-      cluster={shellConfig.cluster}
-    >
-      <WalletProvider>
-        <BrowserRouter>
-          <AppShell />
-        </BrowserRouter>
-      </WalletProvider>
-    </HubProvider>
+    <UIThemeProvider>
+      <HubProvider
+        rpcUrl={shellConfig.rpcUrl}
+        programId={shellConfig.programId}
+        cluster={shellConfig.cluster}
+      >
+        <WalletProvider>
+          <BrowserRouter>
+            <AppShell />
+          </BrowserRouter>
+        </WalletProvider>
+      </HubProvider>
+    </UIThemeProvider>
   );
 }

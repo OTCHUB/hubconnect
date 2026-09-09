@@ -4,6 +4,7 @@ import { EnvBadge, rpcHost, useHub, useWallet } from "./hub";
 import { WalletConnect } from "./hub/components/WalletConnect";
 import { AddressLink } from "./hub/components/ui/AddressLink";
 import { CopyButton } from "./hub/components/ui/CopyButton";
+import { ThemeSwitch } from "./hub/components/ui/ThemeSwitch";
 import { shortKey } from "./hub/lib/format";
 import { ThemeToggle } from "./components/ThemeToggle";
 
@@ -149,6 +150,7 @@ export function Header() {
             [RU_FOMO ↗]
           </a>
           <ThemeToggle />
+          <ThemeSwitch />
           <HeaderWallet />
         </div>
       </div>

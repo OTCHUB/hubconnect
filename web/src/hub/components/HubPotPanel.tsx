@@ -6,10 +6,11 @@ import { useHub } from "../HubProvider";
 import type { OwnedDesk } from "../hooks/useWalletPortfolio";
 import { useHubPot, type HubPotDecimals } from "../hooks/useHubPot";
 import { executeClaimHubPotReward, type HubPotClaimPhase } from "../lib/hubPotClaim";
+import { useUITheme } from "../ThemeProvider";
 import { fmtNum, fmtUnits } from "../lib/format";
 import type { TxLog } from "../lib/swap";
 import { AddressLink } from "./ui/AddressLink";
-import { GlassPanel, GlassRow, GlassStat } from "./ui/GlassPanel";
+import { Panel, Row, Stat } from "./ui/Panel";
 import { TxLogView } from "./ui/TxLogView";
 
 const BUCKET_LABELS = {
@@ -20,10 +21,13 @@ const BUCKET_LABELS = {
 } as const;
 type BucketKey = keyof typeof BUCKET_LABELS;
 const BUCKET_KEYS = Object.keys(BUCKET_LABELS) as BucketKey[];
-const primaryBtn =
+const MODERN_PRIMARY_BTN =
   "rounded-full bg-emerald-400 px-4 py-1.5 text-xs font-semibold text-black transition hover:bg-emerald-300 disabled:opacity-30";
-const ghostBtn =
+const MODERN_GHOST_BTN =
   "rounded-full border border-white/15 px-3 py-1.5 text-xs text-emerald-100 transition hover:bg-white/5 disabled:opacity-30";
+const RETRO_BTN = "border px-2.5 py-1 text-[12px] disabled:opacity-30";
+const RETRO_PRIMARY_BTN = `${RETRO_BTN} border-emerald-500/60 font-bold text-emerald-300 hover:bg-emerald-500/10`;
+const RETRO_GHOST_BTN = `${RETRO_BTN} border-green-500/30 text-green-500/70`;
 
 /** Sums an active desk's `hubPotShareUnits` estimate across every bucket, for every desk owned
  *  by the wallet — mirrors the on-chain per-desk `reward_share` floor-division exactly. */
@@ -50,6 +54,8 @@ type Props = { desks?: OwnedDesk[]; address?: string | null };
  *  one `HubPotClaim` receipt per (round, desk), so a desk is paid at most once per round. */
 export function HubPotPanel({ desks, address }: Props) {
   const { connection, program, programId, resolveSigner } = useHub();
+  const { theme } = useUITheme();
+  const isModern = theme === "modern";
   const qc = useQueryClient();
   const q = useHubPot();
   const pot = q.data?.pot ?? null;
@@ -83,19 +89,21 @@ export function HubPotPanel({ desks, address }: Props) {
 
   if (q.isPending) {
     return (
-      <GlassPanel title="M.I.M ETF" icon="🧺">
-        <div className="text-sm text-emerald-200/40">loading…</div>
-      </GlassPanel>
+      <Panel title="M.I.M ETF" icon="🧺">
+        <div className={isModern ? "text-sm text-emerald-200/40" : "text-xs text-green-700"}>
+          loading…
+        </div>
+      </Panel>
     );
   }
 
   if (!pot || !decimals) {
     return (
-      <GlassPanel title="M.I.M ETF" icon="🧺">
-        <div className="text-sm text-emerald-200/40">
+      <Panel title="M.I.M ETF" icon="🧺">
+        <div className={isModern ? "text-sm text-emerald-200/40" : "text-xs text-green-700"}>
           Not live yet on this cluster — the pot hasn't been initialized.
         </div>
-      </GlassPanel>
+      </Panel>
     );
   }
 
@@ -148,25 +156,56 @@ export function HubPotPanel({ desks, address }: Props) {
 
   const potAddress = hubPotPda(programId)[0].toBase58();
 
+  const mutedCls = isModern ? "text-emerald-200/40" : "text-green-700";
+  const sectionLabelCls = isModern
+    ? "mb-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-emerald-200/40"
+    : "mb-1.5 text-[10px] uppercase tracking-widest text-green-600";
+  const pillCls = isModern
+    ? "inline-flex items-center gap-1.5 rounded-full border border-emerald-400/30 bg-emerald-400/10 px-3 py-1 text-xs font-semibold text-emerald-300"
+    : "inline-flex items-center gap-1.5 rounded-none border border-green-500 bg-green-500/10 px-2 py-1 text-[10px] font-bold tracking-widest text-green-300";
+  const listContainerCls = isModern
+    ? "max-h-52 divide-y divide-white/5 overflow-y-auto rounded-2xl border border-white/5"
+    : "max-h-52 divide-y divide-green-500/10 overflow-y-auto rounded-none border border-green-500/20";
+  const primaryBtn = isModern ? MODERN_PRIMARY_BTN : RETRO_PRIMARY_BTN;
+  const ghostBtn = isModern ? MODERN_GHOST_BTN : RETRO_GHOST_BTN;
+  const footerCls = isModern
+    ? "mt-4 flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-white/5 pt-3 font-mono text-[10px] text-emerald-200/30"
+    : "mt-4 flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-green-500/20 pt-3 text-[10px] text-green-800";
+  const disclaimerCls = isModern
+    ? "mt-2 flex items-start gap-1.5 text-[10px] leading-relaxed text-emerald-200/30"
+    : "mt-2 flex items-start gap-1.5 text-[10px] leading-relaxed text-green-800";
+
   return (
-    <GlassPanel title="M.I.M ETF" icon="🧺">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-emerald-300/60">
+    <Panel title="M.I.M ETF" icon="🧺">
+      <p
+        className={
+          isModern
+            ? "text-[11px] font-semibold uppercase tracking-[0.2em] text-emerald-300/60"
+            : "text-[10px] uppercase tracking-widest text-green-600"
+        }
+      >
         Magic Internet Money Basket
       </p>
-      <p className="mt-1.5 text-sm leading-relaxed text-white/80">
+      <p
+        className={
+          isModern
+            ? "mt-1.5 text-sm leading-relaxed text-white/80"
+            : "mt-1.5 text-xs leading-relaxed text-green-400/90"
+        }
+      >
         A tier-weighted basket of $OTC, CRCLx, OPENAI, and ANTHROPIC. Funded by treasury yield
         rebalancing: 13 stocks consolidated into 4 native tickers. Pure yield, zero cost.
       </p>
 
       <div className="mt-3">
-        <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/30 bg-emerald-400/10 px-3 py-1 text-xs font-semibold text-emerald-300">
+        <span className={pillCls}>
           Round {fmtNum(pot.roundCount)} · {round ? "Live" : "Pending Fund"}
         </span>
       </div>
 
       <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
         {BUCKET_KEYS.map((b) => (
-          <GlassStat
+          <Stat
             key={b}
             label={BUCKET_LABELS[b]}
             value={fmtUnits(pot[`${b}PendingUnits` as const], decimals[b])}
@@ -177,12 +216,10 @@ export function HubPotPanel({ desks, address }: Props) {
 
       {round ? (
         <div className="mt-4">
-          <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-emerald-200/40">
-            Round #{fmtNum(round.index)}
-          </div>
+          <div className={sectionLabelCls}>Round #{fmtNum(round.index)}</div>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             {BUCKET_KEYS.map((b) => (
-              <GlassStat
+              <Stat
                 key={b}
                 label={BUCKET_LABELS[b]}
                 value={fmtUnits(round[`${b}Units` as const], decimals[b])}
@@ -192,38 +229,42 @@ export function HubPotPanel({ desks, address }: Props) {
           </div>
         </div>
       ) : (
-        <div className="mt-4 text-xs text-emerald-200/40">No active round — snapshots pending.</div>
+        <div className={`mt-4 text-xs ${mutedCls}`}>No active round — snapshots pending.</div>
       )}
 
       {myShare && round && (
         <div className="mt-4">
-          <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-emerald-200/40">
+          <div className={sectionLabelCls}>
             Your share · round #{fmtNum(round.index)} ({fmtNum(activeDesks.length)} desk
             {activeDesks.length === 1 ? "" : "s"})
           </div>
           {BUCKET_KEYS.map((b) => (
-            <GlassRow key={b} k={BUCKET_LABELS[b]} v={fmtUnits(myShare[b], decimals[b])} />
+            <Row key={b} k={BUCKET_LABELS[b]} v={fmtUnits(myShare[b], decimals[b])} />
           ))}
         </div>
       )}
 
       {address && round && (
         <div className="mt-4">
-          <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-emerald-200/40">
-            Claim · {fmtNum(claimRows.length)} unclaimed
-          </div>
+          <div className={sectionLabelCls}>Claim · {fmtNum(claimRows.length)} unclaimed</div>
           {claimRows.length === 0 ? (
-            <div className="text-xs text-emerald-200/40">
+            <div className={`text-xs ${mutedCls}`}>
               Nothing unclaimed this round — no active desk has a share yet, or it's already been
               paid.
             </div>
           ) : (
-            <div className="max-h-52 divide-y divide-white/5 overflow-y-auto rounded-2xl border border-white/5">
+            <div className={listContainerCls}>
               {claimRows.map((r) => (
                 <label
                   key={r.asset}
                   className={`flex cursor-pointer items-center gap-2 px-3 py-2 text-xs transition ${
-                    selected.has(r.asset) ? "bg-emerald-400/10" : "hover:bg-white/5"
+                    selected.has(r.asset)
+                      ? isModern
+                        ? "bg-emerald-400/10"
+                        : "bg-green-500/10"
+                      : isModern
+                        ? "hover:bg-white/5"
+                        : "hover:bg-green-500/5"
                   }`}
                 >
                   <input
@@ -231,12 +272,16 @@ export function HubPotPanel({ desks, address }: Props) {
                     checked={selected.has(r.asset)}
                     disabled={busy}
                     onChange={() => toggle(r.asset)}
-                    className="accent-emerald-400"
+                    className={isModern ? "accent-emerald-400" : "accent-green-500"}
                   />
                   <span className="min-w-0 flex-1">
                     <AddressLink address={r.asset} />
                   </span>
-                  <span className="text-right text-emerald-300">
+                  <span
+                    className={
+                      isModern ? "text-right text-emerald-300" : "text-right text-green-300"
+                    }
+                  >
                     {BUCKET_KEYS.filter((b) => r.share[b] > 0n)
                       .map((b) => `${fmtUnits(r.share[b], decimals[b])} ${BUCKET_LABELS[b]}`)
                       .join(" · ")}
@@ -277,7 +322,7 @@ export function HubPotPanel({ desks, address }: Props) {
         </div>
       )}
 
-      <div className="mt-4 flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-white/5 pt-3 font-mono text-[10px] text-emerald-200/30">
+      <div className={footerCls}>
         <span>
           pot config <AddressLink address={potAddress} />
         </span>
@@ -285,13 +330,13 @@ export function HubPotPanel({ desks, address }: Props) {
         <span>claim_hub_pot_reward / distribute_hub_pot_reward</span>
       </div>
 
-      <div className="mt-2 flex items-start gap-1.5 text-[10px] leading-relaxed text-emerald-200/30">
+      <div className={disclaimerCls}>
         <span aria-hidden>ⓘ</span>
         <span>
           OPENAI and ANTHROPIC are Pre-IPO tickers native to the OTC Desks ecosystem — not equity,
           shares, or any claim on the real companies OpenAI or Anthropic.
         </span>
       </div>
-    </GlassPanel>
+    </Panel>
   );
 }
