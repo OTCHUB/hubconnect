@@ -113,7 +113,10 @@ export function ActivatePanel({ address, state, desks, onChanged, selectedAsset 
       taker: new PublicKey(address),
       otcMint: new PublicKey(state.config.otcMint),
       hubMint: new PublicKey(state.config.hubMint),
-      destinationTokenAccount: ataPda(new PublicKey(address), new PublicKey(state.config.hubMint))[0],
+      destinationTokenAccount: ataPda(
+        new PublicKey(address),
+        new PublicKey(state.config.hubMint),
+      )[0],
       minHubOut: BigInt(quote.hubBurnUnits),
     })
       .then((route) => {
@@ -204,7 +207,9 @@ export function ActivatePanel({ address, state, desks, onChanged, selectedAsset 
   return (
     <Panel
       title="ACTIVATE_DESK :: SOL | $OTC"
-      right={collected === null ? "SOL ONLY" : `lifetime $OTC paid (2× swap-burn): ${collected} OTC`}
+      right={
+        collected === null ? "SOL ONLY" : `lifetime $OTC paid (2× swap-burn): ${collected} OTC`
+      }
     >
       {rows.length === 0 ? (
         <div className="text-xs text-green-700">

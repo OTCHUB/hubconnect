@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { parsePubkey } from "../hooks/useDeskTier";
 import { connectWallet, detectWallets, subscribeWallets, type WalletEntry } from "../lib/wallets";
 import { useUITheme } from "../ThemeProvider";
+import { BoltIcon, LockIcon } from "./ui/Icons";
 
 type Props = { onConnected: (address: string) => void };
 
@@ -182,7 +183,7 @@ export function WalletConnect({ onConnected }: Props) {
           disabled={busy}
           className={MODERN_PRIMARY_BTN}
         >
-          <span aria-hidden>⚡</span>
+          <BoltIcon className="h-3.5 w-3.5" />
           {busy ? "Connecting…" : "Connect Wallet"}
         </button>
         <span className="text-xs text-emerald-200/40">
@@ -249,7 +250,7 @@ export function WalletConnect({ onConnected }: Props) {
 
       {error && <div className="text-xs leading-relaxed text-amber-300">{error}</div>}
       <div className="flex items-center gap-1.5 text-[10px] text-emerald-200/30">
-        <span aria-hidden>🔐</span>
+        <LockIcon className="h-3 w-3" />
         Read-only. We see balances — never your keys.
       </div>
     </div>

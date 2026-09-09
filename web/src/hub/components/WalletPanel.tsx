@@ -7,6 +7,7 @@ import { useWallet } from "../WalletProvider";
 import { ActivatePanel } from "./ActivatePanel";
 import { ClaimPanel } from "./ClaimPanel";
 import { HubPotPanel } from "./HubPotPanel";
+import { BoltIcon, LockIcon } from "./ui/Icons";
 import { Panel } from "./ui/Panel";
 import { WalletConnect } from "./WalletConnect";
 import { WalletPortfolio } from "./WalletPortfolio";
@@ -66,9 +67,7 @@ export function WalletPanel({ state, walletAddress }: Props) {
       {theme === "modern" ? (
         <div className="rounded-2xl border border-emerald-400/15 bg-gradient-to-br from-emerald-500/10 via-white/[0.02] to-transparent p-4 font-sans backdrop-blur-xl sm:p-5">
           <div className="flex items-start gap-3">
-            <span className="text-2xl leading-none" aria-hidden>
-              ⚡
-            </span>
+            <BoltIcon className="h-5 w-5 shrink-0 text-emerald-300" />
             <div>
               <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-emerald-300/70">
                 What is HUB Protocol?
@@ -85,9 +84,7 @@ export function WalletPanel({ state, walletAddress }: Props) {
       ) : (
         <div className="border border-green-500/30 bg-black px-3 py-2.5 font-mono">
           <div className="flex items-start gap-2">
-            <span className="text-lg leading-none" aria-hidden>
-              ⚡
-            </span>
+            <BoltIcon className="h-4 w-4 shrink-0 text-green-500" />
             <div>
               <div className="text-[10px] uppercase tracking-widest text-green-600">
                 [ WHAT IS HUB PROTOCOL? ]
@@ -105,7 +102,7 @@ export function WalletPanel({ state, walletAddress }: Props) {
 
       <Panel
         title="Wallet Connect"
-        icon="🔐"
+        icon={<LockIcon className="h-4 w-4" />}
         collapsible
         defaultCollapsed={!!address}
         collapsedSummary={statusLine}

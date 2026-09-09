@@ -12,13 +12,7 @@ import { fmtNum, fmtSol, fmtUtc } from "../lib/format";
 import { distributableLamports } from "../lib/yield";
 import { RoundsList } from "./RoundsList";
 import { Panel, Row } from "./ui/Panel";
-
-function ProgressBar({ value }: { value: number }) {
-  const cells = 32;
-  const filled = Math.round(Math.min(1, value) * cells);
-  const bar = `[${"█".repeat(filled)}${"░".repeat(cells - filled)}] ${Math.round(value * 100)}%`;
-  return <div className="my-2 text-xs tracking-tighter text-green-500">{bar}</div>;
-}
+import { ProgressBar } from "./ui/ProgressBar";
 
 function CurrentRound({ e, config }: { e: EpochView; config: ConfigView }) {
   const effective = effectiveInflowLamports(e, config);
@@ -38,7 +32,7 @@ function CurrentRound({ e, config }: { e: EpochView; config: ConfigView }) {
       : `${fmtSol(need)} to go`;
   return (
     <Panel title={`ROUND #${fmtNum(e.index)} · OPEN`} right={status}>
-      <ProgressBar value={roundProgress(e, config)} />
+      <ProgressBar frac={roundProgress(e, config)} suffix="to threshold" />
       <Row k="threshold" v={fmtSol(config.minPotThresholdLamports, 2)} />
       <Row k="booked inflow" v={fmtSol(e.inflowLamports)} />
       {carry > 0 && <Row k="+ dust carry" v={`${fmtNum(carry)} lamports`} />}

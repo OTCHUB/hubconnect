@@ -10,6 +10,7 @@ import { useUITheme } from "../ThemeProvider";
 import { fmtNum, fmtUnits } from "../lib/format";
 import type { TxLog } from "../lib/swap";
 import { AddressLink } from "./ui/AddressLink";
+import { BasketIcon } from "./ui/Icons";
 import { Panel, Row, Stat } from "./ui/Panel";
 import { TxLogView } from "./ui/TxLogView";
 
@@ -87,9 +88,11 @@ export function HubPotPanel({ desks, address }: Props) {
     },
   });
 
+  const potIcon = <BasketIcon className="h-4 w-4" />;
+
   if (q.isPending) {
     return (
-      <Panel title="M.I.M ETF" icon="🧺">
+      <Panel title="M.I.M ETF" icon={potIcon}>
         <div className={isModern ? "text-sm text-emerald-200/40" : "text-xs text-green-700"}>
           loading…
         </div>
@@ -99,7 +102,7 @@ export function HubPotPanel({ desks, address }: Props) {
 
   if (!pot || !decimals) {
     return (
-      <Panel title="M.I.M ETF" icon="🧺">
+      <Panel title="M.I.M ETF" icon={potIcon}>
         <div className={isModern ? "text-sm text-emerald-200/40" : "text-xs text-green-700"}>
           Not live yet on this cluster — the pot hasn't been initialized.
         </div>
@@ -176,7 +179,7 @@ export function HubPotPanel({ desks, address }: Props) {
     : "mt-2 flex items-start gap-1.5 text-[10px] leading-relaxed text-green-800";
 
   return (
-    <Panel title="M.I.M ETF" icon="🧺">
+    <Panel title="M.I.M ETF" icon={potIcon}>
       <p
         className={
           isModern

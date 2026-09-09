@@ -32,6 +32,7 @@ import { AddressLink } from "./ui/AddressLink";
 import { CopyButton } from "./ui/CopyButton";
 import { Panel, Stat } from "./ui/Panel";
 import { PriceCandles } from "./ui/PriceCandles";
+import { ProgressBar } from "./ui/ProgressBar";
 import { TxLogView } from "./ui/TxLogView";
 
 type Props = { state: ProtocolState; address: string | null };
@@ -48,46 +49,6 @@ const SLIPPAGE = [
   { label: "1%", bps: 100 },
   { label: "3%", bps: 300 },
 ] as const;
-
-const ASCII_CELLS = 40;
-// red (0%) -> yellow (~50%) -> neon green (100%), interpolated per filled cell so the bar itself
-// reads as a heat gradient climbing toward graduation.
-function cellColor(frac: number): string {
-  if (frac < 0.5) {
-    const t = frac / 0.5;
-    return t < 0.5 ? "text-red-500" : "text-orange-400";
-  }
-  return frac < 0.8 ? "text-yellow-500" : "text-green-400";
-}
-
-/** ASCII block loader — reads left→right as a heat gradient (red → yellow → neon green) climbing
- *  toward the graduation target; the whole bar pulses once progress clears 80% to signal the
- *  high-stakes final stretch. */
-function ProgressBar({ bp }: { bp: number }) {
-  const pct = Math.min(100, bp / 100);
-  const filled = Math.round((pct / 100) * ASCII_CELLS);
-  const imminent = pct >= 80;
-  return (
-    <div className="mt-1 font-mono">
-      <div
-        className={`flex flex-wrap text-sm leading-none tracking-tighter ${imminent ? "animate-pulse" : ""}`}
-      >
-        <span className="text-green-700">[</span>
-        {Array.from({ length: ASCII_CELLS }, (_, i) => (
-          <span key={i} className={i < filled ? cellColor(i / ASCII_CELLS) : "text-green-900"}>
-            {i < filled ? "█" : "░"}
-          </span>
-        ))}
-        <span className="text-green-700">]</span>
-      </div>
-      <div
-        className={`mt-0.5 text-right text-[10px] ${imminent ? "font-bold text-green-400" : "text-green-600"}`}
-      >
-        {pct.toFixed(2)}% to graduation{imminent ? " — IMMINENT" : ""}
-      </div>
-    </div>
-  );
-}
 
 function TradeRow({ t, dec }: { t: CurveTrade; dec: number }) {
   const isBuy = t.side === "buy";
@@ -147,7 +108,7 @@ export function CurveHeroPanel({
           <CopyButton text={mint} label="copy CA" />
         </div>
       )}
-      <ProgressBar bp={curve.progressBp} />
+      <ProgressBar frac={curve.progressBp / 10_000} />
       <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
         <Stat label="raised" value={`${raisedSol.toFixed(3)} / ${targetSol.toFixed(0)} SOL`} />
         <Stat
