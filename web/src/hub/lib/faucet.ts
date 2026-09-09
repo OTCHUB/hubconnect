@@ -17,14 +17,6 @@ export type FaucetStatus = {
   hubPot: { crclx: string; openai: string; anthropic: string } | null;
 };
 
-export type DripResult = {
-  signature: string;
-  explorer: string;
-  wallet: string;
-  /** Whole-token amounts per mint label, e.g. `{ hub: "5000", otc: "2000", ... }`. */
-  amounts: Record<"hub" | "otc" | "crclx" | "openai" | "anthropic", string>;
-};
-
 export type MintDeskResult = {
   asset: string;
   deskNumber: number;
@@ -33,6 +25,16 @@ export type MintDeskResult = {
   activated: false;
   signature: string;
   explorer: string;
+};
+
+export type DripResult = {
+  signature: string;
+  explorer: string;
+  wallet: string;
+  /** Whole-token amounts per mint label, e.g. `{ hub: "100000", otc: "100000", ... }`. */
+  amounts: Record<"hub" | "otc" | "crclx" | "openai" | "anthropic", string>;
+  /** The one Mock OTC Desk NFT minted alongside the tokens in this same drip. */
+  desk: MintDeskResult;
 };
 
 /** Thrown for any non-2xx response; `status` lets callers branch on 429 (cooldown/rate-limit). */
@@ -61,7 +63,10 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
   }
   const body = (await res.json().catch(() => null)) as (T & FaucetError) | null;
   if (!res.ok || !body) {
-    throw new FaucetHttpError(body?.error ?? `faucet request failed (HTTP ${res.status})`, res.status);
+    throw new FaucetHttpError(
+      body?.error ?? `faucet request failed (HTTP ${res.status})`,
+      res.status,
+    );
   }
   return body;
 }
@@ -72,4 +77,7 @@ export const dripTokens = (wallet: string) =>
   call<DripResult>("/api/faucet/drip", { method: "POST", body: JSON.stringify({ wallet }) });
 
 export const mintMockDesk = (wallet: string) =>
-  call<MintDeskResult>("/api/faucet/mint-desk", { method: "POST", body: JSON.stringify({ wallet }) });
+  call<MintDeskResult>("/api/faucet/mint-desk", {
+    method: "POST",
+    body: JSON.stringify({ wallet }),
+  });

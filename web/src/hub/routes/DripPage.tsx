@@ -7,17 +7,12 @@ import { WalletConnect } from "../components/WalletConnect";
 import { Panel } from "../components/ui/Panel";
 import { AddressLink } from "../components/ui/AddressLink";
 import { shortKey } from "../lib/format";
-import {
-  FaucetHttpError,
-  dripTokens,
-  fetchFaucetStatus,
-  mintMockDesk,
-  type DripResult,
-  type MintDeskResult,
-} from "../lib/faucet";
+import { FaucetHttpError, dripTokens, fetchFaucetStatus, type DripResult } from "../lib/faucet";
 
 const btn =
   "border px-3 py-1.5 text-xs font-bold disabled:opacity-30 border-emerald-500/60 text-emerald-300 hover:bg-emerald-500/10";
+
+const SOLANA_FAUCET_URL = "https://faucet.solana.com";
 
 /** devnet.otchub.dev/drip — the only place the faucet Worker is deployed (see wrangler.jsonc's
  * `devnet` env + workers/faucet.ts). Gated on the connected cluster rather than the URL so a
@@ -27,11 +22,8 @@ export function DripPage() {
   const wallet = useWallet();
   const [connectOpen, setConnectOpen] = useState(false);
   const [dripBusy, setDripBusy] = useState(false);
-  const [deskBusy, setDeskBusy] = useState(false);
   const [dripErr, setDripErr] = useState<string | null>(null);
-  const [deskErr, setDeskErr] = useState<string | null>(null);
   const [dripResult, setDripResult] = useState<DripResult | null>(null);
-  const [deskResult, setDeskResult] = useState<MintDeskResult | null>(null);
 
   const status = useQuery({
     queryKey: ["faucet", "status"],
@@ -42,9 +34,7 @@ export function DripPage() {
 
   useEffect(() => {
     setDripResult(null);
-    setDeskResult(null);
     setDripErr(null);
-    setDeskErr(null);
   }, [wallet.address]);
 
   if (cluster !== "devnet") {
@@ -77,19 +67,6 @@ export function DripPage() {
       setDripErr(e instanceof FaucetHttpError ? e.message : "drip failed — try again");
     } finally {
       setDripBusy(false);
-    }
-  };
-
-  const runMintDesk = async () => {
-    if (!wallet.address) return setDeskErr("connect a wallet first");
-    setDeskBusy(true);
-    setDeskErr(null);
-    try {
-      setDeskResult(await mintMockDesk(wallet.address));
-    } catch (e) {
-      setDeskErr(e instanceof FaucetHttpError ? e.message : "mint failed — try again");
-    } finally {
-      setDeskBusy(false);
     }
   };
 
@@ -132,24 +109,63 @@ export function DripPage() {
         )}
       </Panel>
 
+      <Panel title="2 · GET DEVNET SOL FIRST">
+        <p className="text-xs text-green-400/90">
+          This faucet pays its own gas, never yours — claiming the starter kit below and later
+          activating a desk both need <span className="text-amber-300">native devnet SOL</span> in
+          your own wallet to cover transaction fees. Get some free from the official Solana faucet
+          before you continue.
+        </p>
+        <a
+          href={SOLANA_FAUCET_URL}
+          target="_blank"
+          rel="noreferrer"
+          className="mt-2 inline-block text-xs text-cyan-300 underline hover:text-cyan-100"
+        >
+          → {SOLANA_FAUCET_URL} ↗
+        </a>
+      </Panel>
+
       <Panel
-        title="2 · GET $HUB + $OTC + M.I.M ETF BASKET"
-        right={status.data ? `faucet ${status.data.solLamports / 1e9} SOL` : status.isError ? "offline" : "…"}
+        title="3 · GET STARTER KIT"
+        right={
+          status.data
+            ? `faucet ${status.data.solLamports / 1e9} SOL`
+            : status.isError
+              ? "offline"
+              : "…"
+        }
       >
         <p className="mb-2 text-xs text-green-400/90">
-          One drip sends 5,000 $HUB, 2,000 $OTC, and 500 each of CRCLx / OpenAI / Anthropic (the
-          M.I.M ETF basket) to your wallet — enough to activate a desk and test the HUB Pot claim.
-          One drip per wallet per 24h.
+          One request sends 100,000 $HUB, 100,000 $OTC, 10 each of CRCLx / OpenAI / Anthropic (the
+          M.I.M ETF basket), and mints 1 unactivated Mock OTC Desk NFT — everything needed to
+          activate a desk and test the HUB Pot claim. One request per wallet per 8h.
         </p>
-        <button type="button" onClick={runDrip} disabled={dripBusy || !wallet.address} className={btn}>
-          {dripBusy ? "[DRIPPING…]" : "[GET $HUB + $OTC + BASKET]"}
+        <div className="mb-2 rounded-none border border-amber-500/30 bg-amber-500/5 p-2 text-[11px] text-amber-300">
+          The desk arrives not pre-activated on purpose: <code>activate_tier</code> requires the
+          desk's current owner to sign, and <code>claim_yield</code> voids any tier whose owner
+          changed since activation. Head to the{" "}
+          <Link to="/hub" className="underline">
+            dashboard
+          </Link>{" "}
+          after claiming and activate it yourself with the $HUB this faucet just gave you — the same
+          flow a real desk owner follows on mainnet.
+        </div>
+        <button
+          type="button"
+          onClick={runDrip}
+          disabled={dripBusy || !wallet.address}
+          className={btn}
+        >
+          {dripBusy ? "[CLAIMING…]" : "[GET STARTER KIT]"}
         </button>
         {dripErr && <div className="mt-2 text-[11px] text-amber-400">ERR: {dripErr}</div>}
         {dripResult && (
           <div className="mt-2 space-y-1 text-[11px] text-green-400/90">
             <div>
-              {dripResult.amounts.hub} $HUB · {dripResult.amounts.otc} $OTC · {dripResult.amounts.crclx}{" "}
-              CRCLx · {dripResult.amounts.openai} OPENAI · {dripResult.amounts.anthropic} ANTHROPIC
+              {dripResult.amounts.hub} $HUB · {dripResult.amounts.otc} $OTC ·{" "}
+              {dripResult.amounts.crclx} CRCLx · {dripResult.amounts.openai} OPENAI ·{" "}
+              {dripResult.amounts.anthropic} ANTHROPIC
             </div>
             <a
               href={dripResult.explorer}
@@ -159,45 +175,17 @@ export function DripPage() {
             >
               {shortKey(dripResult.signature, 8)} ↗
             </a>
-          </div>
-        )}
-      </Panel>
-
-      <Panel title="3 · MINT A MOCK OTC DESK NFT">
-        <p className="mb-2 text-xs text-green-400/90">
-          Mints an unactivated Mock OTC Desk (Metaplex Core, real Config.desk_collection PDA
-          derivation) directly to your wallet — you'll be the owner, exactly like a real mainnet
-          desk. One mint per wallet per 6h.
-        </p>
-        <div className="mb-2 rounded-none border border-amber-500/30 bg-amber-500/5 p-2 text-[11px] text-amber-300">
-          Not pre-activated on purpose: <code>activate_tier</code> requires the desk's current
-          owner to sign, and <code>claim_yield</code> voids any tier whose owner changed since
-          activation. Head to the <Link to="/hub" className="underline">dashboard</Link> after
-          minting and activate it yourself with the $HUB this faucet just gave you — the same flow
-          a real desk owner follows on mainnet.
-        </div>
-        <button
-          type="button"
-          onClick={runMintDesk}
-          disabled={deskBusy || !wallet.address}
-          className={btn}
-        >
-          {deskBusy ? "[MINTING…]" : "[MINT MOCK OTC DESK]"}
-        </button>
-        {deskErr && <div className="mt-2 text-[11px] text-amber-400">ERR: {deskErr}</div>}
-        {deskResult && (
-          <div className="mt-2 space-y-1 text-[11px] text-green-400/90">
             <div>
-              Desk #{deskResult.deskNumber} — <AddressLink address={deskResult.asset} />
+              Desk #{dripResult.desk.deskNumber} — <AddressLink address={dripResult.desk.asset} />{" "}
+              <a
+                href={dripResult.desk.explorer}
+                target="_blank"
+                rel="noreferrer"
+                className="text-cyan-300 underline hover:text-cyan-100"
+              >
+                {shortKey(dripResult.desk.signature, 8)} ↗
+              </a>
             </div>
-            <a
-              href={deskResult.explorer}
-              target="_blank"
-              rel="noreferrer"
-              className="text-cyan-300 underline hover:text-cyan-100"
-            >
-              {shortKey(deskResult.signature, 8)} ↗
-            </a>
             <div>
               <Link to="/hub" className="text-emerald-300 underline hover:text-emerald-100">
                 → activate it on the dashboard

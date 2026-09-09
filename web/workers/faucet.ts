@@ -10,11 +10,18 @@
 // reads use sdk's `createReader` (no wallet), matching every other read path in this repo.
 //
 // Routes:
-//   POST /api/faucet/drip       { wallet } -> mints $HUB/$OTC/CRCLx/OpenAI/Anthropic to `wallet`
-//   POST /api/faucet/mint-desk  { wallet } -> mints an unactivated Mock OTC Desk Core asset,
-//                                owned by `wallet`, into Config.desk_collection (real PDA
-//                                derivation, same Collection/require_desk gate as mainnet).
-//                                Deliberately NOT pre-activated: `activate_tier` hard-requires
+//   POST /api/faucet/drip       { wallet } -> one combined starter-kit request, gated by a single
+//                                8h-per-wallet cooldown: mints 100,000 $HUB, 100,000 $OTC, and 10
+//                                each of CRCLx/OpenAI/Anthropic (the M.I.M ETF basket) to `wallet`,
+//                                then mints it an unactivated Mock OTC Desk Core asset (see
+//                                mintDeskAsset below). Requires the wallet to already hold native
+//                                devnet SOL to pay for its own follow-up txs (activate_tier's step
+//                                fee, claim_yield, etc.) — the faucet only ever pays its own gas,
+//                                never the recipient's; get devnet SOL from faucet.solana.com.
+//   POST /api/faucet/mint-desk  { wallet } -> standalone extra Mock OTC Desk mint (own 8h cooldown,
+//                                independent of /drip) for a wallet that already has tokens and
+//                                just wants another desk to activate. Same NOT-pre-activated
+//                                contract as the desk /drip mints: `activate_tier` hard-requires
 //                                the desk's *current owner* to be the signer (`NotDeskOwner`),
 //                                and `claim_yield` voids any tier whose owner changed since
 //                                activation (anti-wash-trade) — so the faucet can never activate
@@ -23,7 +30,13 @@
 //                                paying the flat SOL step fee themselves — the exact mainnet flow.
 //   GET  /api/faucet/status     -> faucet pubkey, balances, live mint addresses
 //   anything else               -> env.ASSETS.fetch(request) (the SPA, including /drip)
-import { Connection, Keypair, PublicKey, Transaction, TransactionInstruction } from "@solana/web3.js";
+import {
+  Connection,
+  Keypair,
+  PublicKey,
+  Transaction,
+  TransactionInstruction,
+} from "@solana/web3.js";
 import {
   HUB_PROGRAM_ID,
   MPL_CORE_PROGRAM_ID,
@@ -35,7 +48,12 @@ import {
   fetchHubPot,
   parseMint,
 } from "../../sdk/src";
-import { DESK_COOLDOWN_SECONDS, DRIP_COOLDOWN_SECONDS, DRIP_UNITS, IP_LIMIT_PER_HOUR } from "./faucet-config";
+import {
+  DESK_COOLDOWN_SECONDS,
+  DRIP_COOLDOWN_SECONDS,
+  DRIP_UNITS,
+  IP_LIMIT_PER_HOUR,
+} from "./faucet-config";
 import { coreCreateV1Ix, mintToIx } from "./faucet-ix";
 
 interface FaucetKV {
@@ -99,7 +117,8 @@ async function awaitSignature(
   for (;;) {
     const { value } = await connection.getSignatureStatuses([signature]);
     const status = value[0];
-    if (status?.err) throw new Error(`transaction ${signature} failed: ${JSON.stringify(status.err)}`);
+    if (status?.err)
+      throw new Error(`transaction ${signature} failed: ${JSON.stringify(status.err)}`);
     if (status?.confirmationStatus === "confirmed" || status?.confirmationStatus === "finalized") {
       return;
     }
@@ -111,7 +130,10 @@ async function awaitSignature(
 }
 
 function buildCtx(env: Env) {
-  const connection = new Connection(env.HUB_RPC_URL || "https://api.devnet.solana.com", "confirmed");
+  const connection = new Connection(
+    env.HUB_RPC_URL || "https://api.devnet.solana.com",
+    "confirmed",
+  );
   const payer = loadFaucetKeypair(env.FAUCET_KEY);
   const program = createReader(connection, HUB_PROGRAM_ID_PK);
   return { connection, payer, program };
@@ -163,94 +185,25 @@ async function handleStatus(env: Env): Promise<Response> {
     solLamports,
     hubMint: cfg.hubMint.toBase58(),
     otcMint: cfg.otcMint.toBase58(),
-    deskCollection: cfg.deskCollection.equals(PublicKey.default) ? null : cfg.deskCollection.toBase58(),
+    deskCollection: cfg.deskCollection.equals(PublicKey.default)
+      ? null
+      : cfg.deskCollection.toBase58(),
     hubPot: hubPot
       ? { crclx: hubPot.crclxMint, openai: hubPot.openaiMint, anthropic: hubPot.anthropicMint }
       : null,
   });
 }
 
-async function handleDrip(request: Request, env: Env): Promise<Response> {
-  const body = await safeJson(request);
-  const wallet = parsePubkey(body?.wallet);
-  if (!wallet) return json({ error: "wallet must be a base58 Solana public key" }, 400);
+type FaucetCtx = ReturnType<typeof buildCtx>;
+type FaucetConfig = { deskCollection: PublicKey; hubMint: PublicKey };
 
-  const rlKey = `drip:${wallet.toBase58()}`;
-  if (await env.FAUCET_KV.get(rlKey)) {
-    return json({ error: `already dripped in the last ${DRIP_COOLDOWN_SECONDS / 3600}h` }, 429);
-  }
-
-  const ctx = buildCtx(env);
-  const [configKey] = configPda(HUB_PROGRAM_ID_PK);
-  const [cfg, hubPot] = await Promise.all([
-    ctx.program.account.config.fetch(configKey),
-    fetchHubPot(ctx.program),
-  ]);
-  if (!hubPot) return json({ error: "HubPotConfig not initialized on this cluster yet" }, 503);
-
-  const mints: [keyof typeof DRIP_UNITS, PublicKey][] = [
-    ["hub", cfg.hubMint],
-    ["otc", cfg.otcMint],
-    ["crclx", new PublicKey(hubPot.crclxMint)],
-    ["openai", new PublicKey(hubPot.openaiMint)],
-    ["anthropic", new PublicKey(hubPot.anthropicMint)],
-  ];
-
-  const infos = await ctx.connection.getMultipleAccountsInfo(mints.map(([, m]) => m));
-  for (let i = 0; i < mints.length; i++) {
-    const [label, mint] = mints[i];
-    const info = infos[i];
-    if (!info) return json({ error: `${label} mint not found on-chain` }, 503);
-    const auth = parseMint(mint, info.data).mintAuthority;
-    if (auth !== ctx.payer.publicKey.toBase58()) {
-      return json(
-        { error: `faucet is not mint authority for ${label} — run scripts/devnet-faucet-authority.ts` },
-        503,
-      );
-    }
-  }
-
-  const ixs: TransactionInstruction[] = [];
-  for (const [label, mint] of mints) {
-    ixs.push(createAtaIdempotentIx(ctx.payer.publicKey, wallet, mint));
-    ixs.push(mintToIx(mint, ataPda(wallet, mint)[0], ctx.payer.publicKey, DRIP_UNITS[label]));
-  }
-  const bh = await ctx.connection.getLatestBlockhash("confirmed");
-  const tx = new Transaction({ feePayer: ctx.payer.publicKey, recentBlockhash: bh.blockhash }).add(
-    ...ixs,
-  );
-  tx.sign(ctx.payer);
-  const sig = await ctx.connection.sendRawTransaction(tx.serialize());
-  await awaitSignature(ctx.connection, sig, bh.lastValidBlockHeight);
-
-  await env.FAUCET_KV.put(rlKey, String(Date.now()), { expirationTtl: DRIP_COOLDOWN_SECONDS });
-  return json({
-    signature: sig,
-    explorer: explorerTx(sig),
-    wallet: wallet.toBase58(),
-    amounts: Object.fromEntries(
-      mints.map(([label]) => [label, (DRIP_UNITS[label] / 1_000_000n).toString()]),
-    ),
-  });
-}
-
-async function handleMintDesk(request: Request, env: Env): Promise<Response> {
-  const body = await safeJson(request);
-  const wallet = parsePubkey(body?.wallet);
-  if (!wallet) return json({ error: "wallet must be a base58 Solana public key" }, 400);
-
-  const rlKey = `desk:${wallet.toBase58()}`;
-  if (await env.FAUCET_KV.get(rlKey)) {
-    return json({ error: `already minted a mock desk in the last ${DESK_COOLDOWN_SECONDS / 3600}h` }, 429);
-  }
-
-  const ctx = buildCtx(env);
-  const [configKey] = configPda(HUB_PROGRAM_ID_PK);
-  const cfg = await ctx.program.account.config.fetch(configKey);
-  if (cfg.deskCollection.equals(PublicKey.default)) {
-    return json({ error: "Config.desk_collection not set on this cluster yet" }, 503);
-  }
-
+/**
+ * Mints one unactivated Mock OTC Desk Core asset, owned by `wallet`, into
+ * `cfg.deskCollection` — shared by the combined `/drip` flow and the standalone
+ * `/mint-desk` flow so both mint via the exact same real PDA derivation.
+ * Not activated here: `wallet` must call `activate_tier` itself from the dashboard.
+ */
+async function mintDeskAsset(ctx: FaucetCtx, cfg: FaucetConfig, wallet: PublicKey) {
   // Real PDA-based derivation via fetchCollectionCounts (same Collection numMinted counter the
   // on-chain program itself increments on CreateV1) — the desk number matches what mainnet would
   // assign, not a client-guessed value.
@@ -279,16 +232,121 @@ async function handleMintDesk(request: Request, env: Env): Promise<Response> {
   const sig = await ctx.connection.sendRawTransaction(tx.serialize());
   await awaitSignature(ctx.connection, sig, bh.lastValidBlockHeight);
 
-  await env.FAUCET_KV.put(rlKey, String(Date.now()), { expirationTtl: DESK_COOLDOWN_SECONDS });
-  // Not activated here — `wallet` owns the asset and must call activate_tier itself from the
-  // dashboard (Accrued stock/yield claiming logic lives in web/src/hub/lib/activate.ts +
-  // claim.ts, exercised against this same desk/collection, exactly like a mainnet desk).
-  return json({
+  return {
     asset: asset.publicKey.toBase58(),
     deskNumber: n,
     collection: cfg.deskCollection.toBase58(),
-    activated: false,
+    activated: false as const,
     signature: sig,
     explorer: explorerTx(sig),
+  };
+}
+
+/**
+ * §Faucet starter kit — one combined request, one 8h-per-wallet cooldown: 100,000 $HUB,
+ * 100,000 $OTC, 10 each of CRCLx/OpenAI/Anthropic (the M.I.M ETF basket "stock" mints), and 1
+ * unactivated Mock OTC Desk NFT, all sent/minted to `wallet`. The wallet still needs its own
+ * native devnet SOL to pay for its follow-up txs (activate_tier's step fee, claim_yield, etc.)
+ * — the faucet only ever covers its own gas, never the recipient's.
+ */
+async function handleDrip(request: Request, env: Env): Promise<Response> {
+  const body = await safeJson(request);
+  const wallet = parsePubkey(body?.wallet);
+  if (!wallet) return json({ error: "wallet must be a base58 Solana public key" }, 400);
+
+  const rlKey = `drip:${wallet.toBase58()}`;
+  if (await env.FAUCET_KV.get(rlKey)) {
+    return json({ error: `already dripped in the last ${DRIP_COOLDOWN_SECONDS / 3600}h` }, 429);
+  }
+
+  const ctx = buildCtx(env);
+  const [configKey] = configPda(HUB_PROGRAM_ID_PK);
+  const [cfg, hubPot] = await Promise.all([
+    ctx.program.account.config.fetch(configKey),
+    fetchHubPot(ctx.program),
+  ]);
+  if (!hubPot) return json({ error: "HubPotConfig not initialized on this cluster yet" }, 503);
+  if (cfg.deskCollection.equals(PublicKey.default)) {
+    return json({ error: "Config.desk_collection not set on this cluster yet" }, 503);
+  }
+
+  const mints: [keyof typeof DRIP_UNITS, PublicKey][] = [
+    ["hub", cfg.hubMint],
+    ["otc", cfg.otcMint],
+    ["crclx", new PublicKey(hubPot.crclxMint)],
+    ["openai", new PublicKey(hubPot.openaiMint)],
+    ["anthropic", new PublicKey(hubPot.anthropicMint)],
+  ];
+
+  const infos = await ctx.connection.getMultipleAccountsInfo(mints.map(([, m]) => m));
+  for (let i = 0; i < mints.length; i++) {
+    const [label, mint] = mints[i];
+    const info = infos[i];
+    if (!info) return json({ error: `${label} mint not found on-chain` }, 503);
+    const auth = parseMint(mint, info.data).mintAuthority;
+    if (auth !== ctx.payer.publicKey.toBase58()) {
+      return json(
+        {
+          error: `faucet is not mint authority for ${label} — run scripts/devnet-faucet-authority.ts`,
+        },
+        503,
+      );
+    }
+  }
+
+  const ixs: TransactionInstruction[] = [];
+  for (const [label, mint] of mints) {
+    ixs.push(createAtaIdempotentIx(ctx.payer.publicKey, wallet, mint));
+    ixs.push(mintToIx(mint, ataPda(wallet, mint)[0], ctx.payer.publicKey, DRIP_UNITS[label]));
+  }
+  const bh = await ctx.connection.getLatestBlockhash("confirmed");
+  const tx = new Transaction({ feePayer: ctx.payer.publicKey, recentBlockhash: bh.blockhash }).add(
+    ...ixs,
+  );
+  tx.sign(ctx.payer);
+  const sig = await ctx.connection.sendRawTransaction(tx.serialize());
+  await awaitSignature(ctx.connection, sig, bh.lastValidBlockHeight);
+
+  // Separate tx (fresh blockhash, own signer set) rather than packing into the mint tx above —
+  // keeps each transaction well under the size/instruction limits and lets either step's error
+  // surface on its own instead of guessing which of 12+ instructions in one tx failed.
+  const desk = await mintDeskAsset(ctx, cfg, wallet);
+
+  await env.FAUCET_KV.put(rlKey, String(Date.now()), { expirationTtl: DRIP_COOLDOWN_SECONDS });
+  return json({
+    signature: sig,
+    explorer: explorerTx(sig),
+    wallet: wallet.toBase58(),
+    amounts: Object.fromEntries(
+      mints.map(([label]) => [label, (DRIP_UNITS[label] / 1_000_000n).toString()]),
+    ),
+    desk,
   });
+}
+
+/** Standalone extra Mock OTC Desk mint — own 8h cooldown, independent of `/drip`, for a wallet
+ *  that already holds tokens and just wants another desk to activate. */
+async function handleMintDesk(request: Request, env: Env): Promise<Response> {
+  const body = await safeJson(request);
+  const wallet = parsePubkey(body?.wallet);
+  if (!wallet) return json({ error: "wallet must be a base58 Solana public key" }, 400);
+
+  const rlKey = `desk:${wallet.toBase58()}`;
+  if (await env.FAUCET_KV.get(rlKey)) {
+    return json(
+      { error: `already minted a mock desk in the last ${DESK_COOLDOWN_SECONDS / 3600}h` },
+      429,
+    );
+  }
+
+  const ctx = buildCtx(env);
+  const [configKey] = configPda(HUB_PROGRAM_ID_PK);
+  const cfg = await ctx.program.account.config.fetch(configKey);
+  if (cfg.deskCollection.equals(PublicKey.default)) {
+    return json({ error: "Config.desk_collection not set on this cluster yet" }, 503);
+  }
+
+  const desk = await mintDeskAsset(ctx, cfg, wallet);
+  await env.FAUCET_KV.put(rlKey, String(Date.now()), { expirationTtl: DESK_COOLDOWN_SECONDS });
+  return json(desk);
 }
