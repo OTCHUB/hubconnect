@@ -2,6 +2,7 @@
 // that scales with Σw — the UI must label it as such.
 import {
   BPS,
+  LAMPORTS_PER_SOL,
   TIER_WEIGHTS_BP,
   cumulativeFeeLamports,
   effectiveInflowLamports,
@@ -115,6 +116,17 @@ export const baseInputs = (e: EpochView, config: ConfigView): ScenarioInputs => 
 
 /** Warn owners before listing/transferring when unclaimed yield is material. */
 export const UNCLAIMED_WARN_LAMPORTS = 20_000_000;
+
+/**
+ * §A5/§A8 raw desk-pot take D — "Latest closed day take: 0.1443 SOL/desk/day" (worked example,
+ * recompute never promise). This is an **un-activated** desk's baseline "Native Yield" — the
+ * `EarningPreview` default whenever the host doesn't supply a live `rawDeskDailyLamports` figure
+ * (otchub's own desk-pot telemetry). Do not confuse with the ≈0.33 SOL/day figure elsewhere in
+ * §A8 — that's the *activated* T1 total (native + protocol boost combined) under a specific
+ * Σw=520 base-case scenario, not the raw/un-activated baseline.
+ */
+export const DEFAULT_RAW_DESK_SOL = 0.1443;
+export const DEFAULT_RAW_DESK_DAILY_LAMPORTS = Math.round(DEFAULT_RAW_DESK_SOL * LAMPORTS_PER_SOL);
 
 /**
  * Yield boost vs the base (T1 TRADER, 1.00x) tier weight, as a whole percent — e.g. T3 DEALER
