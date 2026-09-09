@@ -11,7 +11,7 @@ import { TOKEN_PROGRAM_ID, devnetCtx, explorer, sendIxs, type Ctx } from "./lib/
 
 export const METADATA_PROGRAM_ID = new PublicKey("metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s");
 const MINT_SIZE = 82;
-const DEFAULT_URI = "https://gateway.irys.xyz/B1fk41U4tmaBcLN1puY9iVqnka5Gfevq7cz9EYbRJqoV";
+const DEFAULT_URI = "https://gateway.irys.xyz/G11gFw42HH62B6PacZFHkXD4CcuP4gyFbPKGRxDiEJJZ";
 // Metaplex string limits (bytes, before the u32 length prefix).
 const LIMITS = { name: 32, symbol: 10, uri: 200 };
 

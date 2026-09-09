@@ -14,6 +14,7 @@
     "lint:fix": "prettier --write tests sdk keeper scripts",
     "devnet:mint": "ts-node -T scripts/devnet-hub-mint.ts",
     "devnet:metadata": "ts-node -T scripts/devnet-hub-metadata.ts",
+    "devnet:upload-metadata": "ts-node -T scripts/devnet-hub-upload.ts",
     "orquestra:idl": "ts-node -T scripts/orquestra-idl.ts",
     "orquestra:send": "ts-node -T scripts/orquestra-send.ts",
     "devnet:desks": "ts-node -T scripts/devnet-mock-desks.ts",
@@ -32,6 +33,8 @@
     "@solana/web3.js": "^1.98.4"
   },
   "devDependencies": {
+    "@irys/upload": "^0.0.15",
+    "@irys/upload-solana": "^0.1.8",
     "@metaplex-foundation/mpl-core": "^1.10.0",
     "@metaplex-foundation/umi": "^1.5.1",
     "@metaplex-foundation/umi-bundle-defaults": "^1.5.1",
