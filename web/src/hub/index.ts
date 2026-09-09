@@ -15,6 +15,7 @@ export { useRpcCluster } from "./hooks/useRpcCluster";
 export type { RpcClusterStatus } from "./hooks/useRpcCluster";
 export { WalletPanel } from "./components/WalletPanel";
 export { SwapPanel } from "./components/SwapPanel";
+export { HubBondingDashboard } from "./components/HubBondingDashboard";
 export { ClaimPanel } from "./components/ClaimPanel";
 export { ActivatePanel } from "./components/ActivatePanel";
 export { useOtcPay } from "./hooks/useOtcPay";

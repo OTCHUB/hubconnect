@@ -6,7 +6,6 @@ import { useWallet } from "../WalletProvider";
 import { ActivatePanel } from "./ActivatePanel";
 import { ClaimPanel } from "./ClaimPanel";
 import { HubPotPanel } from "./HubPotPanel";
-import { SwapPanel } from "./SwapPanel";
 import { Panel } from "./ui/Panel";
 import { WalletConnect } from "./WalletConnect";
 import { WalletPortfolio } from "./WalletPortfolio";
@@ -54,7 +53,6 @@ export function WalletPanel({ state, walletAddress }: Props) {
           </p>
           <WalletConnect onConnected={connect} />
         </Panel>
-        <SwapPanel state={state} address={null} />
         <HubPotPanel />
       </div>
     );
@@ -91,15 +89,12 @@ export function WalletPanel({ state, walletAddress }: Props) {
           onActivate={jumpToActivate}
         />
       </Panel>
-      <div className="grid gap-2 lg:grid-cols-2">
-        <SwapPanel state={state} address={address} />
-        <ClaimPanel
-          address={address}
-          state={state}
-          desks={portfolio.data?.desks ?? []}
-          onClaimed={() => void portfolio.refetch()}
-        />
-      </div>
+      <ClaimPanel
+        address={address}
+        state={state}
+        desks={portfolio.data?.desks ?? []}
+        onClaimed={() => void portfolio.refetch()}
+      />
       <div ref={activateRef}>
         <ActivatePanel
           address={address}

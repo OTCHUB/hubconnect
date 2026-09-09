@@ -2,6 +2,7 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { HubProvider, HubRoutes, useHub } from "./hub";
 import { WalletProvider } from "./hub/WalletProvider";
 import { DripPage } from "./hub/routes/DripPage";
+import { GraduationFxTestPage } from "./hub/routes/GraduationFxTestPage";
 import { Header } from "./Header";
 import { Footer } from "./Footer";
 import { TerminalBottomBar, TerminalTopBar } from "./TerminalBars";
@@ -21,6 +22,7 @@ function AppShell() {
           <Routes>
             <Route path="/hub/*" element={<HubRoutes />} />
             <Route path="/drip" element={<DripPage />} />
+            <Route path="/test/graduation-fx" element={<GraduationFxTestPage />} />
             <Route path="*" element={<Navigate to="/hub" replace />} />
           </Routes>
         </main>

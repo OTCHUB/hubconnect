@@ -1208,6 +1208,116 @@ export type Hub = {
       "args": []
     },
     {
+      "name": "devnetReset",
+      "docs": [
+        "Devnet-only: closes `config`/`burn`/`treasury_state`/`epoch(epoch_index)` so",
+        "`initialize_config` can re-`init` the same PDAs after a layout change. Compiled only",
+        "under the `mock-jupiter` feature — absent from every mainnet build."
+      ],
+      "discriminator": [
+        52,
+        226,
+        240,
+        25,
+        105,
+        131,
+        41,
+        28
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "burn",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  114,
+                  110
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasuryState",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "epoch",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  112,
+                  111,
+                  99,
+                  104
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "epochIndex"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "epochIndex",
+          "type": "u64"
+        }
+      ]
+    },
+    {
       "name": "distributeAirdrop",
       "docs": [
         "§A7.1 #20b — authority pushes a snapshot allocation straight to the desk's current owner",

@@ -63,12 +63,23 @@
       "observability": { "enabled": true },
       // Rate-limit bucket for the faucet (per-wallet cooldowns + per-IP abuse guard). Created via
       // `wrangler kv namespace create FAUCET_KV --env devnet`; id filled in after creation.
-      "kv_namespaces": [{ "binding": "FAUCET_KV", "id": "877e6b420c51440d83e1a9fabfd6c0d4" }]
+      //
+      // CURVE_KV is the bonding-curve simulation's own store (virtual reserves, trade log,
+      // deposit-signature replay guard — see workers/bonding-curve.ts), isolated from the
+      // faucet's rate-limit bucket. Created via `wrangler kv namespace create CURVE_KV --env devnet`.
+      "kv_namespaces": [
+        { "binding": "FAUCET_KV", "id": "877e6b420c51440d83e1a9fabfd6c0d4" },
+        { "binding": "CURVE_KV", "id": "261211c9d7844bc0ac73a35223f8b808" }
+      ]
       // HUB_RPC_URL is a `wrangler secret` (not a `vars` entry — Cloudflare rejects a secret and
       // a var sharing one binding name), set to a Helius devnet URL: the plain public
       // api.devnet.solana.com endpoint 403s Cloudflare Workers' egress IPs. faucet.ts falls back
       // to api.devnet.solana.com only when the secret is unset. Set/rotate with:
       //   wrangler secret put HUB_RPC_URL --env devnet
+      //
+      // CURVE_KEY is the curve treasury's own devnet keypair (JSON secret-key array), isolated
+      // from FAUCET_KEY — holds the real ≥95% $HUB public float + collected SOL. Set with:
+      //   wrangler secret put CURVE_KEY --env devnet
     }
   }
 }

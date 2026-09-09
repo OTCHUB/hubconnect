@@ -15,10 +15,10 @@ import { Keypair, PublicKey, SystemProgram, Transaction, TransactionInstruction 
 import { treasuryPda, vaultPda, WSOL_MINT } from "../sdk/src";
 import { TOKEN_PROGRAM_ID, devnetCtx, explorer, type Ctx } from "./lib/devnet";
 
-const TOKEN_ACCOUNT_SIZE = 165;
+export const TOKEN_ACCOUNT_SIZE = 165;
 
 /** spl-token `InitializeAccount3` (ix 18): account · mint · owner (no Rent sysvar needed). */
-function initializeAccount3(account: PublicKey, mint: PublicKey, owner: PublicKey) {
+export function initializeAccount3(account: PublicKey, mint: PublicKey, owner: PublicKey) {
   return new TransactionInstruction({
     programId: TOKEN_PROGRAM_ID,
     keys: [
@@ -29,7 +29,9 @@ function initializeAccount3(account: PublicKey, mint: PublicKey, owner: PublicKe
   });
 }
 
-async function createTokenAccount(ctx: Ctx, mint: PublicKey, owner: PublicKey) {
+/** Fresh plain (non-ATA) spl-token account — needed whenever an owner needs two-or-more
+ * accounts of the same mint (an ATA can only ever represent one). */
+export async function createTokenAccount(ctx: Ctx, mint: PublicKey, owner: PublicKey) {
   const account = Keypair.generate();
   const rent = await ctx.connection.getMinimumBalanceForRentExemption(TOKEN_ACCOUNT_SIZE);
   const tx = new Transaction().add(

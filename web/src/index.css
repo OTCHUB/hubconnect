@@ -178,3 +178,120 @@ html.light {
 .dash-flow {
   animation: dash-flow 1.1s linear infinite;
 }
+
+/* System-terminal focus ring — subtle green glow instead of the browser's default blue outline,
+   used sparingly (e.g. keyboard-focused inputs/buttons) rather than as a default panel style. */
+.term-focus-glow:focus-visible {
+  outline: none;
+  box-shadow: 0 0 10px rgba(34, 197, 94, 0.2);
+}
+
+/* ------------------------------------------------------------------
+   Graduation FX (GraduationSequence.tsx) — the one-shot cyberpunk
+   "curve -> live AMM pool" transition fired by HubBondingDashboard the
+   instant it observes the curve flip to graduated, and manually
+   replayable at /test/graduation-fx (GraduationFxTestPage.tsx).
+   Keyframes only touch transform/opacity/filter (compositor-friendly);
+   --grad-blur is set inline per-instance so blur intensity is tunable
+   from the test harness without editing this file.
+   ------------------------------------------------------------------ */
+@keyframes grad-curve-trail {
+  from {
+    stroke-dashoffset: 0;
+  }
+  to {
+    stroke-dashoffset: -480;
+  }
+}
+.grad-fx-trail {
+  stroke-dasharray: 26 220;
+  filter: drop-shadow(0 0 6px currentColor);
+  animation: grad-curve-trail 1.4s linear infinite;
+}
+
+@keyframes grad-scanline {
+  0% {
+    transform: translateX(-110%);
+    opacity: 0;
+  }
+  8% {
+    opacity: 1;
+  }
+  92% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(110%);
+    opacity: 0;
+  }
+}
+.grad-fx-scanline {
+  animation: grad-scanline 1.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+@keyframes grad-blur-in {
+  from {
+    filter: blur(0px);
+  }
+  to {
+    filter: blur(var(--grad-blur, 8px));
+  }
+}
+.grad-fx-blur {
+  animation: grad-blur-in 900ms ease-out forwards;
+}
+
+@keyframes grad-glitch {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  20% {
+    transform: translate(-1px, 1px);
+  }
+  40% {
+    transform: translate(1px, -1px);
+  }
+  60% {
+    transform: translate(-1px, -1px);
+  }
+  80% {
+    transform: translate(1px, 1px);
+  }
+}
+.grad-fx-glitch {
+  animation: grad-glitch 160ms steps(2, end) infinite;
+}
+
+@keyframes grad-chroma {
+  0%,
+  100% {
+    text-shadow:
+      -2px 0 #22d3ee,
+      2px 0 #f472b6,
+      0 0 18px rgba(74, 222, 128, 0.85);
+  }
+  50% {
+    text-shadow:
+      -3px 0 #22d3ee,
+      3px 0 #f472b6,
+      0 0 26px rgba(74, 222, 128, 0.95);
+  }
+}
+.grad-fx-headline {
+  animation: grad-chroma 1.1s ease-in-out infinite;
+}
+
+@keyframes grad-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.grad-fx-in {
+  animation: grad-fade-up 500ms ease-out forwards;
+}

@@ -7,21 +7,22 @@ import { CopyButton } from "./hub/components/ui/CopyButton";
 import { shortKey } from "./hub/lib/format";
 import { ThemeToggle } from "./components/ThemeToggle";
 
-// otchub header buttons: bordered, uppercase, green-500/50 outline, tinted when active.
+// otchub header buttons: bordered, uppercase, green-500/50 outline, tinted when active. Sharp
+// corners (rounded-none) throughout — the header is a system-terminal chrome bar, not a UI card.
 const linkCls = ({ isActive }: { isActive: boolean }) => {
   const tone = isActive
     ? "border-green-400 bg-green-500/15 text-green-200"
     : "border-green-500/50 text-green-400 hover:bg-green-500/10";
-  return `inline-flex items-center whitespace-nowrap border px-2 py-1 text-[10px] tracking-widest sm:px-2.5 ${tone}`;
+  return `inline-flex items-center whitespace-nowrap rounded-none border px-2 py-1 text-[10px] tracking-widest sm:px-2.5 ${tone}`;
 };
 
 // otc-link: 1:1 with otchub's cross-site action buttons (Home.jsx header).
 const otcLinkCls =
-  "inline-flex items-center gap-1 whitespace-nowrap border border-green-500/50 px-2 py-1 text-[10px] tracking-widest text-green-400 hover:bg-green-500/10 sm:px-2.5";
+  "inline-flex items-center gap-1 whitespace-nowrap rounded-none border border-green-500/50 px-2 py-1 text-[10px] tracking-widest text-green-400 hover:bg-green-500/10 sm:px-2.5";
 const fomoLinkCls =
-  "inline-flex items-center gap-1 whitespace-nowrap border border-fuchsia-500/70 px-2 py-1 text-[10px] font-bold tracking-widest text-fuchsia-400 hover:bg-fuchsia-500/10 sm:px-2.5";
+  "inline-flex items-center gap-1 whitespace-nowrap rounded-none border border-fuchsia-500/70 px-2 py-1 text-[10px] font-bold tracking-widest text-fuchsia-400 hover:bg-fuchsia-500/10 sm:px-2.5";
 const walletLinkCls =
-  "inline-flex items-center gap-1 whitespace-nowrap border border-emerald-500/70 px-2 py-1 text-[10px] font-bold tracking-widest text-emerald-400 hover:bg-emerald-500/10 sm:px-2.5";
+  "inline-flex items-center gap-1 whitespace-nowrap rounded-none border border-emerald-500/70 px-2 py-1 text-[10px] font-bold tracking-widest text-emerald-400 hover:bg-emerald-500/10 sm:px-2.5";
 
 /**
  * Top-of-app connect control — the one place a user needs to connect a wallet. Backed by the
@@ -73,7 +74,7 @@ function HeaderWallet() {
         {label}
       </button>
       {open && (
-        <div className="absolute right-0 top-full z-50 mt-1.5 w-[min(22rem,90vw)] border border-green-500/40 bg-black p-3 text-left shadow-lg shadow-black/60">
+        <div className="absolute right-0 top-full z-50 mt-1.5 w-[min(22rem,90vw)] rounded-none border border-green-500/40 bg-black p-3 text-left shadow-lg shadow-black/60">
           {address ? (
             <div className="space-y-2">
               <div className="flex items-center justify-between text-[10px] uppercase tracking-widest text-green-500/60">
@@ -112,27 +113,23 @@ function HeaderWallet() {
 export function Header() {
   const { cluster, programId, connection } = useHub();
   return (
-    <header className="sticky top-[34px] z-40 border border-green-500/30 bg-black">
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-green-500/30 px-3 py-2">
-        <div className="flex flex-col gap-0.5">
-          <div className="flex flex-wrap items-center gap-2">
-            <img
-              src="/hub-logo.png"
-              alt="$HUB"
-              className="h-6 w-6 cursor-help border border-green-500/40"
-              title="H.U.B. — Headquarters for Unhinged Brokers"
-            />
-            <h1 className="text-sm font-bold uppercase tracking-widest text-green-400">
-              $HUB :: OTC Desks Yield Optimizer
-              <span className="ml-1 inline-block animate-blink text-green-500">▋</span>
-            </h1>
-            <EnvBadge />
-          </div>
-          <p className="pl-8 text-[10px] uppercase tracking-widest text-green-500/50">
-            the big green button of OTC Desks.
-          </p>
+    <header className="sticky top-[34px] z-40 rounded-none border border-green-500/30 bg-[#000000] font-mono">
+      {/* Single-row identity bar: logo + label vertically centered, actions pinned right. */}
+      <div className="flex items-center justify-between gap-2 overflow-x-auto whitespace-nowrap border-b border-green-500/30 px-3 py-2">
+        <div className="flex shrink-0 items-center gap-2 whitespace-nowrap">
+          <img
+            src="/hub-logo.png"
+            alt="$HUB"
+            className="h-6 w-6 shrink-0 cursor-help rounded-none border border-green-500/40"
+            title="H.U.B. — Headquarters for Unhinged Brokers"
+          />
+          <h1 className="text-sm font-bold uppercase tracking-widest text-[#00FF00]">
+            HUB Protocol :: YIELD OPTIMIZER
+            <span className="ml-1 inline-block animate-blink text-[#00FF00]">▋</span>
+          </h1>
+          <EnvBadge />
         </div>
-        <div className="flex flex-wrap items-center gap-1.5">
+        <div className="flex shrink-0 items-center gap-1.5 whitespace-nowrap">
           <a
             href="https://otchub.dev"
             target="_blank"
@@ -175,7 +172,7 @@ export function Header() {
           <NavLink
             to="/drip"
             className={({ isActive }) =>
-              `inline-flex items-center whitespace-nowrap border px-2 py-1 text-[10px] font-bold tracking-widest sm:px-2.5 ${
+              `inline-flex items-center whitespace-nowrap rounded-none border px-2 py-1 text-[10px] font-bold tracking-widest sm:px-2.5 ${
                 isActive
                   ? "border-amber-400 bg-amber-500/15 text-amber-200"
                   : "border-amber-500/60 text-amber-400 hover:bg-amber-500/10"

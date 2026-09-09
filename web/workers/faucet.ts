@@ -55,6 +55,7 @@ import {
   IP_LIMIT_PER_HOUR,
 } from "./faucet-config";
 import { coreCreateV1Ix, mintToIx } from "./faucet-ix";
+import { routeCurveRequest, type CurveEnv } from "./bonding-curve";
 
 interface FaucetKV {
   get(key: string): Promise<string | null>;
@@ -63,7 +64,7 @@ interface FaucetKV {
 interface AssetFetcher {
   fetch(request: Request): Promise<Response>;
 }
-export interface Env {
+export interface Env extends CurveEnv {
   ASSETS: AssetFetcher;
   FAUCET_KV: FaucetKV;
   /** JSON secret-key array (`solana-keygen`/`Keypair.generate().secretKey` format). */
@@ -163,6 +164,10 @@ export default {
       if (url.pathname === "/api/faucet/mint-desk" && request.method === "POST") {
         if (!(await checkIpLimit(env, request))) return json({ error: "too many requests" }, 429);
         return await handleMintDesk(request, env);
+      }
+      if (url.pathname.startsWith("/api/curve/")) {
+        const res = await routeCurveRequest(request, env);
+        if (res) return res;
       }
       if (url.pathname.startsWith("/api/")) return json({ error: "not found" }, 404);
     } catch (e) {

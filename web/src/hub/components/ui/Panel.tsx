@@ -7,11 +7,12 @@ type PanelProps = {
   className?: string;
 };
 
-/** Square-bordered DOS window with a `[ TITLE ]` header bar. */
+/** Square-bordered DOS window with a `[ TITLE ]` header bar — 1px border, zero radius, no
+ *  drop shadow by default (system-terminal grid, not a UI card). */
 export function Panel({ title, right, children, className = "" }: PanelProps) {
   return (
     <section
-      className={`border border-green-500/30 bg-black font-mono text-green-400 ${className}`}
+      className={`rounded-none border border-green-500/30 bg-black font-mono text-green-400 ${className}`}
     >
       <header className="flex items-center justify-between border-b border-green-500/30 px-3 py-1.5 text-xs">
         <span className="tracking-widest text-green-300">[ {title} ]</span>
@@ -58,7 +59,7 @@ export function CollapsibleCard({
 
 export function Stat({ label, value, sub }: { label: string; value: ReactNode; sub?: ReactNode }) {
   return (
-    <div className="border border-green-500/20 px-3 py-2">
+    <div className="rounded-none border border-green-500/20 px-3 py-2">
       <div className="text-[10px] uppercase tracking-widest text-green-600">{label}</div>
       <div className="mt-0.5 text-base text-green-300">{value}</div>
       {sub && <div className="mt-0.5 text-[10px] text-green-700">{sub}</div>}
@@ -78,7 +79,7 @@ export function Row({ k, v }: { k: ReactNode; v: ReactNode }) {
 export function Flag({ on, label }: { on: boolean; label: string }) {
   const tone = on ? "border-green-500 text-green-300" : "border-green-500/20 text-green-800";
   return (
-    <span className={`border px-2 py-0.5 text-[10px] tracking-widest ${tone}`}>
+    <span className={`rounded-none border px-2 py-0.5 text-[10px] tracking-widest ${tone}`}>
       {label}: {on ? "ON" : "OFF"}
     </span>
   );

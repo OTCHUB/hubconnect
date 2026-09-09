@@ -3,10 +3,12 @@ import { DeskLookupPanel } from "../components/DeskLookupPanel";
 import { Disclaimer } from "../components/Disclaimer";
 import { EarningPreview } from "../components/EarningPreview";
 import { EpochTracker } from "../components/EpochTracker";
+import { HubBondingDashboard } from "../components/HubBondingDashboard";
 import { MainnetPreviewPanel } from "../components/MainnetPreviewPanel";
 import { MetricsStrip } from "../components/MetricsStrip";
 import { ProtocolGate } from "../components/ProtocolGate";
 import { WalletPanel } from "../components/WalletPanel";
+import { useWallet } from "../WalletProvider";
 import { Panel } from "../components/ui/Panel";
 import { FlywheelDiagram } from "../components/ui/FlywheelDiagram";
 
@@ -17,11 +19,17 @@ export type DashboardProps = {
 };
 
 export function Dashboard({ rawDeskDailyLamports, walletAddress }: DashboardProps) {
+  const wallet = useWallet();
+  const address = walletAddress ?? wallet.address;
+
   return (
     <div className="space-y-2 font-mono">
       <ProtocolGate>
         {(state, fetchedAt) => (
           <>
+            {/* Top of the main content area, immediately below the global header — the bonding
+                curve is the first thing a visitor sees. */}
+            <HubBondingDashboard state={state} address={address} />
             <MetricsStrip state={state} />
             <Panel
               title="THE $HUB FLYWHEEL"
