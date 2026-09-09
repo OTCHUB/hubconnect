@@ -195,20 +195,6 @@ html.light {
    --grad-blur is set inline per-instance so blur intensity is tunable
    from the test harness without editing this file.
    ------------------------------------------------------------------ */
-@keyframes grad-curve-trail {
-  from {
-    stroke-dashoffset: 0;
-  }
-  to {
-    stroke-dashoffset: -480;
-  }
-}
-.grad-fx-trail {
-  stroke-dasharray: 26 220;
-  filter: drop-shadow(0 0 6px currentColor);
-  animation: grad-curve-trail 1.4s linear infinite;
-}
-
 @keyframes grad-scanline {
   0% {
     transform: translateX(-110%);

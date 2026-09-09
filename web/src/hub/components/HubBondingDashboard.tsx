@@ -106,6 +106,61 @@ function TradeRow({ t, dec }: { t: CurveTrade; dec: number }) {
   );
 }
 
+/**
+ * The curve's hero readout — CA, ASCII progress bar, raised/price/sold/wallet stats. Used both
+ * as `BondingCurvePanel`'s top panel and as the real backdrop `GraduationSequence` blurs behind
+ * its "GRADUATED" headline (in HubBondingDashboard and GraduationFxTestPage), so the FX is always
+ * an extension of this exact live UI rather than a standalone illustration.
+ */
+export function CurveHeroPanel({
+  curve,
+  mint,
+  dec,
+  solUsd,
+}: {
+  curve: CurveState;
+  mint: string;
+  dec: number;
+  solUsd: number | null;
+}) {
+  const spotPriceSol = Number(curve.spotPriceLamportsPerHub) / LAMPORTS_PER_SOL;
+  const spotPriceUsd = solUsd != null ? spotPriceSol * solUsd : null;
+  const raisedSol = Number(curve.realSolRaisedLamports) / LAMPORTS_PER_SOL;
+  const targetSol = Number(curve.graduationTargetLamports) / LAMPORTS_PER_SOL;
+  return (
+    <Panel
+      title="OTC LAUNCHER :: BONDING CURVE"
+      right={<span className="text-emerald-400">{(curve.progressBp / 100).toFixed(2)}%</span>}
+    >
+      {mint && (
+        <div className="flex flex-wrap items-center gap-2 text-[11px] font-mono">
+          <span className="text-sm font-bold text-green-300">$HUB</span>
+          <span className="text-green-500/60">CA</span>
+          <AddressLink address={mint} label={shortKey(mint, 6)} />
+          <CopyButton text={mint} label="copy CA" />
+        </div>
+      )}
+      <ProgressBar bp={curve.progressBp} />
+      <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <Stat label="raised" value={`${raisedSol.toFixed(3)} / ${targetSol.toFixed(0)} SOL`} />
+        <Stat
+          label="spot price"
+          value={`${spotPriceSol.toFixed(9)} SOL`}
+          sub={spotPriceUsd != null ? `≈ $${spotPriceUsd.toFixed(6)}` : undefined}
+        />
+        <Stat
+          label="$HUB sold"
+          value={fmtCompact(Number(formatRawAmount(BigInt(curve.realHubSoldUnits), dec)))}
+        />
+        <Stat
+          label="curve wallet"
+          value={<AddressLink address={curve.curveWallet} label={shortKey(curve.curveWallet)} />}
+        />
+      </div>
+    </Panel>
+  );
+}
+
 function GraduatedPanel({
   curve,
   mint,
@@ -301,43 +356,9 @@ function BondingCurvePanel({
     }
   };
 
-  const spotPriceSol = Number(curve.spotPriceLamportsPerHub) / LAMPORTS_PER_SOL;
-  const spotPriceUsd = solUsd != null ? spotPriceSol * solUsd : null;
-  const raisedSol = Number(curve.realSolRaisedLamports) / LAMPORTS_PER_SOL;
-  const targetSol = Number(curve.graduationTargetLamports) / LAMPORTS_PER_SOL;
-
   return (
     <div className="space-y-2">
-      <Panel
-        title="OTC LAUNCHER :: BONDING CURVE"
-        right={<span className="text-emerald-400">{(curve.progressBp / 100).toFixed(2)}%</span>}
-      >
-        {mint && (
-          <div className="flex flex-wrap items-center gap-2 text-[11px] font-mono">
-            <span className="text-sm font-bold text-green-300">$HUB</span>
-            <span className="text-green-500/60">CA</span>
-            <AddressLink address={mint} label={shortKey(mint, 6)} />
-            <CopyButton text={mint} label="copy CA" />
-          </div>
-        )}
-        <ProgressBar bp={curve.progressBp} />
-        <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
-          <Stat label="raised" value={`${raisedSol.toFixed(3)} / ${targetSol.toFixed(0)} SOL`} />
-          <Stat
-            label="spot price"
-            value={`${spotPriceSol.toFixed(9)} SOL`}
-            sub={spotPriceUsd != null ? `≈ $${spotPriceUsd.toFixed(6)}` : undefined}
-          />
-          <Stat
-            label="$HUB sold"
-            value={fmtCompact(Number(formatRawAmount(BigInt(curve.realHubSoldUnits), dec)))}
-          />
-          <Stat
-            label="curve wallet"
-            value={<AddressLink address={curve.curveWallet} label={shortKey(curve.curveWallet)} />}
-          />
-        </div>
-      </Panel>
+      <CurveHeroPanel curve={curve} mint={mint} dec={dec} solUsd={solUsd} />
 
       <Panel
         title={`TRADE :: ${isBuy ? "SOL → $HUB" : "$HUB → SOL"}`}
@@ -555,10 +576,15 @@ export function HubBondingDashboard({ state, address }: Props) {
 
   // Fires the graduation FX exactly once per session, the instant a state poll observes the
   // curve flip from not-graduated to graduated — never on initial mount (a page load that
-  // *already* finds a graduated curve just renders GraduatedPanel directly, no replay).
+  // *already* finds a graduated curve just renders GraduatedPanel directly, no replay). The FX
+  // blurs a frozen snapshot of the curve from the poll *just before* it graduated (captured via
+  // prevCurveRef), so the backdrop reads as "this exact panel, moments ago" rather than the
+  // already-graduated data.
   const [showGradFx, setShowGradFx] = useState(false);
+  const [gradSnapshot, setGradSnapshot] = useState<CurveState | null>(null);
   const seenFirstLoad = useRef(false);
   const wasGraduated = useRef(false);
+  const prevCurveRef = useRef<CurveState | null>(null);
 
   const curveQuery = useQuery({
     queryKey: ["hub", "curve", "state"],
@@ -568,15 +594,20 @@ export function HubBondingDashboard({ state, address }: Props) {
   });
 
   useEffect(() => {
-    const graduated = curveQuery.data?.graduated ?? false;
-    if (!curveQuery.data) return;
+    const data = curveQuery.data;
+    if (!data) return;
     if (!seenFirstLoad.current) {
       seenFirstLoad.current = true;
-      wasGraduated.current = graduated;
+      wasGraduated.current = data.graduated;
+      prevCurveRef.current = data;
       return;
     }
-    if (graduated && !wasGraduated.current) setShowGradFx(true);
-    wasGraduated.current = graduated;
+    if (data.graduated && !wasGraduated.current) {
+      setGradSnapshot(prevCurveRef.current);
+      setShowGradFx(true);
+    }
+    wasGraduated.current = data.graduated;
+    prevCurveRef.current = data;
   }, [curveQuery.data]);
 
   const tradesQuery = useQuery({
@@ -613,7 +644,16 @@ export function HubBondingDashboard({ state, address }: Props) {
   if (curve.graduated) {
     return (
       <div className="space-y-2">
-        {showGradFx && <GraduationSequence onComplete={() => setShowGradFx(false)} symbol="$HUB" />}
+        {showGradFx && (
+          <GraduationSequence onComplete={() => setShowGradFx(false)} symbol="$HUB">
+            <CurveHeroPanel
+              curve={gradSnapshot ?? curve}
+              mint={state.config.hubMint}
+              dec={state.supply.decimals}
+              solUsd={solUsdQuery.data ?? null}
+            />
+          </GraduationSequence>
+        )}
         <GraduatedPanel curve={curve} mint={state.config.hubMint} state={state} address={address} />
       </div>
     );
