@@ -4,7 +4,7 @@ import { EnvBadge, rpcHost, useHub, useUITheme, useWallet } from "./hub";
 import { WalletConnect } from "./hub/components/WalletConnect";
 import { AddressLink } from "./hub/components/ui/AddressLink";
 import { CopyButton } from "./hub/components/ui/CopyButton";
-import { DropletIcon } from "./hub/components/ui/Icons";
+import { DropletIcon, XIcon } from "./hub/components/ui/Icons";
 import { ThemeSwitch } from "./hub/components/ui/ThemeSwitch";
 import { shortKey } from "./hub/lib/format";
 import { ThemeToggle } from "./components/ThemeToggle";
@@ -63,6 +63,13 @@ const pillLinkCls = (isModern: boolean, accent: "otc" | "fomo" | "wallet") => {
         : "border-green-500/50 text-green-400 hover:bg-green-500/10";
   return `inline-flex items-center gap-1 whitespace-nowrap rounded-none border px-2 py-1 text-[10px] tracking-widest sm:px-2.5 ${tone}`;
 };
+
+// Icon-only circular/square chrome for the X (Twitter) social link — same visual weight as the
+// icon-only theme toggle, sitting between the text pills and the wallet control.
+const iconLinkCls = (isModern: boolean) =>
+  isModern
+    ? "inline-flex h-7 w-7 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white/60 hover:bg-white/10"
+    : "inline-flex h-7 w-7 items-center justify-center rounded-none border border-green-500/50 text-green-400 hover:bg-green-500/10";
 
 /**
  * Top-of-app connect control — the one place a user needs to connect a wallet. Backed by the
@@ -243,6 +250,16 @@ export function Header() {
             title="RU_FOMO — live FOMO trader tape and signal bot"
           >
             {isModern ? "FOMO ↗" : "[RU_FOMO ↗]"}
+          </a>
+          <a
+            href="https://x.com/otchubdev"
+            target="_blank"
+            rel="noopener noreferrer"
+            className={iconLinkCls(isModern)}
+            title="Follow @otchubdev on X"
+            aria-label="Follow @otchubdev on X"
+          >
+            <XIcon className="h-3.5 w-3.5" />
           </a>
           <ThemeToggle />
           <ThemeSwitch />

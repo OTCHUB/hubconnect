@@ -40,6 +40,7 @@ export function Footer() {
           fomo.otchub.dev ↗
         </a>
       </div>
+      <div className={isModern ? "w-full" : undefined}>© 2026 otchub.dev</div>
     </footer>
   );
 }
