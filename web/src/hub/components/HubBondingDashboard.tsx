@@ -31,6 +31,7 @@ import { SwapPanel } from "./SwapPanel";
 import { AddressLink } from "./ui/AddressLink";
 import { CopyButton } from "./ui/CopyButton";
 import { Panel, Stat } from "./ui/Panel";
+import { PriceCandles } from "./ui/PriceCandles";
 import { TxLogView } from "./ui/TxLogView";
 
 type Props = { state: ProtocolState; address: string | null };
@@ -172,13 +173,18 @@ function GraduatedPanel({
   mint,
   state,
   address,
+  trades,
+  solUsd,
 }: {
   curve: CurveState;
   mint: string;
   state: ProtocolState;
   address: string | null;
+  trades: CurveTrade[];
+  solUsd: number | null;
 }) {
   const raised = formatRawAmount(BigInt(curve.graduationTargetLamports), SOL_DECIMALS);
+  const [revealed, setRevealed] = useState(false);
   return (
     <div className="space-y-2">
       <Panel
@@ -209,6 +215,28 @@ function GraduatedPanel({
             [DEXSCREENER ↗]
           </a>
         </div>
+      </Panel>
+      {/* Extends the graduation FX rather than standing apart from it: same Panel chrome as every
+       *  other section, gated behind an explicit reveal so the curve's finalized price action
+       *  reads as a deliberate "look back at the launch" rather than clutter bolted onto the AMM
+       *  view. Collapsed body/expand transition is Panel's own grid-rows + opacity CSS animation. */}
+      <Panel
+        title="📈 REVEAL GRADUATED CURVE :: $HUB/SOL"
+        right={revealed ? `${trades.length} historical trades` : undefined}
+        collapsible
+        collapsed={!revealed}
+        onCollapsedChange={setRevealed}
+        collapsedSummary={
+          <button
+            type="button"
+            onClick={() => setRevealed(true)}
+            className="w-full border border-emerald-500/50 py-1.5 text-[11px] font-bold text-emerald-300 hover:bg-emerald-500/10"
+          >
+            [ REVEAL GRADUATED CURVE ]
+          </button>
+        }
+      >
+        <PriceCandles trades={trades} dec={state.supply.decimals} solUsd={solUsd} />
       </Panel>
       <SwapPanel state={state} address={address} />
     </div>
@@ -618,11 +646,15 @@ export function HubBondingDashboard({ state, address }: Props) {
     prevCurveRef.current = data;
   }, [curveQuery.data]);
 
+  // Kept enabled post-graduation too: GET /api/curve/trades still serves the curve's frozen trade
+  // log after it graduates (see bonding-curve.ts's handleTrades), and that log is the only
+  // historical price data the "reveal graduated curve" chart has to draw on. No further curve
+  // trades are possible once graduated, so polling stops being useful — refetch only pre-grad.
   const tradesQuery = useQuery({
     queryKey: ["hub", "curve", "trades"],
     queryFn: fetchCurveTrades,
-    enabled: isDevnet && !curveQuery.data?.graduated,
-    refetchInterval: 6_000,
+    enabled: isDevnet,
+    refetchInterval: curveQuery.data?.graduated ? false : 6_000,
   });
   const solUsdQuery = useQuery({
     queryKey: ["hub", "curve", "sol-usd"],
@@ -663,7 +695,14 @@ export function HubBondingDashboard({ state, address }: Props) {
             />
           </GraduationSequence>
         )}
-        <GraduatedPanel curve={curve} mint={state.config.hubMint} state={state} address={address} />
+        <GraduatedPanel
+          curve={curve}
+          mint={state.config.hubMint}
+          state={state}
+          address={address}
+          trades={tradesQuery.data?.trades ?? []}
+          solUsd={solUsdQuery.data ?? null}
+        />
       </div>
     );
   }
