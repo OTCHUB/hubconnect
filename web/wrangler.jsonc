@@ -1,7 +1,22 @@
 // Cloudflare Workers static-assets deployment of the standalone $HUB dashboard.
-// RPC / cluster / program id are baked in at build time from Vite env files
-// (`.env.production.local`, gitignored) — Worker `vars` cannot reach a static bundle.
-// Deploy: `npm run build && wrangler deploy` (or `npm run deploy`).
+//
+// Two isolated, simultaneously-deployable targets — each its own Worker script with its own
+// asset bundle, so neither can leak the other's RPC / cluster / program id:
+//   - mainnet-beta -> app.otchub.dev     (env.production; assets from ./dist)
+//   - devnet       -> devnet.otchub.dev  (env.devnet;     assets from ./dist-devnet)
+// devnet.otchub.dev is a public, risk-free sandbox for auditing tokenomics/mechanics/security
+// ahead of mainnet launch; app.otchub.dev is permanently reserved for the mainnet-beta build.
+//
+// RPC / cluster / program id are baked in at build time from Vite env files, per mode, so a
+// single `npm run build` (mainnet) or `npm run build:devnet` never crosses into the other's
+// config — see `.env.production`(`.local`) and `.env.devnet`(`.local`). Worker `vars` cannot
+// reach a static bundle, which is why this differentiation happens at build time, not here.
+//
+// Deploy: `npm run deploy:production` (app.otchub.dev) or `npm run deploy:devnet`
+// (devnet.otchub.dev) — both always pass `--env` explicitly (wrangler warns otherwise, since
+// this file now defines named environments). `npm run deploy` is a `deploy:production` alias.
+// The top-level config below mirrors `env.production` exactly (same Worker, same route) purely
+// so `wrangler dev`/other env-less commands still resolve to something sane.
 {
   "name": "hubconnect-web",
   "compatibility_date": "2026-08-01",
@@ -11,5 +26,33 @@
     "html_handling": "auto-trailing-slash"
   },
   "routes": [{ "pattern": "app.otchub.dev", "custom_domain": true }],
-  "observability": { "enabled": true }
+  "observability": { "enabled": true },
+  "env": {
+    // Mainnet-beta — the only build ever served at app.otchub.dev. Same Worker name as the
+    // top-level default (deliberately) so `wrangler deploy` and `wrangler deploy --env
+    // production` always resolve to one script, never two competing claims on the domain.
+    "production": {
+      "name": "hubconnect-web",
+      "assets": {
+        "directory": "./dist",
+        "not_found_handling": "single-page-application",
+        "html_handling": "auto-trailing-slash"
+      },
+      "routes": [{ "pattern": "app.otchub.dev", "custom_domain": true }],
+      "observability": { "enabled": true }
+    },
+    // Devnet sandbox — separate Worker, separate bundle, separate domain. Requires
+    // `devnet.otchub.dev` to exist in the same Cloudflare zone as `otchub.dev` (one-time
+    // DNS/zone setup); `wrangler deploy --env devnet` provisions the custom domain binding.
+    "devnet": {
+      "name": "hubconnect-web-devnet",
+      "assets": {
+        "directory": "./dist-devnet",
+        "not_found_handling": "single-page-application",
+        "html_handling": "auto-trailing-slash"
+      },
+      "routes": [{ "pattern": "devnet.otchub.dev", "custom_domain": true }],
+      "observability": { "enabled": true }
+    }
+  }
 }

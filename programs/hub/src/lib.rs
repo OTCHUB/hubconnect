@@ -380,4 +380,12 @@ pub mod hub {
     pub fn claim_hub_pot_reward(ctx: Context<ClaimHubPotReward>, round_index: u32) -> Result<()> {
         instructions::hub_pot::claim_hub_pot_reward(ctx, round_index)
     }
+
+    /// Devnet-only: closes `config`/`burn`/`treasury_state`/`epoch(epoch_index)` so
+    /// `initialize_config` can re-`init` the same PDAs after a layout change. Compiled only
+    /// under the `mock-jupiter` feature — absent from every mainnet build.
+    #[cfg(feature = "mock-jupiter")]
+    pub fn devnet_reset(ctx: Context<DevnetReset>, epoch_index: u64) -> Result<()> {
+        instructions::admin::devnet_reset(ctx, epoch_index)
+    }
 }

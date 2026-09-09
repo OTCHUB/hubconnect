@@ -8,6 +8,10 @@ test-ledger
 .env
 .env.*
 !.env.example
+# Public, no-secret build-target defaults (see web/wrangler.jsonc) — `.env.*.local` overrides
+# stay ignored by the `.env.*` rule above.
+!web/.env.devnet
+!web/.env.production
 keeper/**/journal/
 *.log
 supabase/.temp/

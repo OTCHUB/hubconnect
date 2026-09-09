@@ -48,6 +48,17 @@ export type MockRouteArgs = {
    * caller-supplied floor independently, so setting this below that floor exercises
    * `SlippageExceeded` exactly as a bad real-Jupiter route would. */
   amountOut: bigint | number | string;
+  /**
+   * Whether `sourceAuthority` is a *real* signer of the outer transaction (the OTC-pay path's
+   * payer wallet — default `true`). Set `false` for a hub PDA (e.g. `vault`, the finalize_epoch
+   * SOL leg): a PDA can never hold an ed25519 keypair, so marking it `isSigner: true` on the
+   * outer instruction makes web3.js demand an unobtainable signature ("Missing signature for
+   * public key ..."). hub's own `jupiter_swap::swap_exact_in` re-signs for it via
+   * `invoke_signed(vault_seeds)` at the CPI boundary regardless of this outer-instruction flag —
+   * the runtime authorizes a CPI account either because it's already a real signer, or because
+   * it matches a PDA derived from the caller's `signers_seeds`, whichever applies.
+   */
+  sourceAuthorityIsSigner?: boolean;
 };
 
 /**
@@ -64,7 +75,11 @@ export function mockRoute(args: MockRouteArgs) {
     u64le(args.amountOut),
   ]);
   const remainingAccounts = [
-    { pubkey: args.sourceAuthority, isSigner: true, isWritable: false },
+    {
+      pubkey: args.sourceAuthority,
+      isSigner: args.sourceAuthorityIsSigner ?? true,
+      isWritable: false,
+    },
     { pubkey: args.sourceTokenAccount, isSigner: false, isWritable: true },
     { pubkey: args.sourceMint, isSigner: false, isWritable: false },
     { pubkey: args.destinationTokenAccount, isSigner: false, isWritable: true },

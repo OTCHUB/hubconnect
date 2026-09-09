@@ -23,12 +23,17 @@
 //    Inflow: B = desk_round × treasury-owned desks, optional C.
 //    Σw must NOT change — treasury desks feed the pot, they never take a tier.
 // 3. `finalize_epoch` (allowed once ≥ threshold; topped up with C if the rounds fell short):
-//    burn slice = ⌊inflow × burn_pct_bp / 10⁴⌋ → BurnState.burn_pending; the rest is credited
-//    to `Config.acc_per_weight` as ⌊distributable × 10¹² / Σw⌋ per bp of weight.
+//    burn/lp/float slices = ⌊inflow × {burn,lp,treasury_float}_pct_bp / 10⁴⌋ are swapped
+//    SOL→$HUB in one synchronous Jupiter CPI right here — the burn leg (+ any float-cap
+//    overflow) is burned immediately, updating BurnState.total_hub_burned directly (no
+//    keeper-drawn pending balance anymore). The remaining 90% is credited to
+//    `Config.acc_per_weight` as ⌊distributable × 10¹² / Σw⌋ per bp of weight.
 // 4. `claim_yield` ONCE per owned tier: payout == ⌊(acc − stamp) × w / 10¹²⌋ — every round
 //    closed since the desk's stamp in a single tx; the stamp catches up to `acc`.
-// 5. Burn: keeper burns $HUB from its ATA (mock market buy at --hub-per-sol) and `record_burn`
-//    reimburses burn-pending from the pot; BurnState + mint supply reflect it.
+// 5. Burn verification: `BurnState.total_hub_burned` already reflects step 3's synchronous
+//    CPI burn; `record_burn` (the pre-Jupiter-refactor keeper-reimbursement path keyed off
+//    `BurnState.burn_pending_lamports`) is now permanently inert — asserted here as a
+//    negative-path check (`ZeroAmount`), not exercised as a live mechanic.
 //
 // --quick is the streamlined path (no sweep/mint): inflow → finalize → claim → burn on whatever
 // treasury-owned desks already exist.
@@ -37,11 +42,9 @@ import {
   LAMPORTS_PER_SOL,
   PublicKey,
   SystemProgram,
-  TransactionInstruction,
 } from "@solana/web3.js";
 import { BN } from "@anchor-lang/core";
 import {
-  base58,
   createSignerFromKeypair,
   generateSigner,
   publicKey as umiPk,
@@ -58,6 +61,7 @@ import {
   SWEEP_PAYBACK_CAP_LAMPORTS,
   TIER_NAMES,
   TIER_WEIGHTS_BP,
+  WSOL_MINT,
   burnPda,
   epochPda,
   fetchOwnedDesks,
@@ -65,6 +69,7 @@ import {
   potPda,
   tierPda,
   treasuryPda,
+  vaultPda,
 } from "../sdk/src";
 import {
   TOKEN_PROGRAM_ID,
@@ -86,7 +91,9 @@ import {
   tokenAmount,
   withIxs,
   type Ctx,
+  type FinalizeSwapBuilder,
 } from "./lib/devnet";
+import { MOCK_JUPITER_PROGRAM, mockRoute } from "./lib/mock-jupiter";
 
 /** Attributes label on mock desks so the script can tell treasury-swept desks apart. */
 const MOCK_ROLE = { key: "hub_mock_role", swept: "treasury-swept" };
@@ -105,6 +112,41 @@ const check = (label: string, ok: boolean, detail = "") => {
   if (!ok) failures.push(label);
 };
 const failures: string[] = [];
+
+/**
+ * §A5 swap-leg builder for `finalize_epoch` — devnet has no real Jupiter liquidity for $HUB, so
+ * this sizes a `mock_jupiter` route instead: `amountIn` is the exact `swap_total` (burn + lp +
+ * treasury-float bps of the round's effective inflow, floored leg-by-leg to match the program's
+ * own `bps_of` calls) and `amountOut` simulates a fill at `hubPerSol` $HUB per SOL. `minHubOut`
+ * is set to that same amount since the mock always delivers exactly `amountOut`.
+ */
+function buildFinalizeSwap(ctx: Ctx, hubPerSol: number): FinalizeSwapBuilder {
+  return async (effectiveLamports, cfg) => {
+    const [vault] = vaultPda(ctx.program.programId);
+    const [treasuryStateKey] = treasuryPda(ctx.program.programId);
+    const treasury = await ctx.program.account.treasuryState.fetch(treasuryStateKey);
+    const bpsOf = (bp: number) => Math.floor((effectiveLamports * bp) / 10_000);
+    const swapTotal = bpsOf(cfg.burnPctBp) + bpsOf(cfg.lpPctBp) + bpsOf(cfg.treasuryFloatPctBp);
+    if (swapTotal === 0) return {};
+    const amountOut = (BigInt(swapTotal) * BigInt(hubPerSol) * 1_000_000n) / BigInt(LAMPORTS_PER_SOL);
+    const { jupiterData, remainingAccounts } = mockRoute({
+      sourceAuthority: vault,
+      sourceAuthorityIsSigner: false, // vault is a PDA — hub itself re-signs via invoke_signed
+      sourceTokenAccount: treasury.vaultWsol,
+      sourceMint: new PublicKey(WSOL_MINT),
+      destinationTokenAccount: treasury.vaultHub,
+      destinationMint: cfg.hubMint,
+      amountIn: swapTotal,
+      amountOut,
+    });
+    return {
+      minHubOut: amountOut,
+      jupiterData,
+      remainingAccounts,
+      jupiterProgram: MOCK_JUPITER_PROGRAM,
+    };
+  };
+}
 
 /** Mint a mock desk to `owner` carrying a role label (tier is program state, never metadata). */
 async function mintMockDesk(ctx: Ctx, collection: PublicKey, owner: PublicKey, role: string) {
@@ -201,22 +243,6 @@ async function sweep(ctx: Ctx, collection: PublicKey, hubMint: PublicKey, price:
   return assetPk;
 }
 
-/** spl-token `Burn` (ix 8). */
-const burnIx = (account: PublicKey, mint: PublicKey, owner: PublicKey, amount: bigint) => {
-  const data = Buffer.alloc(9);
-  data[0] = 8;
-  data.writeBigUInt64LE(amount, 1);
-  return new TransactionInstruction({
-    programId: TOKEN_PROGRAM_ID,
-    keys: [
-      { pubkey: account, isSigner: false, isWritable: true },
-      { pubkey: mint, isSigner: false, isWritable: true },
-      { pubkey: owner, isSigner: true, isWritable: false },
-    ],
-    data,
-  });
-};
-
 /** Single-tx `claim_yield`; returns $OTC base units credited to the claimer's ATA. */
 async function claimOneOtc(ctx: Ctx, asset: PublicKey, claimerOtc: PublicKey) {
   const before = (await tokenAmount(ctx, claimerOtc)) ?? 0n;
@@ -259,9 +285,6 @@ async function expectErr(p: Promise<unknown>, code: string) {
   }
 }
 
-const mintSupply = async (ctx: Ctx, mint: PublicKey) =>
-  (await ctx.connection.getAccountInfo(mint))!.data.readBigUInt64LE(36);
-
 async function main() {
   const ctx = await devnetCtx();
   const cfg0 = await ctx.program.account.config.fetch(ctx.config);
@@ -288,6 +311,7 @@ async function main() {
   const otcPerSol = argNum("--otc-per-sol", 5_000_000);
   const collection = cfg0.deskCollection;
   const claimerOtc = ata(ctx.payer.publicKey, cfg0.otcMint);
+  const finalizeSwap = buildFinalizeSwap(ctx, hubPerSol);
 
   console.log("\n[0] BRING CURRENT");
   // A leftover round already at threshold would make the negative gate check meaningless:
@@ -297,7 +321,7 @@ async function main() {
     console.log(
       `  open round #${start.idx} already at ${sol(start.effective)} ≥ threshold — closing`,
     );
-    await settleRound(ctx);
+    await settleRound(ctx, false, finalizeSwap);
   }
   const r0 = await claimAllOwned(ctx);
   if (r0.claims)
@@ -370,17 +394,17 @@ async function main() {
       `  rounds booked ${sol(pre.effective)} < threshold ${sol(pre.threshold)} — topping up ${sol(pre.shortfall)} (C)`,
     );
   }
-  const burnBefore = (await ctx.program.account.burnState.fetch(burnKey)).burnPendingLamports;
+  const burnedBeforeFinalize = big((await ctx.program.account.burnState.fetch(burnKey)).totalHubBurned);
   const [treasuryStateKey] = treasuryPda(ctx.program.programId);
   // §A5: the LP-build leg is now swapped SOL→$HUB inside finalize_epoch, so this is $HUB base
   // units post-swap (TreasuryState.lp_pending_hub_units), not a lamports figure anymore.
-  const treasuryLpBefore = big(
-    (await ctx.program.account.treasuryState.fetch(treasuryStateKey)).lpPendingHubUnits,
-  );
+  const treasuryStateBefore = await ctx.program.account.treasuryState.fetch(treasuryStateKey);
+  const treasuryLpBefore = big(treasuryStateBefore.lpPendingHubUnits);
+  const treasuryFloatBefore = big(treasuryStateBefore.treasuryFloatUnits);
   const otcPotBeforeFinalize = await ctx.program.account.otcPotState.fetch(otcPotKey);
   const otcPendingBefore = big(otcPotBeforeFinalize.otcPendingLamports);
   const acc0 = big(pre.cfg.accPerWeight);
-  const { idx, epoch } = await settleRound(ctx, true);
+  const { idx, epoch } = await settleRound(ctx, true, finalizeSwap);
   const cfg3 = await ctx.program.account.config.fetch(ctx.config);
   const inflow = big(epoch.inflowLamports);
   check(
@@ -394,13 +418,19 @@ async function main() {
     big(epoch.burnPendingLamports) === expBurn,
     sol(expBurn),
   );
-  const expLp = (inflow * BigInt(e1.cfg.lpPctBp)) / BPS; // §A5 5% LP-build earmark
+  const expLp = (inflow * BigInt(e1.cfg.lpPctBp)) / BPS; // §A5 2.5% LP-build earmark
   check(
     `lp_pending == ⌊inflow × ${e1.cfg.lpPctBp} bp⌋`,
     big(epoch.lpPendingLamports) === expLp,
     sol(expLp),
   );
-  const distributable = inflow - expBurn - expLp; // remaining 90% == the $OTC leg
+  const expFloat = (inflow * BigInt(e1.cfg.treasuryFloatPctBp)) / BPS; // §A5 2.5% treasury float
+  check(
+    `treasury_float == ⌊inflow × ${e1.cfg.treasuryFloatPctBp} bp⌋`,
+    big(epoch.treasuryFloatLamports) === expFloat,
+    sol(expFloat),
+  );
+  const distributable = inflow - expBurn - expLp - expFloat; // remaining 90% == the $OTC leg
   const sw = big(epoch.totalWeightBp);
   const expPerW = (distributable * ACC_SCALE) / sw;
   check(
@@ -421,11 +451,13 @@ async function main() {
     `${acc0} → ${cfg3.accPerWeight}`,
   );
   check("Σw snapshot == Config.total_weight_bp", epoch.totalWeightBp.eq(e1.cfg.totalWeightBp));
-  const burnAfter = (await ctx.program.account.burnState.fetch(burnKey)).burnPendingLamports;
+  const burnedAfterFinalize = big((await ctx.program.account.burnState.fetch(burnKey)).totalHubBurned);
+  // Exact $HUB amount depends on the Jupiter route's fill price (same caveat as LP/float below);
+  // only assert the synchronous burn CPI actually landed when there was a burn leg to swap.
   check(
-    "BurnState.burn_pending += slice",
-    big(burnAfter) - big(burnBefore) === expBurn,
-    sol(burnAfter),
+    "BurnState.total_hub_burned increased by finalize_epoch's synchronous burn CPI",
+    expBurn === 0n || burnedAfterFinalize > burnedBeforeFinalize,
+    `${burnedBeforeFinalize} → ${burnedAfterFinalize} $HUB units`,
   );
   const treasuryAfter = await ctx.program.account.treasuryState.fetch(treasuryStateKey);
   // Exact $HUB amount depends on the Jupiter route's fill price, which this script does not
@@ -435,6 +467,11 @@ async function main() {
     "TreasuryState.lp_pending_hub_units increased by the LP-build swap leg",
     expLp === 0n || big(treasuryAfter.lpPendingHubUnits) > treasuryLpBefore,
     `${treasuryLpBefore} → ${treasuryAfter.lpPendingHubUnits} $HUB units`,
+  );
+  check(
+    "TreasuryState.treasury_float_units increased by the treasury-float swap leg (or capped → burn)",
+    expFloat === 0n || big(treasuryAfter.treasuryFloatUnits) >= treasuryFloatBefore,
+    `${treasuryFloatBefore} → ${treasuryAfter.treasuryFloatUnits} $HUB units`,
   );
   const otcPotAfterFinalize = await ctx.program.account.otcPotState.fetch(otcPotKey);
   check(
@@ -566,59 +603,28 @@ async function main() {
     check("second claim in the same round rejected", r.ok, r.detail);
   }
 
-  console.log("\n[5] BURN ($HUB) + record_burn");
-  const pending = (await ctx.program.account.burnState.fetch(burnKey)).burnPendingLamports;
-  const hubUnits = (big(pending) * BigInt(hubPerSol) * 1_000_000n) / BigInt(LAMPORTS_PER_SOL);
-  const keeperAta = ata(ctx.payer.publicKey, cfg0.hubMint);
-  const ataIx = await hubAtaIx(ctx, ctx.payer.publicKey, cfg0.hubMint);
-  if (ataIx) await sendIxs(ctx, [ataIx]);
-  const keeperHubRaw = await tokenAmount(ctx, keeperAta);
+  console.log("\n[5] BURN VERIFICATION — record_burn is now retired by the Jupiter-CPI refactor");
+  const burnStateEnd = await ctx.program.account.burnState.fetch(burnKey);
   check(
-    "keeper $HUB ATA exists",
-    keeperHubRaw !== null,
-    ataIx ? "created now" : keeperAta.toBase58(),
+    "BurnState.burn_pending_lamports stays 0 (no longer credited by finalize_epoch)",
+    burnStateEnd.burnPendingLamports.isZero(),
+    `total_hub_burned so far: ${burnStateEnd.totalHubBurned.toString()} units`,
   );
-  const keeperHub = keeperHubRaw ?? 0n;
-  if (keeperHub < hubUnits) {
-    throw new Error(
-      `keeper holds ${keeperHub} $HUB units but the burn needs ${hubUnits} — fund the ATA (devnet:mint)`,
+  {
+    // record_burn's only remaining funding source (BurnState.burn_pending_lamports) is
+    // permanently 0 post-refactor, so any call — even with a nonzero lamports_spent — fails
+    // BurnExceedsPending; lamports_spent === 0 fails ZeroAmount first. Assert the mechanic is
+    // inert rather than exercising it as a live path.
+    const r = await expectErr(
+      ctx.program.methods
+        .recordBurn(new BN(0), new BN(0), new Array(64).fill(0))
+        .accountsPartial({ keeper: ctx.payer.publicKey, config: ctx.config, burn: burnKey, pot: potKey })
+        .rpc(),
+      "ZeroAmount",
     );
+    check("record_burn rejected — retired mechanic (no pending balance to draw)", r.ok, r.detail);
   }
-  const supplyBefore = await mintSupply(ctx, cfg0.hubMint);
-  const burnedBefore = big((await ctx.program.account.burnState.fetch(burnKey)).totalHubBurned);
-  const burnSig = await sendIxs(ctx, [
-    burnIx(keeperAta, cfg0.hubMint, ctx.payer.publicKey, hubUnits),
-  ]);
-  const supplyAfter = await mintSupply(ctx, cfg0.hubMint);
-  check(
-    "$HUB supply reduced by burn",
-    supplyBefore - supplyAfter === hubUnits,
-    `−${hubUnits} units (${burnSig})`,
-  );
-  const sigBytes = Array.from(base58.serialize(burnSig));
-  const liabBefore = (await ctx.program.account.config.fetch(ctx.config)).potLiabilityLamports;
-  await ctx.program.methods
-    .recordBurn(new BN(hubUnits.toString()), pending, sigBytes)
-    .accountsPartial({
-      keeper: ctx.payer.publicKey,
-      config: ctx.config,
-      burn: burnKey,
-      pot: potKey,
-    })
-    .rpc();
-  const b = await ctx.program.account.burnState.fetch(burnKey);
   const cfgEnd = await ctx.program.account.config.fetch(ctx.config);
-  check(
-    "burn_pending → 0 after record_burn",
-    b.burnPendingLamports.isZero(),
-    `reimbursed ${sol(pending)}`,
-  );
-  check(
-    "total_hub_burned += burned",
-    big(b.totalHubBurned) - burnedBefore === hubUnits,
-    `${b.totalHubBurned.toString()} units`,
-  );
-  check("liability −= reimbursed", liabBefore.sub(cfgEnd.potLiabilityLamports).eq(pending));
   const potLamports = await ctx.connection.getBalance(potKey);
   const floor = await ctx.connection.getMinimumBalanceForRentExemption(0);
   check(

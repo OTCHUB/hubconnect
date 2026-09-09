@@ -31,15 +31,37 @@ fn read_token_amount(ai: &AccountInfo) -> Result<u64> {
     Ok(u64::from_le_bytes(data[64..72].try_into().unwrap()))
 }
 
-fn metas_from(accounts: &[AccountInfo]) -> Vec<AccountMeta> {
-    accounts
+/// Builds the CPI's account metas, forcing `is_signer: true` for any account matching one of
+/// `signer_seeds`'s derived PDAs — mirroring how Anchor's own generated CPI helpers (e.g.
+/// `token::transfer`'s `Transfer` accounts struct) always hard-code `is_signer: true` for a PDA
+/// authority instead of trusting the incoming `AccountInfo::is_signer`.
+///
+/// This matters because `invoke_signed`'s seed-based signer elevation is scoped to *this* CPI
+/// only: a route account's `is_signer` bit, as received via `ctx.remaining_accounts`, reflects
+/// what the caller (off-chain) declared for the *outer* `finalize_epoch` / `otc_pay` instruction
+/// — which must be `false` for a PDA like `vault` (a PDA can never hold an ed25519 keypair, so a
+/// client-declared `is_signer: true` there would make the transaction demand an unobtainable
+/// signature before this program ever runs). If this function instead just copied
+/// `ai.is_signer` through unchanged, the resulting CPI would assert `is_signer: false` for
+/// `vault`, so a route program that itself re-signs for `vault` in a *further* nested CPI (e.g.
+/// Jupiter forwarding into an AMM, or `mock_jupiter`'s own inner `TransferChecked`) would hit
+/// "Cross-program invocation with unauthorized signer" — the runtime only allows a program to
+/// assert a signer it was itself handed as `is_signer: true`, and this fixes it at the source.
+fn metas_from(accounts: &[AccountInfo], signer_seeds: &[&[&[u8]]]) -> Result<Vec<AccountMeta>> {
+    let mut signer_pdas: Vec<Pubkey> = Vec::with_capacity(signer_seeds.len());
+    for seeds in signer_seeds.iter().copied() {
+        let pda = Pubkey::create_program_address(seeds, &crate::ID)
+            .map_err(|_| error!(HubError::MathOverflow))?;
+        signer_pdas.push(pda);
+    }
+    Ok(accounts
         .iter()
         .map(|ai| AccountMeta {
             pubkey: *ai.key,
-            is_signer: ai.is_signer,
+            is_signer: ai.is_signer || signer_pdas.contains(ai.key),
             is_writable: ai.is_writable,
         })
-        .collect()
+        .collect())
 }
 
 /// Executes a Jupiter route CPI (`route_accounts`/`data` assembled off-chain) and enforces
@@ -68,7 +90,7 @@ pub fn swap_exact_in<'info>(
     let before = read_token_amount(dest)?;
     let ix = Instruction {
         program_id: JUPITER_PROGRAM_ID,
-        accounts: metas_from(route_accounts),
+        accounts: metas_from(route_accounts, signer_seeds)?,
         data,
     };
     invoke_signed(&ix, route_accounts, signer_seeds)?;

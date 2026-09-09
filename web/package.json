@@ -8,8 +8,11 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:devnet": "vite build --mode devnet",
     "preview": "vite preview",
-    "deploy": "vite build && wrangler deploy",
+    "deploy": "npm run deploy:production",
+    "deploy:production": "vite build --mode production && wrangler deploy --env production",
+    "deploy:devnet": "npm run build:devnet && wrangler deploy --env devnet",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "lint": "prettier --check src *.ts *.json index.html",
     "lint:fix": "prettier --write src *.ts *.json index.html"

@@ -135,6 +135,82 @@ pub struct AuthorityOnly<'info> {
     pub config: Account<'info, Config>,
 }
 
+/// Devnet-only escape hatch: closes the four singleton PDAs `initialize_config` creates with
+/// `init` (`config`/`burn`/`treasury_state`/current `epoch`) so a fresh `initialize_config` can
+/// reclaim the same addresses after a breaking `Config`/`Epoch`/`TreasuryState`/`BurnState`
+/// layout change on an already-provisioned devnet deploy. Gated behind the same `mock-jupiter`
+/// feature as the rest of the devnet-only surface — never compiled into a mainnet build, so
+/// there is no way to wipe a live deployment's state. `DeskTier`/`OtcPotState`/mints are left
+/// untouched; re-run `devnet-hub-mint`/`devnet-otc-mint`/`devnet-mock-desks` after this.
+///
+/// Every account here is `UncheckedAccount`, not the typed `Account<'info, T>`: the whole point
+/// of this instruction is recovering from an on-chain layout the *current* struct definitions
+/// can no longer deserialize (the exact "AccountDidNotDeserialize"/"Invalid bool: N" this exists
+/// to get past), so the handler reads only the one field guaranteed stable across every layout
+/// version — `Config.authority`, always the first field at fixed offset 8 — directly off the
+/// raw bytes instead of going through a typed decode.
+#[cfg(feature = "mock-jupiter")]
+#[derive(Accounts)]
+#[instruction(epoch_index: u64)]
+pub struct DevnetReset<'info> {
+    #[account(mut)]
+    pub authority: Signer<'info>,
+    /// CHECK: raw close target; see the module doc above.
+    #[account(mut, seeds = [SEED_CONFIG], bump)]
+    pub config: UncheckedAccount<'info>,
+    /// CHECK: raw close target; see the module doc above.
+    #[account(mut, seeds = [SEED_BURN], bump)]
+    pub burn: UncheckedAccount<'info>,
+    /// CHECK: raw close target; see the module doc above.
+    #[account(mut, seeds = [SEED_TREASURY], bump)]
+    pub treasury_state: UncheckedAccount<'info>,
+    /// CHECK: raw close target; see the module doc above.
+    #[account(mut, seeds = [SEED_EPOCH, &epoch_index.to_le_bytes()], bump)]
+    pub epoch: UncheckedAccount<'info>,
+}
+
+/// Zeroes an account's data and sweeps its lamports to `dest`. Draining lamports to 0 is what
+/// actually frees the address for a later `init` — the Solana runtime purges any account with a
+/// zero balance at the end of the transaction that left it that way, regardless of its data or
+/// owner — so the data-zeroing here is just defense in depth against a same-block resurrection
+/// read, not load-bearing. A no-op on an already-empty (0-lamport) account, so re-running
+/// `devnet_reset` is safe.
+#[cfg(feature = "mock-jupiter")]
+fn close_raw(info: &AccountInfo, dest: &AccountInfo) -> Result<()> {
+    if info.lamports() == 0 {
+        return Ok(());
+    }
+    **dest.try_borrow_mut_lamports()? = dest
+        .lamports()
+        .checked_add(info.lamports())
+        .ok_or(HubError::MathOverflow)?;
+    **info.try_borrow_mut_lamports()? = 0;
+    info.try_borrow_mut_data()?.fill(0);
+    Ok(())
+}
+
+#[cfg(feature = "mock-jupiter")]
+pub fn devnet_reset(ctx: Context<DevnetReset>, _epoch_index: u64) -> Result<()> {
+    let config_ai = ctx.accounts.config.to_account_info();
+    if config_ai.lamports() > 0 {
+        let data = config_ai.try_borrow_data()?;
+        require!(data.len() >= 40, HubError::Unauthorized);
+        let stored_authority = Pubkey::try_from(&data[8..40]).map_err(|_| HubError::Unauthorized)?;
+        drop(data);
+        require_keys_eq!(
+            stored_authority,
+            ctx.accounts.authority.key(),
+            HubError::Unauthorized
+        );
+    }
+    let dest = ctx.accounts.authority.to_account_info();
+    close_raw(&config_ai, &dest)?;
+    close_raw(&ctx.accounts.burn.to_account_info(), &dest)?;
+    close_raw(&ctx.accounts.treasury_state.to_account_info(), &dest)?;
+    close_raw(&ctx.accounts.epoch.to_account_info(), &dest)?;
+    Ok(())
+}
+
 fn bps(v: &ConfigValue) -> Result<u16> {
     match v {
         ConfigValue::U16(x) if *x <= BPS_DENOMINATOR as u16 => Ok(*x),

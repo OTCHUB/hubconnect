@@ -326,12 +326,21 @@ export async function finalizeIx(ctx: Ctx, idx: number, swap: FinalizeSwapArgs =
     .rpc();
 }
 
+/** Builds the §A5 swap-leg args for `finalize_epoch` given the round's effective inflow and the
+ * live `Config` — see `scripts/lib/mock-jupiter.ts::mockRoute` for a devnet-only implementation. */
+export type FinalizeSwapBuilder = (
+  effectiveLamports: number,
+  cfg: Awaited<ReturnType<typeof openEpoch>>["cfg"],
+) => Promise<FinalizeSwapArgs> | FinalizeSwapArgs;
+
 /**
  * Close the open round. Rounds are threshold-gated (OTC desk-pot semantics): `finalize_epoch`
  * succeeds the moment effective inflow ≥ `min_pot_threshold_lamports`; there is nothing to
  * wait for. Throws when the round is not ready — `topUp` (source C) fills the shortfall first.
+ * `buildSwap`, when given, sizes the §A5 5%/2.5%/2.5% Jupiter swap leg (e.g. a mock route on
+ * devnet) — omit it only when `swap_total` is guaranteed zero (all three bps are 0).
  */
-export async function settleRound(ctx: Ctx, topUp = false) {
+export async function settleRound(ctx: Ctx, topUp = false, buildSwap?: FinalizeSwapBuilder) {
   let s = await roundStatus(ctx);
   if (!s.ready && s.shortfall > 0 && topUp) {
     console.log(
@@ -347,7 +356,8 @@ export async function settleRound(ctx: Ctx, topUp = false) {
         : `round #${s.idx} at ${sol(s.effective)} < threshold ${sol(s.threshold)} (short ${sol(s.shortfall)})`,
     );
   }
-  const sig = await finalizeIx(ctx, s.idx);
+  const swap = buildSwap ? await buildSwap(s.effective, s.cfg) : {};
+  const sig = await finalizeIx(ctx, s.idx, swap);
   const closed = await ctx.program.account.epoch.fetch(s.key);
   console.log(
     `finalized round #${s.idx}: inflow ${sol(closed.inflowLamports)} · burn-pending ${sol(closed.burnPendingLamports)} · credited ${sol(closed.distributedLamports)} · Σw ${closed.totalWeightBp.toString()} bp  (${sig})`,
