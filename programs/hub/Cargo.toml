@@ -19,6 +19,11 @@ idl-build = ["anchor-lang/idl-build"]
 anchor-debug = []
 custom-heap = []
 custom-panic = []
+# Devnet/localnet integration testing only. Swaps `constants::JUPITER_PROGRAM_ID` from the real
+# Jupiter v6 aggregator to `mock_jupiter`'s program id (see programs/mock_jupiter). Never enabled
+# in the reproducible build (`scripts/verify-build.sh`, `.github/workflows/verify.yml`) or any
+# mainnet-beta deploy — the mainnet program must only ever CPI into real Jupiter.
+mock-jupiter = []
 
 [dependencies]
 anchor-lang = { version = "1.2.0", features = ["init-if-needed"] }

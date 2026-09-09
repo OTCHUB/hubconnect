@@ -33,10 +33,16 @@ Implement from it; never re-derive tokenomics.
 
 ## What is $HUB?
 
-**OTCDesks Protocol** (otcdesks.cash) runs OTC desk NFTs and an OTC launcher: any token launched
-through it (including $HUB) pays creator fees that buy **$OTC** for the launched token's holders.
-**hubconnect is a separate, community-built layer on top of that base protocol** — it does not
-fork or modify OTCDesks, it only reads its on-chain state and composes with it.
+**OTCDesks Protocol** (otcdesks.cash) runs OTC desk NFTs and an OTC launcher. Any token launched
+through the launcher picks its own **reward asset** at launch time — a tokenized stock, a
+pre-IPO, a memecoin, or a wrapped asset — and every trade's creator fees are split a fixed
+**70% / 10% / 15% / 5%**: 70% auto-swapped into that chosen asset and airdropped pro-rata to the
+launched token's holders, 10% used to buy the reward asset for the OTC desk pot, 15% to OTC
+protocol operations, and 5% held back for manual (non-scheduled) $OTC buybacks. The launcher
+itself takes 0%. **$HUB chose $OTC as its reward asset**, so for $HUB specifically every leg above
+is paid in $OTC — that is what the rest of this document means by "$OTC yield". **hubconnect is a
+separate, community-built layer on top of that base protocol** — it does not fork or modify
+OTCDesks, it only reads its on-chain state and composes with it.
 
 $HUB launches *through* the OTC launcher and lets any OTC desk NFT owner **activate a tier
 on-chain** (burn-based, never lock-based) to earn pro-rata **$OTC yield** every round, funded by

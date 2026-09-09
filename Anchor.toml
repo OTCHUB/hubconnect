@@ -8,12 +8,18 @@ skip-lint = false
 
 [programs.devnet]
 hub = "7c5oPs9GvX8vrC5jVFketNx1ZLuPs7HeH8Qc4XJx7b7i"
+# Devnet/localnet-only swap target; the mainnet build never builds this crate in, nor references
+# its program id. See programs/mock_jupiter and hub's `mock-jupiter` Cargo feature.
+mock_jupiter = "BvjZ2YNTxKmKKKWUiNNRG83tQr5djiMMPBAGJxiZZn5C"
 
+# Intentionally excludes mock_jupiter: the mainnet `hub` build must never carry the
+# `mock-jupiter` feature, and this program is never deployed to mainnet-beta.
 [programs.mainnet]
 hub = "7c5oPs9GvX8vrC5jVFketNx1ZLuPs7HeH8Qc4XJx7b7i"
 
 [programs.localnet]
 hub = "7c5oPs9GvX8vrC5jVFketNx1ZLuPs7HeH8Qc4XJx7b7i"
+mock_jupiter = "BvjZ2YNTxKmKKKWUiNNRG83tQr5djiMMPBAGJxiZZn5C"
 
 [provider]
 cluster = "localnet"

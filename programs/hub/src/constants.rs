@@ -113,7 +113,19 @@ pub const TOKEN_IX_SYNC_NATIVE: u8 = 17;
 /// assembles the route's accounts/data off-chain via Jupiter's quote + swap-instructions API and
 /// supplies them verbatim; this program only pins this program id and enforces `min_out` via a
 /// balance-delta check on the destination token account (`jupiter_swap::swap_exact_in`).
+///
+/// Jupiter v6 is mainnet-beta-only — it does not exist on devnet, and a devnet fork of it (this
+/// program's own localnet validator forks mainnet-beta for exactly that reason, see Anchor.toml)
+/// still needs real, liquid mainnet routes to actually swap, which $HUB/$OTC do not have yet.
+/// `mock-jupiter` swaps this constant for `programs/mock_jupiter`'s program id instead — a
+/// same-interface stand-in deployed to devnet with a pre-funded liquidity reserve — so
+/// `finalize_epoch` / `activate_tier_otc` / `upgrade_tier_otc` can be exercised end-to-end on
+/// devnet without live $HUB/$OTC liquidity. Every other build (default, `verify.yml`, every
+/// mainnet-beta deploy) keeps the real Jupiter id below; this feature must never ship to mainnet.
+#[cfg(not(feature = "mock-jupiter"))]
 pub const JUPITER_PROGRAM_ID: Pubkey = pubkey!("JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4");
+#[cfg(feature = "mock-jupiter")]
+pub const JUPITER_PROGRAM_ID: Pubkey = pubkey!("BvjZ2YNTxKmKKKWUiNNRG83tQr5djiMMPBAGJxiZZn5C");
 
 /// §A6.3 second flywheel — the treasury's pro-rata claim on the OTC launcher's 70%
 /// holders-in-stock leg (it holds 2% of $HUB supply per §A7.1), already denominated in $OTC.

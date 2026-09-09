@@ -86,8 +86,15 @@ export const RAYDIUM_CP_SWAP_PROGRAM_ID = "CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQ
 /** Raydium's dedicated CP-Swap liquidity-locking program (burn LP mint, permanent fee claim). */
 export const RAYDIUM_LOCK_CP_SWAP_PROGRAM_ID = "LockrWmn6K5twhz3y9w1dQERbmgSaRkfnTeTKbpofwE";
 /** Jupiter aggregator v6 — pinned in `jupiter_swap::swap_exact_in`'s synchronous CPI leg
- * (`finalize_epoch`'s round-split swap and `otc_pay.rs`'s 2× premium swap-burn leg). */
+ * (`finalize_epoch`'s round-split swap and `otc_pay.rs`'s 2× premium swap-burn leg). Only valid
+ * against a `hub` build compiled *without* the `mock-jupiter` feature (the default/mainnet
+ * build) — see `MOCK_JUPITER_PROGRAM_ID` for devnet builds compiled with it. */
 export const JUPITER_PROGRAM_ID = "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4";
+/** Devnet/localnet testing only (`programs/mock_jupiter`) — the swap target `hub`'s
+ * `JUPITER_PROGRAM_ID` constant resolves to when built with the `mock-jupiter` Cargo feature.
+ * Never valid against a mainnet-beta deployment; use `scripts/lib/mock-jupiter.ts` to build
+ * routes against it, not `keeper/keeper/src/jupiter.ts`'s real Jupiter quote API. */
+export const MOCK_JUPITER_PROGRAM_ID = "BvjZ2YNTxKmKKKWUiNNRG83tQr5djiMMPBAGJxiZZn5C";
 /** Native mint (wrapped SOL) — the input side of `finalize_epoch`'s SOL→$HUB Jupiter route. */
 export const WSOL_MINT = "So11111111111111111111111111111111111111112";
 

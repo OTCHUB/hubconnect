@@ -280,6 +280,11 @@ export type FinalizeSwapArgs = {
   minHubOut?: BN | number | bigint;
   jupiterData?: Buffer;
   remainingAccounts?: { pubkey: PublicKey; isSigner: boolean; isWritable: boolean }[];
+  /** Override for the `jupiter_program` account — defaults to the real Jupiter v6 id. Pass
+   * `MOCK_JUPITER_PROGRAM_ID` (see `scripts/lib/mock-jupiter.ts`) when the target `hub` deploy
+   * was built with the `mock-jupiter` Cargo feature, or the on-chain `WrongJupiterProgram` check
+   * rejects the call. */
+  jupiterProgram?: PublicKey;
 };
 
 /** Raw `finalize_epoch(idx, min_hub_out, jupiter_data)` — no readiness check, so callers can
@@ -314,7 +319,7 @@ export async function finalizeIx(ctx: Ctx, idx: number, swap: FinalizeSwapArgs =
       vaultHub: treasury.vaultHub,
       treasuryFloatVault: treasury.treasuryFloatVault,
       tokenProgram: TOKEN_PROGRAM_ID,
-      jupiterProgram: new PublicKey(JUPITER_PROGRAM_ID),
+      jupiterProgram: swap.jupiterProgram ?? new PublicKey(JUPITER_PROGRAM_ID),
       systemProgram: SystemProgram.programId,
     })
     .remainingAccounts(swap.remainingAccounts ?? [])

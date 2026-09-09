@@ -1,0 +1,27 @@
+[package]
+name = "mock_jupiter"
+version = "1.0.0"
+description = "Devnet/localnet-only mock Jupiter V6 CPI target for hub's finalize_epoch / activate_tier_otc / upgrade_tier_otc integration tests. Never deployed under the real Jupiter program id."
+edition = "2021"
+rust-version = "1.89"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "mock_jupiter"
+
+[features]
+default = []
+cpi = ["no-entrypoint"]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+idl-build = ["anchor-lang/idl-build"]
+anchor-debug = []
+custom-heap = []
+custom-panic = []
+
+[dependencies]
+anchor-lang = { version = "1.2.0" }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }
