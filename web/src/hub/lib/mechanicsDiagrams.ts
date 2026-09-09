@@ -13,23 +13,23 @@ export const CYCLE_DIAGRAM = `flowchart LR
 `;
 
 export const ACTIVATION_DIAGRAM = `flowchart TD
-    A["Desk owner holds Desk NFT\\n(Metaplex Core asset)"] --> B{"Choose payment leg"}
-    B -->|SOL| C["activate_tier / upgrade_tier\\npay step fee (0.5 SOL/step)"]
-    B -->|"$OTC @ 2.00x premium"| D["activate_tier_otc / upgrade_tier_otc\\notc_fee(step) -> POL reserve"]
-    C --> E["90% -> Pot (round inflow, source A)\\n10% -> ops_wallet"]
-    D --> F["100% -> [vault] PDA $OTC ATA\\nno pot / ops / round inflow"]
-    E --> G["DeskTier PDA written\\ntier = current+1, activated_epoch = now\\nstamp_acc_per_weight = Config.acc_per_weight"]
-    F --> G
-    G --> H["Desk earns pro-rata yield\\nfrom every round closed after the stamp"]
-    H --> I["claim_yield"]
-    I --> J{"Lazy revocation:\\ncaller == on-chain owner right now?"}
-    J -->|yes| K["Pay floor((acc_per_weight - stamp) x w / 1e12)\\nstamp := acc_per_weight"]
-    J -->|no| L["voided = true, no refund\\ndesk drops out of Sigma w"]
-    K --> H
-    H --> M["upgrade_tier(_otc)"]
-    M --> N["Pay only the step difference\\nsame ownership + stamp rules"]
-    N --> G
-    L --> O["Re-activation required\\n(full steps again)"]
+    A["Desk owner holds Desk NFT\\n(Metaplex Core asset)"] --> B["activate_tier / upgrade_tier\\ntarget_tier (1..4)"]
+    B --> C["Flat step fee: 0.5 SOL, every call\\n90% -> Pot (round inflow, source A)\\n10% -> ops_wallet"]
+    C --> D{"Which leg pays the HUB burn?"}
+    D -->|"SOL direct"| E["BurnChecked: burn cumulative\\ntier-cost delta (100k-200k HUB)"]
+    D -->|"$OTC (activate_tier_otc / upgrade_tier_otc)"| F["otcSwapAmount sized off a live\\nJupiter OTC->HUB quote"]
+    F --> G["Half: Jupiter swap OTC->HUB\\nmin_out = hubCostDelta, burned in full"]
+    F --> H["Equal half: OTC -> desk-pot vault\\n(no swap - raises lifetime avg buy rate)"]
+    E --> I["DeskTier PDA written\\ntier = target_tier, activated_epoch = now\\nstamp_acc_per_weight = Config.acc_per_weight"]
+    G --> I
+    H --> I
+    I --> J["Desk earns pro-rata yield\\nfrom every round closed after the stamp"]
+    J --> K["claim_yield"]
+    K --> L{"Lazy revocation:\\ncaller == on-chain owner right now?"}
+    L -->|yes| M["Pay floor((acc_per_weight - stamp) x w / 1e12)\\nstamp := acc_per_weight"]
+    L -->|no| N["voided = true, no refund\\ndesk drops out of Sigma w"]
+    M --> J
+    N --> O["Re-activation required\\n(fee + burn again)"]
 `;
 
 export const FEE_FLOW_DIAGRAM = `flowchart TD
@@ -48,14 +48,14 @@ export const FEE_FLOW_DIAGRAM = `flowchart TD
     G --> H{"inflow + dust_scaled carry\\n>= min_pot_threshold_lamports (0.1 SOL)?"}
     H -->|no, keep accumulating| G
     H -->|"yes - any time, no clock"| I["finalize_epoch"]
-    I --> J["burn = floor(0.10 x round_inflow)\\n-> BurnState.burn_pending_lamports"]
-    I --> K["distributable = round_inflow - burn"]
+    I --> J["swap_leg = floor(0.10 x round_inflow)\\nsynchronous Jupiter CPI, SOL -> HUB"]
+    J --> J2["HUB out split 50/25/25 in the same tx:\\n5% burn / 2.5% LP-pending / 2.5% treasury float\\n(float capped, excess burned - see diagram 4)"]
+    I --> K["distributable = 0.90 x round_inflow"]
     K --> L["per_weight = floor(distributable x 1e12 / Sigma w)"]
     L --> M["Config.acc_per_weight += per_weight\\n(lifetime u128 accumulator)"]
     L --> N["remainder < 1 lamport -> Config.dust_scaled\\n(whole lamports re-enter next round)"]
     M --> O["Every activated DeskTier:\\nyield = floor((acc_per_weight - stamp_i) x w_i / 1e12)"]
     O --> P["claim_yield settles every round\\nclosed since the desk's stamp, one tx"]
-    J --> Q["Buyback-burn keeper (see diagram 4)"]
 `;
 
 export const TREASURY_DIAGRAM = `flowchart TD
@@ -77,24 +77,24 @@ export const TREASURY_DIAGRAM = `flowchart TD
 `;
 
 export const BUYBACK_LP_DIAGRAM = `flowchart TD
-    A["finalize_epoch: burn = floor(0.10 x round_inflow)"] --> B["BurnState.burn_pending_lamports += burn"]
-    B --> C["Buyback-burn keeper (off-chain, spec M4)\\npolls burn_pending_lamports"]
-    C --> D["Market-buy $HUB with pot SOL\\n(TWAP'd chunks, e.g. hourly slices)"]
-    D --> E["spl-token Burn on the bought $HUB\\n(Mint.supply drop is the burn proof)"]
-    E --> F["BurnState.total_hub_burned ledger += amount\\ndashboard flags 'drift' if ledger != Max-supply delta"]
-    H["Treasury discount exit"] --> I["HUB leg = 50% of sale_value -> burned directly\\n(separate, immediate sink from the 10% pot burn)"]
+    A["finalize_epoch: swap_leg = floor(0.10 x round_inflow)"] --> B["Synchronous Jupiter CPI, in the same tx\\nSOL -> HUB, min_out enforced by balance-delta"]
+    B --> C["HUB out split 50/25/25, same tx:\\n5% burned / 2.5% LP-pending / 2.5% treasury float"]
+    C --> D["BurnState.total_hub_burned += burn leg\\ndashboard flags 'drift' if ledger != Max-supply delta"]
+    C --> E["TreasuryState.lp_pending_hub_units += LP leg\\n(phase-2 HUB/OTC LP build)"]
+    C --> F["TreasuryState.treasury_float_units += float leg\\ncapped at hub_float_cap_bp (5%, admin-updatable)\\nexcess over the cap is burned instead"]
+    G["Treasury discount exit"] --> H["HUB leg = 50% of sale_value -> burned directly\\n(separate, immediate sink from the round-split burn)"]
     subgraph LP["LP building - HUB/SOL first, HUB/OTC as we grow"]
-        J["Bonding-curve graduation (OTC launcher)"] --> K["Curve SOL + HUB migrate into a\\nprotocol-owned AMM pool - treasury seeds nothing"]
-        K --> L{"Live impact within bounds?\\n5 SOL trade < ~5% impact,\\nhourly 10% burn chunk < ~1% impact"}
-        L -->|yes| M["LP manager stays passive\\nharvest swap fees only"]
-        L -->|no| N["Top-up: pair founding HUB allocation\\n+ treasury SOL (ops surplus)\\nnever market-buy HUB for LP"]
-        M --> O["Harvested fees -> pot (source F)"]
-        N --> O
-        P{"HUB price stable >=14 days\\npost-launch?"} -->|yes| Q["Phase 2: open HUB/OTC pool\\nseed ~25-50 SOL-equivalent/side"]
-        Q --> R["Pair treasury OTC (source C claims)\\n+ treasury HUB float (<=2% supply cap)"]
-        R --> O
+        I["Bonding-curve graduation (OTC launcher)"] --> J["Curve SOL + HUB migrate into a\\nprotocol-owned AMM pool - treasury seeds nothing"]
+        J --> K{"Live impact within bounds?\\n5 SOL trade < ~5% impact"}
+        K -->|yes| L["LP manager stays passive\\nharvest swap fees only"]
+        K -->|no| M["Top-up: pair founding HUB allocation\\n+ treasury SOL (ops surplus)\\nnever market-buy HUB for LP"]
+        L --> N["Harvested fees -> pot (source F)"]
+        M --> N
+        O{"HUB price stable >=24h\\npost-launch (lp_phase2_open_ts)?"} -->|yes| P["Phase 2: open HUB/OTC pool\\nseed with lp_pending_hub_units + treasury OTC"]
+        P --> Q["lock_cp_liquidity burns the LP mint outright\\ntreasury retains a permanent fee-claim right"]
+        Q --> N
     end
-    O --> S["Compounds staker yield\\n(source F feeds Epoch.inflow_lamports,\\nsame accumulator as diagram 2)"]
+    N --> R["Compounds staker yield\\n(source F feeds Epoch.inflow_lamports,\\nsame accumulator as diagram 2)"]
 `;
 
 // M.I.M ETF ("Magic Internet Money" ETF) — the on-chain/SDK name is HubPotConfig/HubPotRound;

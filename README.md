@@ -2,7 +2,7 @@
 
 # 🟢 hubconnect — the $HUB protocol
 
-**Stake-to-earn yield layer built on top of the OTCDesks Protocol.**
+**$HUB Yield Optimizer Protocol — Activate-to-earn Boosted Yield layer for OTC desk NFTs on Solana.**
 Anchor program · keeper services · read-only SDK · treasury dashboard.
 
 [![ci](https://github.com/OTCHUB/hubconnect/actions/workflows/ci.yml/badge.svg)](https://github.com/OTCHUB/hubconnect/actions/workflows/ci.yml)
@@ -16,8 +16,8 @@ Anchor program · keeper services · read-only SDK · treasury dashboard.
 
 </div>
 
-Single source of truth: [`docs/hubconnect-spec.md`](docs/hubconnect-spec.md) (v1.2).
-Implement from it; never re-derive tokenomics. Section refs below (`§A…`, `§B…`) point there.
+Full protocol reference: [`docs/hubconnect-spec.md`](docs/hubconnect-spec.md) (v1.2).
+Implement from it; never re-derive tokenomics.
 
 ## Links
 
@@ -27,6 +27,8 @@ Implement from it; never re-derive tokenomics. Section refs below (`§A…`, `§
 | 📊 $HUB app (treasury dashboard) | [app.otchub.dev](https://app.otchub.dev) |
 | 🐦 X / Twitter | [@otchubdev](https://x.com/otchubdev) |
 | 📈 DexScreener | pending — published here once the $HUB mint and its first liquidity pool exist (see [Program IDs](#program-ids)) |
+| ⚙️ How it works | [`docs/mechanics.md`](docs/mechanics.md) |
+| 🪙 Tokenomics | [`docs/tokenomics.md`](docs/tokenomics.md) |
 | 📖 Full spec | [`docs/hubconnect-spec.md`](docs/hubconnect-spec.md) |
 
 ## What is $HUB?
@@ -34,109 +36,37 @@ Implement from it; never re-derive tokenomics. Section refs below (`§A…`, `§
 **OTCDesks Protocol** (otcdesks.cash) runs OTC desk NFTs and an OTC launcher: any token launched
 through it (including $HUB) pays creator fees that buy **$OTC** for the launched token's holders.
 **hubconnect is a separate, community-built layer on top of that base protocol** — it does not
-fork or modify OTCDesks, it only reads its on-chain state and composes with it. $HUB launches
-*through* the OTC launcher and uses the $OTC it earns to fund yield for desk owners, on top of two
-protocol-native mechanisms of its own:
+fork or modify OTCDesks, it only reads its on-chain state and composes with it.
 
-1. **Desk tier activation** (`§A4`) — an OTC desk NFT owner activates a tier on-chain (burn-based,
-   never lock-based) and earns pro-rata $OTC yield from five pot-inflow sources: activation fees,
-   treasury desk-sweep proceeds, the treasury's launcher holder-leg claim, discount-exit proceeds,
-   and LP swap fees (`§A5`).
-2. **Treasury desk flywheel** (`§A6`) — the treasury sweeps listed desks when cheaper than minting
-   (zero dilution to the desk pot), harvests their yield for stakers, and can resell them to the
-   community at a floor discount.
+$HUB launches *through* the OTC launcher and lets any OTC desk NFT owner **activate a tier
+on-chain** (burn-based, never lock-based) to earn pro-rata **$OTC yield** every round, funded by
+activation fees, treasury desk-sweep proceeds, the treasury's launcher holder-leg claim,
+discount-exit proceeds, and LP swap fees. A dedicated **treasury desk flywheel** sweeps listed
+desks when cheaper than minting (zero dilution), harvests their yield for stakers, and can resell
+them to the community at a floor discount.
 
-Design principles, in priority order (`§A1`): not greedy (nothing taken from other OTC
-participants, only added buy pressure and pot funding); better yield for desk owners;
-deflationary by construction; evidence-first (every constant parameterized and re-verified
-on-chain). **0% team/dev token allocation.**
+Design principles, in priority order: not greedy (nothing taken from other OTC participants, only
+added buy pressure and pot funding); better yield for desk owners; deflationary by construction;
+evidence-first (every constant parameterized and re-verified on-chain). **0% team/dev token
+allocation.**
 
-## Tokenomics (§A3, §A6.2, §A7)
+See [`docs/mechanics.md`](docs/mechanics.md) for the tier system, the flat activation fee, the
+$OTC dynamic swap-burn payment path, and the 4-way per-round yield split; see
+[`docs/tokenomics.md`](docs/tokenomics.md) for supply, allocation, and every burn sink.
 
-**Launch supply allocation** (`MAX_SUPPLY = 1,000,000,000 $HUB`, minted once, mint authority
-revoked post-launch):
+## Quick Start
 
-| Slice | Share | Notes |
-|---|---|---|
-| Yield reserve | 2.00% | Treasury-multisig-held, never sold — backs the OTC-launcher reward basket that funds desk-holder yield (the launcher's 70% holders-in-stock leg pays $OTC pro-rata on $HUB held, `§A6.3`) |
-| LP reserve | 0.50% | Treasury-multisig-held, never sold — seeds/deepens $HUB's own liquidity |
-| Desk airdrop | ≤2.50% | 10,000 $HUB per desk activated on otcdesks.cash before the snapshot, capped at the first 2,500 activated desks (`AIRDROP_DESK_CAP`); Merkle claim to the desk's current owner; scales down with fewer desks |
-| Public / bonding curve | ≥95.00% | Everything not carved out above, bought up the launcher's bonding curve |
-
-Yield + LP reserve are one on-chain `treasury_lock_bp` (2.5% combined); at the full 2,500-desk
-airdrop cap the carve-outs total 5% and public settles at exactly 95%. The treasury's launch buy
-into its own $HUB float is capped at **≤2% of supply**, announced and tranched (`§A3.1`) — a
-share-of-supply cap, never a fixed SOL amount, to avoid reading as a dev wallet; the float is
-never sold, used only to claim its pro-rata $OTC and to pair LP.
-
-**Liquidity (`§A6.2`):** bootstrap LP is free — the OTC launcher's bonding-curve graduation seeds
-the $HUB/SOL pool automatically; the treasury hand-seeds nothing and that pool has no withdrawable
-LP authority for anyone. **Phase 2 ($HUB/OTC)** opens only after $HUB price is stable ≥24h
-post-launch (`lp_phase2_open_ts`, admin-set): the treasury deposits into a Raydium CP-Swap
-HUB/OTC pool and, in the same transaction, calls `lock_cp_liquidity` — **burning the LP mint
-outright** (principal never withdrawable by anyone) while retaining a permanent right to claim the
-pool's trading fees. Both phases' harvested fees flow back into the pot (source F).
-
-**Deflationary sinks (`§A7`):** no emissions, no minted staking rewards — supply is monotonic down
-after launch. 5% of every round's inflow buys $HUB on the market and burns it; every treasury desk
-exit burns 50% of the sale consideration in $HUB; the creator-fee flywheel (below) burns another 5%
-of its own inflow. `BurnState.total_hub_burned` is the on-chain ledger; it must equal
-`MAX_SUPPLY − Mint.supply` (dashboards flag "drift" if it doesn't).
-
-## Activation & upgrade mechanic (§A4)
-
-Tiers bind to a desk NFT **asset id**, not a wallet. `activate_tier` / `upgrade_tier` targets
-`target_tier` (1..4) directly and pays two things every call:
-
-| Tier | Weight | SOL fee (flat, per call) | $HUB burn (cumulative) |
-|---|---|---|---|
-| T1 TRADER | 1.00x | 0.5 SOL (90% pot / 10% ops) | 100,000 |
-| T2 BROKER | 1.25x | 0.5 SOL | 125,000 |
-| T3 DEALER | 1.60x | 0.5 SOL | 150,000 |
-| T4 MARKET MAKER | 2.00x | 0.5 SOL | 200,000 |
-
-1. **A flat SOL fee** — `STEP_FEE_LAMPORTS = 0.5 SOL`, paid once per call regardless of how many
-   tiers it crosses. A fresh T4 activation costs the same 0.5 SOL as a fresh T1; a later upgrade to
-   any higher tier pays 0.5 SOL again, once — never `(to − from) × fee`.
-2. **A $HUB burn** — the cumulative tier-cost table above; a fresh activation burns the full target
-   cost, an upgrade burns only the delta from the tier already held. `BurnChecked`, permanent,
-   independent of the round-based buyback burn.
-
-Ownership is **lazily re-verified on-chain** at every `claim_yield`/`upgrade_tier` call: if the
-caller no longer owns the desk asset, the tier is voided (no refund) instead of paying out to a
-stale owner. Either leg may alternatively be paid in $OTC (`activate_tier_otc`/`upgrade_tier_otc`,
-`§A4.1`, 2× premium, proceeds go to the $OTC/$HUB LP reserve — never the pot).
-
-## Revenue split (§A5, §A6.3)
-
-Two independent, deterministic-bp splits, both threshold-gated (not clocked) and enforced
-on-chain — a round or a creator-fee clearing fires the instant it clears its size threshold, not
-on a timer:
-
-**Round split — 90/5/5** (`finalize_epoch`, permissionless once `MIN_POT_THRESHOLD = 0.1 SOL` is
-reached):
-
-```text
-5%  → buy $HUB on the market, burn                    (BurnState.burn_pending_lamports)
-5%  → TreasuryState.lp_pending_lamports                (phase-2 $HUB/OTC LP build)
-90% → desk-staker $OTC yield, pro-rata by tier weight   (Config.acc_per_weight accumulator)
+```sh
+git clone https://github.com/OTCHUB/hubconnect.git && cd hubconnect
+export PATH="$HOME/.cargo/bin:$HOME/.avm/bin:$HOME/.local/share/solana/install/active_release/bin:$PATH"
+npm install
+anchor build                                  # hub.so + target/idl/hub.json + target/types/hub.ts
+anchor test --skip-build --validator legacy   # localnet, clones Metaplex Core (see Toolchain below)
 ```
 
-**Creator-fee flywheel — 80/5/5/5/5** (`clear_creator_fees`, permissionless once
-`clear_threshold_units` is reached) — a *second*, independent $OTC stream: the treasury's 2%
-$HUB float earns its pro-rata share of the OTC launcher's own 70% holders-in-stock leg, arriving
-already denominated in $OTC:
-
-```text
-80% → direct injection into the desk-yield vault, no swap  (raises the lifetime avg buy rate)
- 5% → swap $OTC→$HUB, burn                                 (buyback-burn sink)
- 5% → half swapped to $HUB, LOCKED into the $HUB/OTC pool   (§A6.2 phase 2)
- 5% → swap $OTC→$HUB, held in the treasury float            (§A7.1 cap still applies)
- 5% → swap $OTC→SOL, held in ops reserve                    (funds sweep/mint/LP operations)
-```
-
-Compile-time assertions in `programs/hub/src/constants.rs` guarantee both splits always sum to
-exactly 10,000 bp.
+Read-only SDK (account decoders, PDA derivation, projection math) lives in [`sdk/`](sdk); the
+treasury dashboard in [`web/`](web) consumes it directly. Full devnet deploy + mock-desk setup:
+see [Devnet](#devnet-b51) below.
 
 ## Program IDs
 
@@ -171,7 +101,7 @@ in the spec. `hub_mint`, `otc_mint`, `desk_collection`, `otc_desk_pot`, `ops_wal
 - **On-chain `security.txt`**: embedded in the deployed `.so` ([neodyme-labs/solana-security-txt](https://github.com/neodyme-labs/solana-security-txt)), so explorers and researchers can find the disclosure channel from the binary alone — `programs/hub/src/lib.rs`.
 - **Audit status**: `auditors: "None"` (declared in the embedded security.txt). No third-party audit has been performed; treat the program as unaudited until this changes.
 - **Arithmetic policy**: every accounting counter (`total_weight_bp`, `pot_liability_lamports`, `total_exits`, all `*_pending_*` balances) uses checked `add()`/`sub()` helpers that error on overflow/underflow — no `saturating_*` on state that must never silently clamp.
-- **Split invariants**: the 90/5/5 round split and 80/5/5/5/5 creator-fee split are asserted to sum to exactly 10,000 bp at **compile time** (`programs/hub/src/constants.rs`), not just at runtime.
+- **Split invariants**: the 90/5/2.5/2.5 round split and 80/5/5/5/5 creator-fee split are asserted to sum to exactly 10,000 bp at **compile time** (`programs/hub/src/constants.rs`), not just at runtime.
 - **Emergency pause (`Config.paused`, authority-only)**: gates new value-creating actions (`activate_tier`, `upgrade_tier`, `claim_yield`) and every keeper reimbursement draw that pays protocol-custodied funds out to an externally-controlled wallet (`record_burn`, `record_otc_buy`, `draw_creator_fee_leg`) — the fastest stop available against a compromised keeper key, since those keepers' authorities aren't independently rotatable. Inbound deposits, internal PDA-signed bookkeeping (`clear_creator_fees`), and pure off-chain attestations stay open under pause so a keeper mid-recovery isn't stranded. Full instruction-level gating: [`§B3`](docs/hubconnect-spec.md#b3-on-chain-program--instructions).
 - **Verified builds**: reproducible `.so`, SLSA provenance and independent verification steps — see [Verified builds](#verified-builds) below.
 

@@ -23,7 +23,12 @@ function ProgressBar({ value }: { value: number }) {
 function CurrentRound({ e, config }: { e: EpochView; config: ConfigView }) {
   const effective = effectiveInflowLamports(e, config);
   const carry = dustCarryLamports(config);
-  const dist = distributableLamports(effective, config.burnPctBp);
+  const dist = distributableLamports(
+    effective,
+    config.burnPctBp,
+    config.lpPctBp,
+    config.treasuryFloatPctBp,
+  );
   const ready = canFinalize(e, config);
   const need = lamportsToThreshold(e, config);
   const status = ready
@@ -37,7 +42,7 @@ function CurrentRound({ e, config }: { e: EpochView; config: ConfigView }) {
       <Row k="threshold" v={fmtSol(config.minPotThresholdLamports, 2)} />
       <Row k="booked inflow" v={fmtSol(e.inflowLamports)} />
       {carry > 0 && <Row k="+ dust carry" v={`${fmtNum(carry)} lamports`} />}
-      <Row k="→ burn slice" v={fmtSol(effective - dist)} />
+      <Row k="→ burn + LP + float" v={fmtSol(effective - dist)} />
       <Row k="→ to stakers" v={fmtSol(dist)} />
       <Row k="opened" v={fmtUtc(e.startTs)} />
       <div className="mt-2 text-[10px] text-green-700">

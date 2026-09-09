@@ -83,6 +83,7 @@ pub fn initialize_config(ctx: Context<InitializeConfig>, args: InitializeConfigA
     c.min_pot_threshold_lamports = threshold;
     c.burn_pct_bp = BURN_PCT_BP;
     c.lp_pct_bp = LP_PCT_BP;
+    c.treasury_float_pct_bp = TREASURY_FLOAT_PCT_BP;
     c.ops_pct_bp = OPS_PCT_BP;
     c.lp_enabled = LP_ENABLED;
     c.lp_target_sol_lamports = LP_TARGET_SOL_LAMPORTS;
@@ -117,7 +118,12 @@ pub fn initialize_config(ctx: Context<InitializeConfig>, args: InitializeConfigA
     t.hub_float_cap_bp = TREASURY_HUB_FLOAT_CAP_BP;
     t.total_exits = 0;
     t.total_sweeps = 0;
-    t.lp_pending_lamports = 0;
+    t.lp_pending_hub_units = 0;
+    // Set by `init_treasury_float` once the vault-owned WSOL/HUB scratch and float ATAs exist.
+    t.vault_wsol = Pubkey::default();
+    t.vault_hub = Pubkey::default();
+    t.treasury_float_vault = Pubkey::default();
+    t.treasury_float_units = 0;
     t.bump = ctx.bumps.treasury_state;
     Ok(())
 }
@@ -167,6 +173,7 @@ pub fn update_config(
         ConfigField::Authority => c.authority = pk(&value)?,
         ConfigField::BurnPctBp => c.burn_pct_bp = bps(&value)?,
         ConfigField::LpPctBp => c.lp_pct_bp = bps(&value)?,
+        ConfigField::TreasuryFloatPctBp => c.treasury_float_pct_bp = bps(&value)?,
         ConfigField::OpsPctBp => c.ops_pct_bp = bps(&value)?,
         ConfigField::LpEnabled => c.lp_enabled = flag(&value)?,
         ConfigField::Treasury => c.treasury = pk(&value)?,

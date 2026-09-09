@@ -129,6 +129,8 @@ export function WalletPortfolio({ address, state, onClear, onActivate }: Props) 
   const distributable = distributableLamports(
     roundInputs.roundInflowLamports,
     roundInputs.burnPctBp,
+    roundInputs.lpPctBp,
+    roundInputs.treasuryFloatPctBp,
   );
   const perDay = roundsPerDay(state.previousEpoch);
   const estDailyYieldLamports =

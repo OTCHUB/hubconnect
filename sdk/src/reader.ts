@@ -28,9 +28,7 @@ import {
   ACC_SCALE,
   BPS,
   HUB_MAX_SUPPLY_UNITS,
-  OTC_RATE_MAX_AGE_SECS,
   TIER_WEIGHTS_BP,
-  otcFeeUnits,
   supplyBreakdown,
   type SupplyBreakdown,
 } from "./constants";
@@ -74,8 +72,13 @@ export type ConfigView = {
   tierHubCostUnits: number[];
   minPotThresholdLamports: number;
   burnPctBp: number;
-  /** §A5 5% — earmarked at finalize into `TreasuryState.lpPendingLamports` (phase-2 LP build). */
+  /** §A5 2.5% — swapped SOL→$HUB at finalize and earmarked into `TreasuryView.lpPendingHubUnits`
+   * (phase-2 LP build). */
   lpPctBp: number;
+  /** §A5 2.5% — earmarked at finalize into `TreasuryState.treasury_float_vault` (buy-and-hold,
+   * capped). Together with `burnPctBp` + `lpPctBp`, this is the 10% swapped SOL→$HUB in
+   * `finalize_epoch`'s synchronous Jupiter CPI; the remainder is the 90% $OTC leg. */
+  treasuryFloatPctBp: number;
   opsPctBp: number;
   lpEnabled: boolean;
   /** §A6.2 phase-2 LP target (lamport-equivalent value) — mirrors `Config.lp_target_sol_lamports`. */
@@ -102,7 +105,8 @@ export type EpochView = {
   /** §A5 90% $OTC leg's lamport-equivalent value, credited through `accPerWeight` this round. */
   distributedLamports: number;
   burnPendingLamports: number;
-  /** §A5 5% — this round's LP-build earmark, added to `TreasuryView.lpPendingLamports`. */
+  /** §A5 2.5% — SOL input to this round's LP-build leg, swapped to $HUB and added to
+   * `TreasuryView.lpPendingHubUnits`. */
   lpPendingLamports: number;
   rolledForwardLamports: number;
   totalWeightBp: number;
@@ -123,16 +127,24 @@ export type DeskTierView = {
   voided: boolean;
 };
 
-/** §A4.1 `OtcPayConfig` — `null` from `fetchOtcPay` means the path was never initialized. */
+/**
+ * §A4.1 `OtcPayConfig` (revised) — `null` from `fetchOtcPay` means the path was never
+ * initialized. Pricing is no longer a static authority-refreshed rate: the 2× premium is a real
+ * synchronous on-chain Jupiter OTC→$HUB swap priced at the live market rate, so this only holds
+ * the on/off switch and the dead-reserve pointer — a per-call quote is required to know the
+ * current $OTC cost (see `otcPotLeg` in `./constants` for the swap/desk-pot split math).
+ */
 export type OtcPayView = {
   enabled: boolean;
-  /** $OTC base units per 1 SOL (authority-refreshed reference rate). */
-  otcPerSol: bigint;
-  rateTs: number;
-  /** Premium over the SOL step-fee value, bp (20_000 = 2.00×). */
-  premiumBp: number;
-  /** Vault-owned $OTC token account: the POL reserve every $OTC fee lands in. */
+  /**
+   * Vault-owned $OTC token account recorded at `init_otc_payments`. Legacy field: the live
+   * activate/upgrade-tier $OTC path no longer routes tokens through it (the swap-burn leg goes
+   * to the payer's own $HUB ATA and is burned there; the desk-pot leg lands in `OtcPotState`'s
+   * `otc_vault` instead) — kept for account-layout compatibility only.
+   */
   polAccount: string;
+  /** Lifetime $OTC paid across both legs of every `activate_tier_otc` / `upgrade_tier_otc` call
+   * (swap-burn leg + desk-pot leg combined — the full ~2x premium, not just one side of it). */
   totalOtcCollectedUnits: bigint;
 };
 
@@ -319,8 +331,9 @@ export type ProtocolState = {
     totalExits: number;
     totalSweeps: number;
     lpHubDepositedUnits: bigint;
-    /** §A5 5% leg awaiting the phase-2 LP adapter (mirrors `burn.burnPendingLamports`). */
-    lpPendingLamports: number;
+    /** §A5 2.5% leg — lifetime $HUB swapped-in and earmarked for the $HUB/$OTC LP, awaiting the
+     * phase-2 `build_lp_otc_locked` adapter. */
+    lpPendingHubUnits: number;
   };
   /** `null` until the authority calls `init_otc_pot` (§A5 90% leg not provisioned yet). */
   otcPot: OtcPotView | null;
@@ -373,6 +386,7 @@ export function toConfigView(
     minPotThresholdLamports: n(c.minPotThresholdLamports),
     burnPctBp: c.burnPctBp,
     lpPctBp: c.lpPctBp,
+    treasuryFloatPctBp: c.treasuryFloatPctBp,
     opsPctBp: c.opsPctBp,
     lpEnabled: c.lpEnabled,
     lpTargetSolLamports: n(c.lpTargetSolLamports),
@@ -467,7 +481,7 @@ export async function fetchProtocolState(program: HubProgram): Promise<ProtocolS
       totalExits: tres.totalExits,
       totalSweeps: tres.totalSweeps,
       lpHubDepositedUnits,
-      lpPendingLamports: n(tres.lpPendingLamports),
+      lpPendingHubUnits: n(tres.lpPendingHubUnits),
     },
     token,
     supply: toSupplyView(token, ledgerBurned, lpHubDepositedUnits),
@@ -494,9 +508,6 @@ export function toOtcPayView(
 ): OtcPayView {
   return {
     enabled: p.enabled,
-    otcPerSol: big(p.otcPerSol),
-    rateTs: n(p.rateTs),
-    premiumBp: p.premiumBp,
     polAccount: p.polAccount.toBase58(),
     totalOtcCollectedUnits: big(p.totalOtcCollected),
   };
@@ -782,15 +793,11 @@ export function hubPotShareUnits(
   };
 }
 
-/** True when `activate_tier_otc` / `upgrade_tier_otc` would pass the program's payable gate. */
-export function otcPayable(p: OtcPayView | null, nowSecs = Math.floor(Date.now() / 1000)) {
-  return !!p && p.enabled && p.otcPerSol > 0n && nowSecs - p.rateTs <= OTC_RATE_MAX_AGE_SECS;
-}
-
-/** $OTC units the program will charge for an `activate`/`upgrade` call under `p` — the flat SOL
- * step-fee value at the premium; independent of `from`/`to` (kept as params for API stability). */
-export function otcStepFeeUnits(p: OtcPayView, c: ConfigView, _from: number, _to: number) {
-  return otcFeeUnits(c.stepFeeLamports, p.otcPerSol, p.premiumBp);
+/** True when `activate_tier_otc` / `upgrade_tier_otc` would pass the program's payable gate.
+ * Pricing is a live Jupiter quote supplied per-call now, not a stored rate — this only reflects
+ * the on/off switch (`init_otc_payments` must also have run, i.e. `p` is non-null). */
+export function otcPayable(p: OtcPayView | null) {
+  return !!p && p.enabled;
 }
 
 /** Whole lamports of dust that will be folded into the open round at the next finalize. */
@@ -825,8 +832,9 @@ export function lamportsToThreshold(e: EpochView, c: ConfigView) {
 
 /**
  * Projected staker allotment (lamport-equivalent $OTC value) for `tier` if the open round
- * closed now with its current inflow and Σw — mirrors `finalize_epoch`'s §A5 5%/5%/90% split
- * (burn + LP-pending come off first, the remainder is the distributable $OTC leg).
+ * closed now with its current inflow and Σw — mirrors `finalize_epoch`'s §A5 4-way split
+ * (5% burn / 2.5% LP / 2.5% treasury float come off first — all three swapped SOL→$HUB in one
+ * synchronous Jupiter CPI — the remaining 90% is the distributable $OTC leg).
  */
 export function projectRoundYield(
   e: EpochView,
@@ -834,12 +842,14 @@ export function projectRoundYield(
   totalWeightBp: number,
   burnPctBp: number,
   lpPctBp: number,
+  treasuryFloatPctBp: number,
 ) {
   const w = TIER_WEIGHTS_BP[tier - 1] ?? 0;
   if (!w || totalWeightBp === 0) return 0;
   const burn = Math.floor((e.inflowLamports * burnPctBp) / BPS);
   const lp = Math.floor((e.inflowLamports * lpPctBp) / BPS);
-  const distributable = e.inflowLamports - burn - lp;
+  const float = Math.floor((e.inflowLamports * treasuryFloatPctBp) / BPS);
+  const distributable = e.inflowLamports - burn - lp - float;
   return Math.floor((distributable * w) / totalWeightBp);
 }
 

@@ -1,9 +1,9 @@
 {
   "name": "hubconnect",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "type": "commonjs",
-  "description": "$HUB protocol — stake-to-earn layer for OTC desk NFTs (community tooling, not affiliated with OTC)",
+  "description": "$HUB Yield Optimizer Protocol — Activate-to-earn Boosted Yield layer for OTC desk NFTs on Solana",
   "license": "MIT",
   "scripts": {
     "build": "anchor build",
@@ -23,7 +23,8 @@
     "mainnet:airdrop-distribute": "ts-node -T scripts/mainnet-distribute.ts",
     "mainnet:treasury-reward": "ts-node -T scripts/mainnet-distribute.ts --reward",
     "idl:copy": "node scripts/copy-idl.mjs",
-    "snapshot:ingest": "ts-node -T scripts/hub-snapshot-ingest.ts"
+    "snapshot:ingest": "ts-node -T scripts/hub-snapshot-ingest.ts",
+    "keeper:epoch": "ts-node -T keeper/keeper/src/index.ts"
   },
   "dependencies": {
     "@anchor-lang/core": "^1.2.0",

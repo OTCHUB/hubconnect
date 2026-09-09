@@ -5,6 +5,7 @@ use anchor_lang::prelude::*;
 use crate::constants::*;
 use crate::errors::HubError;
 use crate::events::*;
+use crate::instructions::otc_pay::require_token_account;
 use crate::instructions::pot::add;
 use crate::instructions::raydium_cpswap;
 use crate::state::*;
@@ -156,5 +157,77 @@ pub fn build_lp_otc_locked(
         hub_amount,
         quote_amount: otc_amount,
     });
+    Ok(())
+}
+
+/// §A6.3/§A7.1 bridge, one-time post-init (mirrors `init_otc_pot`) — records the three
+/// vault-owned (`["vault"]` PDA) token accounts `finalize_epoch`'s synchronous Jupiter legs and
+/// `otc_pay.rs`'s swap-burn leg need: a WSOL scratch ATA (SOL→$HUB swap funding), a $HUB scratch
+/// ATA (every swap's destination, and `lp_pending_hub_units`'s physical custody), and the $HUB
+/// buy-and-hold float ATA (treasury-float leg's destination, capped at `hub_float_cap_bp`).
+#[derive(Accounts)]
+pub struct InitTreasuryFloat<'info> {
+    pub treasury: Signer<'info>,
+    #[account(seeds = [SEED_CONFIG], bump = config.bump, has_one = treasury @ HubError::Unauthorized)]
+    pub config: Account<'info, Config>,
+    #[account(mut, seeds = [SEED_TREASURY], bump = treasury_state.bump)]
+    pub treasury_state: Account<'info, TreasuryState>,
+    /// CHECK: program-signed custody PDA; must own the three ATAs below.
+    #[account(seeds = [SEED_VAULT], bump = treasury_state.vault_bump)]
+    pub vault: UncheckedAccount<'info>,
+    /// CHECK: spl-token account, mint = native (WSOL), owner = vault (verified in handler).
+    pub vault_wsol: UncheckedAccount<'info>,
+    /// CHECK: spl-token account, mint = config.hub_mint, owner = vault (verified in handler).
+    pub vault_hub: UncheckedAccount<'info>,
+    /// CHECK: spl-token account, mint = config.hub_mint, owner = vault (verified in handler).
+    pub treasury_float_vault: UncheckedAccount<'info>,
+}
+
+pub fn init_treasury_float(ctx: Context<InitTreasuryFloat>) -> Result<()> {
+    require_token_account(&ctx.accounts.vault_wsol, &WSOL_MINT, ctx.accounts.vault.key)?;
+    require_token_account(
+        &ctx.accounts.vault_hub,
+        &ctx.accounts.config.hub_mint,
+        ctx.accounts.vault.key,
+    )?;
+    require_token_account(
+        &ctx.accounts.treasury_float_vault,
+        &ctx.accounts.config.hub_mint,
+        ctx.accounts.vault.key,
+    )?;
+    let ts = &mut ctx.accounts.treasury_state;
+    ts.vault_wsol = ctx.accounts.vault_wsol.key();
+    ts.vault_hub = ctx.accounts.vault_hub.key();
+    ts.treasury_float_vault = ctx.accounts.treasury_float_vault.key();
+    emit!(TreasuryFloatInitialized {
+        vault_wsol: ts.vault_wsol,
+        vault_hub: ts.vault_hub,
+        treasury_float_vault: ts.treasury_float_vault,
+    });
+    Ok(())
+}
+
+#[derive(Accounts)]
+pub struct SetTreasuryFloatCapBp<'info> {
+    pub treasury: Signer<'info>,
+    #[account(seeds = [SEED_CONFIG], bump = config.bump, has_one = treasury @ HubError::Unauthorized)]
+    pub config: Account<'info, Config>,
+    #[account(mut, seeds = [SEED_TREASURY], bump = treasury_state.bump)]
+    pub treasury_state: Account<'info, TreasuryState>,
+}
+
+/// Experimental parameter (§A6.3/§A7.1 "we are experimenting"): the treasury multisig may
+/// retune the float cap at will. Excess over the live cap at deposit time is burned, never
+/// rejected — see `finalize_epoch`.
+pub fn set_treasury_float_cap_bp(
+    ctx: Context<SetTreasuryFloatCapBp>,
+    hub_float_cap_bp: u16,
+) -> Result<()> {
+    require!(
+        hub_float_cap_bp as u64 <= BPS_DENOMINATOR,
+        HubError::BpsOutOfRange
+    );
+    ctx.accounts.treasury_state.hub_float_cap_bp = hub_float_cap_bp;
+    emit!(TreasuryFloatCapUpdated { hub_float_cap_bp });
     Ok(())
 }

@@ -3,7 +3,8 @@
 //   npx ts-node -T scripts/hub-authority.ts revoke-mint --yes
 //   npx ts-node -T scripts/hub-authority.ts otc-status
 //   npx ts-node -T scripts/hub-authority.ts otc-init          # creates vault ATA for otc_mint + OtcPayConfig
-//   npx ts-node -T scripts/hub-authority.ts otc-rate <otc_per_sol> [--enable|--disable]
+//   npx ts-node -T scripts/hub-authority.ts otc-enable        # (or otc-disable) — on/off switch only;
+//                                                              pricing is a live Jupiter quote per call now
 //
 // Two independent authorities, deliberately kept apart:
 //   • Program upgrade authority (BPF loader ProgramData) — stays with the deployer/multisig so the
@@ -14,19 +15,16 @@
 // `revoke-mint` is irreversible; it refuses to run without --yes and re-checks the mint first.
 import "dotenv/config";
 import { PublicKey, Transaction, TransactionInstruction } from "@solana/web3.js";
-import { AnchorProvider, BN, Program, Wallet } from "@anchor-lang/core";
+import { AnchorProvider, Program, Wallet } from "@anchor-lang/core";
 import { Connection } from "@solana/web3.js";
 import {
   HUB_IDL,
-  OTC_RATE_MAX_AGE_SECS,
   configPda,
-  otcFeeUnits,
   otcPayPda,
   treasuryPda,
   vaultPda,
   type HubProgram,
 } from "../sdk/src";
-import { STEP_FEE_LAMPORTS } from "../sdk/src/constants";
 import {
   ata,
   createAtaIdempotent,
@@ -87,7 +85,9 @@ async function upgradeAuthority(connection: Connection, programId: PublicKey) {
   };
 }
 
-/** `otc-status` / `otc-init` / `otc-rate` — the §A4.1 path is a separate PDA, created after init. */
+/** `otc-status` / `otc-init` / `otc-enable` / `otc-disable` — the §A4.1 path is a separate PDA,
+ * created after init. Pricing is a live Jupiter quote supplied per-call (see `otcPotLeg` in
+ * `sdk/src/constants.ts`), so there is no on-chain rate to display or refresh here anymore. */
 async function otcPayCommand(
   cmd: string,
   program: HubProgram,
@@ -100,7 +100,6 @@ async function otcPayCommand(
   const [vault] = vaultPda(id);
   const polAccount = ata(vault, cfg.otcMint);
   const existing = await program.account.otcPayConfig.fetchNullable(otcPayKey);
-  const stepSol = STEP_FEE_LAMPORTS / 1e9;
 
   if (cmd === "otc-status") {
     console.log(`$OTC payment path (OtcPayConfig ${otcPayKey.toBase58()})`);
@@ -112,15 +111,9 @@ async function otcPayCommand(
       console.log("  state             : NOT INITIALIZED — run otc-init");
       return;
     }
-    const age = Math.floor(Date.now() / 1000) - existing.rateTs.toNumber();
-    const stale = age > OTC_RATE_MAX_AGE_SECS;
     console.log(`  enabled           : ${existing.enabled}`);
     console.log(
-      `  otc_per_sol       : ${existing.otcPerSol.toString()} units/SOL · set ${age}s ago${stale ? "  ⚠ STALE (path rejects)" : ""}`,
-    );
-    console.log(`  premium           : ${existing.premiumBp / 100}%`);
-    console.log(
-      `  step price        : ${stepSol} SOL  or  ${otcFeeUnits(STEP_FEE_LAMPORTS, BigInt(existing.otcPerSol.toString()), existing.premiumBp).toString()} OTC units`,
+      `  pricing           : live Jupiter OTC→$HUB quote per call (no stored rate; see otc_pay.rs)`,
     );
     console.log(`  collected for POL : ${existing.totalOtcCollected.toString()} units`);
     return;
@@ -144,29 +137,19 @@ async function otcPayCommand(
       })
       .preInstructions([createAtaIdempotent(payer.publicKey, vault, cfg.otcMint)])
       .rpc();
-    console.log(`OtcPayConfig created (disabled, unpriced) → ${explorer(sig, "tx")}`);
-    console.log(`  POL reserve ${polAccount.toBase58()} · next: otc-rate <otc_per_sol> --enable`);
+    console.log(`OtcPayConfig created (disabled) → ${explorer(sig, "tx")}`);
+    console.log(`  POL reserve ${polAccount.toBase58()} · next: otc-enable`);
     return;
   }
 
-  if (cmd === "otc-rate") {
+  if (cmd === "otc-enable" || cmd === "otc-disable") {
     if (!existing) throw new Error("run otc-init first");
-    const raw = process.argv[3];
-    if (!raw || !/^\d+$/.test(raw))
-      throw new Error("usage: otc-rate <otc_per_sol units> [--enable|--disable]");
-    const otcPerSol = BigInt(raw);
-    const enabled = process.argv.includes("--disable")
-      ? false
-      : process.argv.includes("--enable")
-        ? true
-        : existing.enabled;
+    const enabled = cmd === "otc-enable";
     const sig = await program.methods
-      .setOtcRate(new BN(otcPerSol.toString()), enabled)
+      .setOtcPaymentsEnabled(enabled)
       .accountsStrict({ authority: payer.publicKey, config: configPda(id)[0], otcPay: otcPayKey })
       .rpc();
-    console.log(
-      `otc_per_sol = ${otcPerSol} · enabled = ${enabled} · step = ${otcFeeUnits(STEP_FEE_LAMPORTS, otcPerSol, existing.premiumBp)} OTC units → ${explorer(sig, "tx")}`,
-    );
+    console.log(`enabled = ${enabled} → ${explorer(sig, "tx")}`);
     return;
   }
   throw new Error(`unknown command ${cmd}`);

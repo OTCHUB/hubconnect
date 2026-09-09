@@ -95,6 +95,7 @@ pub fn activate_tier(ctx: Context<ActivateTier>, target_tier: u8) -> Result<()> 
         &ctx.accounts.hub_mint,
         &ctx.accounts.payer,
         hub_cost,
+        &[],
     )?;
 
     let epoch_idx = apply_activation(
@@ -200,6 +201,7 @@ pub fn upgrade_tier(ctx: Context<UpgradeTier>, target_tier: u8) -> Result<()> {
         &ctx.accounts.hub_mint,
         &ctx.accounts.payer,
         hub_cost,
+        &[],
     )?;
 
     apply_upgrade(config, t, target_tier)?;

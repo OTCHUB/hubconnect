@@ -22,6 +22,10 @@ export type ScenarioInputs = {
   roundInflowLamports: number;
   totalWeightBp: number;
   burnPctBp: number;
+  /** §A5 2.5% — swapped SOL→$HUB alongside the burn slice, earmarked for the phase-2 LP build. */
+  lpPctBp: number;
+  /** §A5 2.5% — swapped SOL→$HUB alongside the burn slice, earmarked for the treasury float. */
+  treasuryFloatPctBp: number;
 };
 
 export function applyScenario(base: ScenarioInputs, s: Scenario): ScenarioInputs {
@@ -30,15 +34,32 @@ export function applyScenario(base: ScenarioInputs, s: Scenario): ScenarioInputs
   return base;
 }
 
-/** Distributable share of a round's inflow after the burn slice (§A5). */
-export const distributableLamports = (inflowLamports: number, burnPctBp: number) =>
-  inflowLamports - Math.floor((inflowLamports * burnPctBp) / BPS);
+/**
+ * Distributable share of a round's inflow after the 4-way split's swap legs come off (§A5:
+ * 5% burn / 2.5% LP / 2.5% treasury float — all three swapped SOL→$HUB in one synchronous
+ * Jupiter CPI at `finalize_epoch`; the remaining 90% is the distributable $OTC leg).
+ */
+export const distributableLamports = (
+  inflowLamports: number,
+  burnPctBp: number,
+  lpPctBp: number,
+  treasuryFloatPctBp: number,
+) =>
+  inflowLamports -
+  Math.floor((inflowLamports * burnPctBp) / BPS) -
+  Math.floor((inflowLamports * lpPctBp) / BPS) -
+  Math.floor((inflowLamports * treasuryFloatPctBp) / BPS);
 
 /** Per-tier payout for one round under `inputs`; 0 while Σw is empty. */
 export function tierPayoutLamports(tier: number, inputs: ScenarioInputs) {
   const w = TIER_WEIGHTS_BP[tier - 1] ?? 0;
   if (!w || inputs.totalWeightBp <= 0) return 0;
-  const dist = distributableLamports(inputs.roundInflowLamports, inputs.burnPctBp);
+  const dist = distributableLamports(
+    inputs.roundInflowLamports,
+    inputs.burnPctBp,
+    inputs.lpPctBp,
+    inputs.treasuryFloatPctBp,
+  );
   return Math.floor((dist * w) / inputs.totalWeightBp);
 }
 
@@ -88,6 +109,8 @@ export const baseInputs = (e: EpochView, config: ConfigView): ScenarioInputs => 
   roundInflowLamports: Math.max(config.minPotThresholdLamports, effectiveInflowLamports(e, config)),
   totalWeightBp: config.totalWeightBp,
   burnPctBp: config.burnPctBp,
+  lpPctBp: config.lpPctBp,
+  treasuryFloatPctBp: config.treasuryFloatPctBp,
 });
 
 /** Warn owners before listing/transferring when unclaimed yield is material. */

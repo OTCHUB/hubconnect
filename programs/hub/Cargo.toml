@@ -1,7 +1,7 @@
 [package]
 name = "hub"
-version = "0.1.0"
-description = "$HUB protocol — stake-to-earn layer for OTC desk NFTs (community tooling)"
+version = "1.0.0"
+description = "$HUB Yield Optimizer Protocol — Activate-to-earn Boosted Yield layer for OTC desk NFTs on Solana"
 edition = "2021"
 rust-version = "1.89"
 

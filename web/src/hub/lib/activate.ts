@@ -1,21 +1,27 @@
 // Desk activate / upgrade (§A4): one tx per desk, paid in SOL (`activate_tier` / `upgrade_tier`,
-// flat step fee, 90% pot / 10% ops) or in $OTC at the fixed premium (`activate_tier_otc` /
-// `upgrade_tier_otc`, proceeds → POL reserve) — either way, `target_tier` is reached directly in
-// ONE call: a fresh activation into T4 pays the flat step fee once, exactly like a fresh T1
-// activation. Every call also burns the $HUB tier cost (full cost for a fresh activation, just
-// the difference for an upgrade). Same reliability model as claim.ts: simulate unsigned first,
-// one wallet prompt, send, confirm. `upgrade_tier` rejects desks with pending yield, so a
-// `claim_yield` ix is prepended in the same tx when needed.
+// flat step fee, 90% pot / 10% ops) or in $OTC (`activate_tier_otc` / `upgrade_tier_otc`) — either
+// way, `target_tier` is reached directly in ONE call: a fresh activation into T4 pays the flat
+// step fee once, exactly like a fresh T1 activation. The SOL path burns the $HUB tier cost
+// directly from the payer's wallet; the $OTC path (§otc_pay.rs, revised) charges the *same* flat
+// SOL fee **plus** a live-quoted Jupiter $OTC→$HUB swap that both produces the tier's $HUB burn
+// (`min_out = hubCostDeltaUnits`, enforced on-chain via balance-delta) and — at an equal-scaled
+// amount injected straight into `OtcPotState.otc_vault` (see `otcPotLeg`) — pays roughly 2× that
+// swap's $OTC cost in total. Pricing is no longer a static authority-refreshed rate: the caller
+// must fetch a live route (`fetchOtcToHubRoute`) and pass its `otcSwapAmount`/`jupiterData` in.
+// Same reliability model as claim.ts: simulate unsigned first, one wallet prompt, send, confirm.
+// `upgrade_tier` rejects desks with pending yield, so a `claim_yield` ix is prepended when needed.
 import {
   ComputeBudgetProgram,
   Connection,
   PublicKey,
   Transaction,
+  type AccountMeta,
   type TransactionInstruction,
 } from "@solana/web3.js";
+import BN from "bn.js";
 import {
-  OTC_PREMIUM_BP,
-  OTC_RATE_MAX_AGE_SECS,
+  BPS,
+  JUPITER_PROGRAM_ID,
   TOKEN_PROGRAM_ID,
   ataPda,
   configPda,
@@ -24,7 +30,7 @@ import {
   hubCostDeltaUnits,
   otcPayPda,
   otcPayable,
-  otcStepFeeUnits,
+  otcPotPda,
   potPda,
   tierPda,
   type ConfigView,
@@ -43,12 +49,10 @@ export type TierChangeResult = { asset: string; ok: boolean; sig?: string; reaso
 export type TierQuote = {
   steps: number;
   solLamports: number;
-  /** null when the $OTC path cannot quote (not initialized / disabled / stale). */
-  otcUnits: bigint | null;
-  premiumBp: number;
   otcAvailable: boolean;
   otcUnavailableReason?: string;
-  /** $HUB base units burned for this call (full tier cost on activation, delta on upgrade). */
+  /** $HUB base units burned for this call (full tier cost on activation, delta on upgrade). Also
+   *  the floor (`minHubOut`) `fetchOtcToHubRoute` must clear for the $OTC path. */
   hubBurnUnits: number;
 };
 
@@ -57,6 +61,25 @@ const CU_PRICE_MICRO = 10_000;
 const SYSTEM_PROGRAM = new PublicKey("11111111111111111111111111111111");
 export const MAX_TIER = 4;
 
+const JUP_QUOTE_API = "https://lite-api.jup.ag/swap/v1/quote";
+const JUP_BUILD_API = "https://api.jup.ag/swap/v2/build";
+/** ExactOut quote → ExactIn build is two separate calls; pad the ExactOut estimate so price drift
+ *  between them (plus the build's own slippage) still clears `minHubOut` on the first try. */
+const OTC_SWAP_INPUT_BUFFER_BP = 150;
+const OTC_SWAP_SLIPPAGE_BPS = 100;
+
+export type OtcSwapRoute = {
+  /** $OTC base units the caller must hold; becomes `activate_tier_otc`'s `otc_swap_amount` arg. */
+  otcSwapAmount: bigint;
+  /** Raw Jupiter route instruction data, passed verbatim as the ix's `jupiter_data` arg. */
+  jupiterData: Buffer;
+  /** The route's account list, passed verbatim as `ctx.remaining_accounts`. */
+  remainingAccounts: AccountMeta[];
+  /** Unrounded expected $HUB out, for display. */
+  outAmount: bigint;
+  routeLabels: string[];
+};
+
 function assertTierRange(fromTier: number, toTier: number) {
   if (!Number.isInteger(toTier) || toTier < 1 || toTier > MAX_TIER)
     throw new Error(`target tier must be 1..${MAX_TIER}`);
@@ -64,16 +87,16 @@ function assertTierRange(fromTier: number, toTier: number) {
     throw new Error("target tier must be above the current tier");
 }
 
-/** Why `otcPayable` is false, for the UI. */
+/** Why `otcPayable` is false, for the UI. Pricing is a live Jupiter quote now, not a stored rate
+ *  — there's nothing left to go stale, only the on/off switch and whether it was ever initialized. */
 export function otcUnavailableReason(p: OtcPayView | null): string | undefined {
   if (!p) return "not initialized on this cluster";
   if (!p.enabled) return "disabled";
-  if (p.otcPerSol <= 0n || Math.floor(Date.now() / 1000) - p.rateTs > OTC_RATE_MAX_AGE_SECS)
-    return "rate stale";
   return undefined;
 }
 
-/** Side-by-side cost of moving `fromTier → toTier` (fromTier 0 = fresh activation). */
+/** Side-by-side cost of moving `fromTier → toTier` (fromTier 0 = fresh activation). The $OTC
+ *  amount itself isn't known until `fetchOtcToHubRoute` returns a live quote. */
 export function quoteTierChange(opts: {
   config: ConfigView;
   otcPay: OtcPayView | null;
@@ -84,17 +107,94 @@ export function quoteTierChange(opts: {
   assertTierRange(fromTier, toTier);
   const steps = toTier - fromTier;
   const reason = otcUnavailableReason(otcPay);
-  const otcAvailable = !reason && otcPayable(otcPay);
   return {
     steps,
     // Flat: one `activate_tier`/`upgrade_tier` call always costs one step fee, regardless of
     // how many tiers it crosses.
     solLamports: config.stepFeeLamports,
-    otcUnits: otcAvailable && otcPay ? otcStepFeeUnits(otcPay, config, fromTier, toTier) : null,
-    premiumBp: otcPay?.premiumBp ?? OTC_PREMIUM_BP,
-    otcAvailable,
+    otcAvailable: !reason && otcPayable(otcPay),
     otcUnavailableReason: reason,
     hubBurnUnits: hubCostDeltaUnits(fromTier, toTier),
+  };
+}
+
+/**
+ * Sizes and builds the $OTC→$HUB Jupiter route `activate_tier_otc`/`upgrade_tier_otc` swap-burns
+ * on-chain (§otc_pay.rs). Swap V2's `/build` (the CPI-oriented endpoint, raw instruction data, no
+ * ALT dependency) is ExactIn-only, so this first asks the legacy Metis `/quote` for an ExactOut
+ * estimate of the $OTC input needed to clear `minHubOut`, pads it for drift between the two calls,
+ * then builds the real route via `/build` — double-checking its own `otherAmountThreshold` still
+ * clears `minHubOut`, the same floor `jupiter_swap::swap_exact_in` enforces on-chain.
+ */
+export async function fetchOtcToHubRoute(opts: {
+  taker: PublicKey;
+  otcMint: PublicKey;
+  hubMint: PublicKey;
+  destinationTokenAccount: PublicKey;
+  minHubOut: bigint;
+  apiKey?: string;
+  fetchImpl?: typeof fetch;
+}): Promise<OtcSwapRoute> {
+  const { taker, otcMint, hubMint, destinationTokenAccount, minHubOut } = opts;
+  if (minHubOut <= 0n) throw new Error("fetchOtcToHubRoute: minHubOut must be > 0");
+  const doFetch = opts.fetchImpl ?? fetch;
+  const headers = opts.apiKey ? { "x-api-key": opts.apiKey } : undefined;
+
+  const qqs = new URLSearchParams({
+    inputMint: otcMint.toBase58(),
+    outputMint: hubMint.toBase58(),
+    amount: minHubOut.toString(),
+    swapMode: "ExactOut",
+    slippageBps: String(OTC_SWAP_SLIPPAGE_BPS),
+  });
+  const qRes = await doFetch(`${JUP_QUOTE_API}?${qqs}`, { headers });
+  const qBody = (await qRes.json().catch(() => ({}))) as { inAmount?: string; error?: string };
+  if (!qRes.ok || !qBody.inAmount)
+    throw new Error(qBody.error ?? `Jupiter quote HTTP ${qRes.status}`);
+  const estimatedIn = BigInt(qBody.inAmount);
+  const otcSwapAmount = (estimatedIn * BigInt(BPS + OTC_SWAP_INPUT_BUFFER_BP)) / BigInt(BPS);
+
+  const bqs = new URLSearchParams({
+    inputMint: otcMint.toBase58(),
+    outputMint: hubMint.toBase58(),
+    amount: otcSwapAmount.toString(),
+    taker: taker.toBase58(),
+    slippageBps: String(OTC_SWAP_SLIPPAGE_BPS),
+    wrapAndUnwrapSol: "false",
+    destinationTokenAccount: destinationTokenAccount.toBase58(),
+  });
+  const bRes = await doFetch(`${JUP_BUILD_API}?${bqs}`, { headers });
+  const bBody = (await bRes.json().catch(() => ({}))) as {
+    outAmount?: string;
+    otherAmountThreshold?: string;
+    routePlan?: { swapInfo?: { label?: string } }[];
+    swapInstruction?: {
+      programId: string;
+      accounts: { pubkey: string; isSigner: boolean; isWritable: boolean }[];
+      data: string;
+    };
+    error?: string;
+  };
+  if (!bRes.ok || !bBody.swapInstruction)
+    throw new Error(bBody.error ?? `Jupiter build HTTP ${bRes.status}`);
+  const ix = bBody.swapInstruction;
+  if (ix.programId !== JUPITER_PROGRAM_ID)
+    throw new Error(`Jupiter build returned unexpected programId ${ix.programId}`);
+  const minOut = BigInt(bBody.otherAmountThreshold ?? "0");
+  if (minOut < minHubOut)
+    throw new Error("Jupiter route can't clear the required $HUB output right now — try again");
+  return {
+    otcSwapAmount,
+    jupiterData: Buffer.from(ix.data, "base64"),
+    remainingAccounts: ix.accounts.map((a) => ({
+      pubkey: new PublicKey(a.pubkey),
+      isSigner: a.isSigner,
+      isWritable: a.isWritable,
+    })),
+    outAmount: BigInt(bBody.outAmount ?? "0"),
+    routeLabels: (bBody.routePlan ?? [])
+      .map((p) => p.swapInfo?.label)
+      .filter((l): l is string => !!l),
   };
 }
 
@@ -112,9 +212,13 @@ export async function buildTierChangeIxs(opts: {
   method: PayMethod;
   config: ConfigView;
   otcPay: OtcPayView | null;
-  /** §A5 90% leg state — required to settle pending yield before an upgrade (see below). */
+  /** §A5 90% leg state — required to settle pending yield before an upgrade (see below), and to
+   *  fund the $OTC path's desk-pot vault. */
   otcPot: OtcPotView | null;
   pendingLamports: number;
+  /** Required for `method: "otc"` — a live route from `fetchOtcToHubRoute`, sized to clear this
+   *  call's `hubCostDeltaUnits`. Unused on the SOL path. */
+  otcRoute?: OtcSwapRoute;
 }): Promise<TransactionInstruction[]> {
   const { program, payer, deskAsset, fromTier, toTier, method, config, otcPay, otcPot } = opts;
   assertTierRange(fromTier, toTier);
@@ -134,20 +238,17 @@ export async function buildTierChangeIxs(opts: {
     payer,
     deskAsset,
     config: configPda(id)[0],
+    epoch: epochPda(id, config.currentEpoch)[0],
+    pot: potPda(id)[0],
+    opsWallet: new PublicKey(config.opsWallet),
     deskTier: tierPda(id, deskAsset)[0],
     hubMint,
     payerHub: ataPda(payer, hubMint)[0],
+    tokenProgram: new PublicKey(TOKEN_PROGRAM_ID),
   };
 
   if (method === "sol") {
-    const accs = {
-      ...common,
-      epoch: epochPda(id, config.currentEpoch)[0],
-      pot: potPda(id)[0],
-      opsWallet: new PublicKey(config.opsWallet),
-      tokenProgram: new PublicKey(TOKEN_PROGRAM_ID),
-      systemProgram: SYSTEM_PROGRAM,
-    };
+    const accs = { ...common, systemProgram: SYSTEM_PROGRAM };
     if (fromTier === 0)
       ixs.push(await program.methods.activateTier(toTier).accountsStrict(accs).instruction());
     else ixs.push(await program.methods.upgradeTier(toTier).accountsStrict(accs).instruction());
@@ -156,23 +257,38 @@ export async function buildTierChangeIxs(opts: {
 
   if (!otcPay || !otcPayable(otcPay))
     throw new Error(`$OTC payment unavailable: ${otcUnavailableReason(otcPay) ?? "not payable"}`);
+  if (!otcPot) throw new Error("$OTC yield vault (OtcPotState) isn't initialized on this cluster");
+  if (!opts.otcRoute)
+    throw new Error("missing $OTC→$HUB Jupiter route — call fetchOtcToHubRoute first");
+  const { otcSwapAmount, jupiterData, remainingAccounts } = opts.otcRoute;
   const otcMint = new PublicKey(config.otcMint);
   const accs = {
     ...common,
+    systemProgram: SYSTEM_PROGRAM,
     otcPay: otcPayPda(id)[0],
     otcMint,
     payerOtc: ataPda(payer, otcMint)[0],
-    polAccount: new PublicKey(otcPay.polAccount),
-    tokenProgram: new PublicKey(TOKEN_PROGRAM_ID),
+    otcPot: otcPotPda(id)[0],
+    otcVault: new PublicKey(otcPot.otcVault),
+    jupiterProgram: new PublicKey(JUPITER_PROGRAM_ID),
   };
+  const swapAmountBn = new BN(otcSwapAmount.toString());
   if (fromTier === 0)
     ixs.push(
       await program.methods
-        .activateTierOtc(toTier)
-        .accountsStrict({ ...accs, systemProgram: SYSTEM_PROGRAM })
+        .activateTierOtc(toTier, swapAmountBn, jupiterData)
+        .accountsStrict(accs)
+        .remainingAccounts(remainingAccounts)
         .instruction(),
     );
-  else ixs.push(await program.methods.upgradeTierOtc(toTier).accountsStrict(accs).instruction());
+  else
+    ixs.push(
+      await program.methods
+        .upgradeTierOtc(toTier, swapAmountBn, jupiterData)
+        .accountsStrict(accs)
+        .remainingAccounts(remainingAccounts)
+        .instruction(),
+    );
   return ixs;
 }
 
@@ -190,9 +306,12 @@ export async function executeTierChange(opts: {
   method: PayMethod;
   config: ConfigView;
   otcPay: OtcPayView | null;
-  /** §A5 90% leg state — only needed when `pendingLamports > 0` on an upgrade. */
+  /** §A5 90% leg state — only needed when `pendingLamports > 0` on an upgrade, or on the $OTC
+   *  path (desk-pot vault destination). */
   otcPot: OtcPotView | null;
   pendingLamports: number;
+  /** Required for `method: "otc"` — see `buildTierChangeIxs`. */
+  otcRoute?: OtcSwapRoute;
   onLog: (l: TxLog) => void;
   onPhase?: (p: TierChangePhase) => void;
 }): Promise<TierChangeResult> {
@@ -212,6 +331,7 @@ export async function executeTierChange(opts: {
       otcPay: opts.otcPay,
       otcPot: opts.otcPot,
       pendingLamports: opts.pendingLamports,
+      otcRoute: opts.otcRoute,
     });
     const bh = await connection.getLatestBlockhash("confirmed");
     const tx = new Transaction({ feePayer: payer, recentBlockhash: bh.blockhash });

@@ -32,17 +32,27 @@ pub const TIER_HUB_COST_UNITS: [u64; TIER_COUNT] = [
     200_000 * HUB_UNIT,
 ];
 
-/// Round split (§A5): 5% buys $HUB and burns it, 5% builds the $HUB/$OTC LP, the
-/// remaining 90% buys $OTC and is distributed pro-rata to activated desks.
+/// Round split (§A5, 4-way): 90% buys $OTC and is distributed pro-rata to activated desks
+/// (unchanged mechanic — accumulator-credited, keeper-reimbursed `record_otc_buy`); the other
+/// 10% is swapped SOL→$HUB via a single synchronous on-chain Jupiter CPI executed inside
+/// `finalize_epoch` itself (best rate, generates real AMM volume/fees), then the received $HUB
+/// splits 50/25/25 (of that 10%, i.e. 5%/2.5%/2.5% of total inflow): burn / $HUB-$OTC LP-build
+/// earmark / treasury float buy-and-hold.
 pub const BURN_PCT_BP: u16 = 500;
-/// LP_BUILD_PCT = 5% of every pot inflow, earmarked for the $HUB/$OTC LP (phase-2 `build_lp`).
-pub const LP_PCT_BP: u16 = 500;
-/// Compile-time guard: the two fixed legs must never exceed 100% — `finalize_epoch` derives
-/// the remaining OTC-buy leg as `inflow - burn - lp`, which would underflow-panic (or, worse,
-/// silently misbehave if that subtraction were ever changed to an unchecked op) otherwise.
+/// LP_BUILD_PCT = 2.5% of every pot inflow, swapped to $HUB and earmarked (as
+/// `TreasuryState.lp_pending_hub_units`) for the $HUB/$OTC LP (phase-2 `build_lp_otc_locked`).
+pub const LP_PCT_BP: u16 = 250;
+/// TREASURY_FLOAT_PCT = 2.5% of every pot inflow, swapped to $HUB and deposited into
+/// `TreasuryState.treasury_float_vault` (buy-and-hold), capped at `hub_float_cap_bp` of supply —
+/// excess is burned instead of deposited, never left un-swapped.
+pub const TREASURY_FLOAT_PCT_BP: u16 = 250;
+/// Compile-time guard: the three fixed legs must never exceed 100% — `finalize_epoch` derives
+/// the remaining OTC-buy (distributable) leg as `inflow - burn - lp - treasury_float`, which
+/// would underflow-panic (or, worse, silently misbehave if that subtraction were ever changed to
+/// an unchecked op) otherwise.
 const _: () = assert!(
-    (BURN_PCT_BP as u64) + (LP_PCT_BP as u64) <= BPS_DENOMINATOR,
-    "round split (BURN_PCT_BP + LP_PCT_BP) exceeds 100%"
+    (BURN_PCT_BP as u64) + (LP_PCT_BP as u64) + (TREASURY_FLOAT_PCT_BP as u64) <= BPS_DENOMINATOR,
+    "round split (BURN_PCT_BP + LP_PCT_BP + TREASURY_FLOAT_PCT_BP) exceeds 100%"
 );
 
 /// MIN_POT_THRESHOLD = 0.1 SOL. A round (epoch) closes as soon as its inflow reaches this —
@@ -69,15 +79,41 @@ pub const FLOOR_STALENESS_BP: u16 = 500;
 pub const LP_ENABLED: bool = false;
 pub const LP_TARGET_SOL_LAMPORTS: u64 = 100 * LAMPORTS_PER_SOL;
 
-/// TREASURY_HUB_FLOAT_CAP ≤ 2% of supply.
-pub const TREASURY_HUB_FLOAT_CAP_BP: u16 = 200;
+/// TREASURY_HUB_FLOAT_CAP ≤ 5% of supply (experimental parameter; admin-updatable via
+/// `set_treasury_float_cap_bp` — the treasury multisig may retune while iterating). Excess
+/// beyond the live cap at deposit time is burned instead of floated.
+pub const TREASURY_HUB_FLOAT_CAP_BP: u16 = 500;
 
-/// $OTC payment path (§A4.1): a step paid in $OTC costs the SOL step fee valued at the
-/// authority-refreshed `otc_per_sol` rate × this premium (20_000 bp = 2.00×). The premium is
-/// fixed at `init_otc_payments`; only the rate is refreshable.
-pub const OTC_PREMIUM_BP: u16 = 20_000;
-/// `activate_tier_otc` / `upgrade_tier_otc` reject a rate older than this (seconds).
-pub const OTC_RATE_MAX_AGE_SECS: i64 = 86_400;
+/// $OTC payment path (§A4.1, revised): `activate_tier_otc` / `upgrade_tier_otc` charge the same
+/// flat 0.5 SOL activation fee as the SOL path (90% pot / 10% ops, `book_inflow`'d into the same
+/// epoch — see `Config::step_fee`) *plus* an $OTC-denominated premium that replaces the tier's
+/// direct $HUB burn. The premium is no longer priced off a static authority-refreshed rate —
+/// it's a real synchronous on-chain Jupiter OTC→$HUB swap, so it's dynamic as $HUB's market price
+/// moves. Caller (payer/keeper) supplies `otc_swap_amount`, the $OTC input for the swap leg
+/// (sized off-chain via a live Jupiter quote so the swap clears at least `hub_cost_delta` $HUB —
+/// enforced on-chain as the swap's `min_out` floor, trustlessly, via balance-delta). An equal
+/// $OTC amount is charged again into `OtcPotState.otc_vault` (desk-pot leg, no swap — raises
+/// `total_otc_bought_units`, lifting the lifetime average buy rate `claim_yield` prices every
+/// desk's yield at), so the total $OTC charged is ~2× the swap leg's cost — the "2× premium" —
+/// while the received $HUB from the swap leg is burned in full, shrinking supply.
+pub const OTC_PAY_SWAP_BURN_PCT_BP: u16 = 5_000;
+
+/// Native mint (wrapped SOL) — Jupiter routes SOL legs through a WSOL token account; this
+/// program wraps by a plain System transfer into a persistent vault-owned WSOL ATA followed by
+/// spl-token `SyncNative`.
+pub const WSOL_MINT: Pubkey = pubkey!("So11111111111111111111111111111111111111112");
+/// spl-token `SyncNative` instruction discriminator.
+pub const TOKEN_IX_SYNC_NATIVE: u8 = 17;
+
+/// Jupiter aggregator v6 — real on-chain SOL→$HUB (round split, `finalize_epoch`) and
+/// OTC→$HUB (2× premium swap-burn leg, `otc_pay.rs`) swaps, so both legs clear at the live
+/// market rate and generate genuine AMM volume/fees instead of a keeper-attested off-chain buy.
+/// Jupiter has no fixed per-instruction account list (the router picks a different combination
+/// of AMMs/hops per quote), so — mirroring `raydium_cpswap.rs`'s trust model — the caller
+/// assembles the route's accounts/data off-chain via Jupiter's quote + swap-instructions API and
+/// supplies them verbatim; this program only pins this program id and enforces `min_out` via a
+/// balance-delta check on the destination token account (`jupiter_swap::swap_exact_in`).
+pub const JUPITER_PROGRAM_ID: Pubkey = pubkey!("JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4");
 
 /// §A6.3 second flywheel — the treasury's pro-rata claim on the OTC launcher's 70%
 /// holders-in-stock leg (it holds 2% of $HUB supply per §A7.1), already denominated in $OTC.

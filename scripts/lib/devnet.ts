@@ -20,6 +20,7 @@ import { mplCore } from "@metaplex-foundation/mpl-core";
 import {
   ACC_SCALE,
   HUB_IDL,
+  JUPITER_PROGRAM_ID,
   burnPda,
   configPda,
   epochPda,
@@ -31,6 +32,7 @@ import {
   tierPda,
   toConfigView,
   treasuryPda,
+  vaultPda,
   type DeskTierView,
   type HubProgram,
 } from "../../sdk/src";
@@ -269,16 +271,34 @@ export async function roundStatus(ctx: Ctx) {
   };
 }
 
-/** Raw `finalize_epoch(idx)` — no readiness check, so callers can assert the negative case. */
-export function finalizeIx(ctx: Ctx, idx: number) {
-  const [nextEpoch] = epochPda(ctx.program.programId, idx + 1);
-  const [pot] = potPda(ctx.program.programId);
-  const [burn] = burnPda(ctx.program.programId);
-  const [otcPot] = otcPotPda(ctx.program.programId);
-  const [treasuryState] = treasuryPda(ctx.program.programId);
-  const [key] = epochPda(ctx.program.programId, idx);
+/**
+ * §A5 Jupiter-route args for the 5%/2.5%/2.5% swap leg inside `finalize_epoch`. Callers that
+ * only exercise the pre-swap gates (e.g. asserting `PotBelowThreshold`) can omit `swap` entirely
+ * — the account list below is fixed regardless of whether a route was fetched.
+ */
+export type FinalizeSwapArgs = {
+  minHubOut?: BN | number | bigint;
+  jupiterData?: Buffer;
+  remainingAccounts?: { pubkey: PublicKey; isSigner: boolean; isWritable: boolean }[];
+};
+
+/** Raw `finalize_epoch(idx, min_hub_out, jupiter_data)` — no readiness check, so callers can
+ * assert the negative case. */
+export async function finalizeIx(ctx: Ctx, idx: number, swap: FinalizeSwapArgs = {}) {
+  const id = ctx.program.programId;
+  const [nextEpoch] = epochPda(id, idx + 1);
+  const [pot] = potPda(id);
+  const [burn] = burnPda(id);
+  const [otcPot] = otcPotPda(id);
+  const [treasuryState] = treasuryPda(id);
+  const [vault] = vaultPda(id);
+  const [key] = epochPda(id, idx);
+  const cfg = await ctx.program.account.config.fetch(ctx.config);
+  const treasury = await ctx.program.account.treasuryState.fetch(treasuryState);
+  const minHubOut = new BN((swap.minHubOut ?? 0).toString());
+  const jupiterData = swap.jupiterData ?? Buffer.alloc(0);
   return ctx.program.methods
-    .finalizeEpoch(new BN(idx))
+    .finalizeEpoch(new BN(idx), minHubOut, jupiterData)
     .accountsPartial({
       keeper: ctx.payer.publicKey,
       config: ctx.config,
@@ -288,7 +308,16 @@ export function finalizeIx(ctx: Ctx, idx: number) {
       burn,
       otcPot,
       treasuryState,
+      vault,
+      hubMint: cfg.hubMint,
+      vaultWsol: treasury.vaultWsol,
+      vaultHub: treasury.vaultHub,
+      treasuryFloatVault: treasury.treasuryFloatVault,
+      tokenProgram: TOKEN_PROGRAM_ID,
+      jupiterProgram: new PublicKey(JUPITER_PROGRAM_ID),
+      systemProgram: SystemProgram.programId,
     })
+    .remainingAccounts(swap.remainingAccounts ?? [])
     .rpc();
 }
 

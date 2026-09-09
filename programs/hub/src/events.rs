@@ -27,9 +27,12 @@ pub struct TierUpgraded {
     pub hub_burned_units: u64,
 }
 
-/// §A4.1 — step(s) paid in $OTC at the 2× premium; nothing enters the pot, the $OTC lands in the
-/// POL reserve. `from_tier == 0` is a fresh activation. `hub_burned_units` is paid separately —
-/// the $HUB tier cost is always burned, on both the SOL and $OTC fee paths.
+/// §A4.1 (revised) — step(s) paid in $OTC: the flat 0.5 SOL activation fee (90% pot / 10% ops,
+/// same as the SOL path — `fee_lamports`/`to_pot`/`to_ops`) plus the $OTC 2× premium, split into
+/// a swap-burn leg (real on-chain Jupiter OTC→$HUB, burned in full — this *is* the tier's $HUB
+/// cost burn, no separate direct debit from the payer's own $HUB wallet) and an equal-sized
+/// desk-pot leg (raises `OtcPotState`'s lifetime average buy rate). `from_tier == 0` is a fresh
+/// activation.
 #[event]
 pub struct TierPaidOtc {
     pub asset: Pubkey,
@@ -37,18 +40,23 @@ pub struct TierPaidOtc {
     pub from_tier: u8,
     pub to_tier: u8,
     pub epoch: u64,
-    pub sol_equivalent_lamports: u64,
-    pub otc_paid: u64,
-    pub otc_per_sol: u64,
-    pub premium_bp: u16,
+    pub fee_lamports: u64,
+    pub to_pot: u64,
+    pub to_ops: u64,
+    /// $OTC input to the Jupiter swap-burn leg.
+    pub otc_swap_amount: u64,
+    /// $HUB received from the swap and burned (≥ `hub_cost_delta`).
     pub hub_burned_units: u64,
+    /// Equal to `otc_swap_amount`, injected into `OtcPotState.otc_vault` (no swap).
+    pub to_otc_pot: u64,
+    /// Total $OTC charged (`otc_swap_amount + to_otc_pot`), i.e. the "2× premium".
+    pub otc_paid_total: u64,
 }
 
+/// Authority toggles the $OTC payment path on/off (`init_otc_payments` starts it disabled).
 #[event]
-pub struct OtcRateSet {
-    pub otc_per_sol: u64,
+pub struct OtcPaymentsEnabledSet {
     pub enabled: bool,
-    pub ts: i64,
 }
 
 /// §B3 #8 — ownership changed since activation; no refund. Pending yield is forfeited to dust.
@@ -81,12 +89,47 @@ pub struct EpochFinalized {
     pub index: u64,
     pub inflow_lamports: u64,
     pub distributed_lamports: u64,
+    /// SOL input to this epoch's burn leg — swapped and burned synchronously, not left pending.
     pub burn_pending_lamports: u64,
+    /// SOL input to this epoch's LP-build leg — swapped to $HUB and earmarked, not left pending.
     pub lp_pending_lamports: u64,
+    /// SOL input to this epoch's treasury-float leg — swapped to $HUB and deposited/burned.
+    pub treasury_float_lamports: u64,
     pub rolled_forward_lamports: u64,
     pub total_weight_bp: u64,
     pub per_weight_scaled: u128,
     pub acc_per_weight: u128,
+}
+
+/// The synchronous Jupiter SOL→$HUB CPI executed inside `finalize_epoch` for the combined
+/// burn/LP/treasury-float legs (10% of inflow). `hub_received` splits 50/25/25 into
+/// `hub_burned`/`hub_lp_earmarked`/`hub_float_requested`; `hub_float_deposited` may be less than
+/// `hub_float_requested` if the cap was hit, with the remainder folded into `hub_burned`.
+#[event]
+pub struct EpochSolSwapped {
+    pub epoch: u64,
+    pub sol_swapped_lamports: u64,
+    pub hub_received: u64,
+    pub hub_burned: u64,
+    pub hub_lp_earmarked: u64,
+    pub hub_float_requested: u64,
+    pub hub_float_deposited: u64,
+    pub treasury_float_units_after: u64,
+}
+
+/// Authority/treasury records the vault-owned $HUB scratch, WSOL scratch, and treasury-float
+/// ATAs used by the synchronous Jupiter legs (one-time, post-init — mirrors `init_otc_pot`).
+#[event]
+pub struct TreasuryFloatInitialized {
+    pub vault_wsol: Pubkey,
+    pub vault_hub: Pubkey,
+    pub treasury_float_vault: Pubkey,
+}
+
+/// Treasury multisig retunes the experimental float cap.
+#[event]
+pub struct TreasuryFloatCapUpdated {
+    pub hub_float_cap_bp: u16,
 }
 
 /// Keeper-attested $OTC buy, reimbursed from the pot up to `otc_pending_lamports` (mirrors

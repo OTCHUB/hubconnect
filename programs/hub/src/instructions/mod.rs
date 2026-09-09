@@ -2,6 +2,7 @@ pub mod admin;
 pub mod creator_fee;
 pub mod epochs;
 pub mod hub_pot;
+pub mod jupiter_swap;
 pub mod mpl_core;
 pub mod otc_pay;
 pub mod otc_pot;

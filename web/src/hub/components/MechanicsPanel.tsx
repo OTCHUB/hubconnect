@@ -92,9 +92,12 @@ export function MechanicsPanel({ state }: { state: ProtocolState }) {
             re-activation needed.
           </li>
           <li className={li}>
-            Pay the Activation Cost in SOL, or in $OTC at a fixed 2.00x premium — $OTC payments go
-            straight into the protocol's liquidity reserve rather than the reward pool. Either way
-            you also burn $HUB for the target tier — permanently destroyed, not sent to the pool.
+            Every activation or upgrade pays the same flat SOL fee into the reward pool either way.
+            The $HUB burn leg for your target tier can instead be paid in $OTC: the app quotes a
+            live Jupiter route, swaps half of it to $HUB and burns it, and sends an equal amount of
+            $OTC straight into the desk-pot vault — a dynamic ~2.00x premium priced fresh every
+            call, never a stored rate. Either way the $HUB burned is permanently destroyed, not
+            sent to the pool.
           </li>
           <li className={li}>
             Rewards start accruing the instant you activate — only reward rounds closed after that
@@ -160,10 +163,12 @@ export function MechanicsPanel({ state }: { state: ProtocolState }) {
             fixed schedule, so a round can settle in seconds or take days.
           </li>
           <li className={li}>
-            When a round closes, {fmtBp(config.burnPctBp, 0)} of it is set aside for buyback & burn,
-            and the rest is split across every active desk in proportion to its tier — Market Makers
-            earn the largest share, Traders the base share. No revenue is ever lost to rounding —
-            any leftover simply rolls into the next round.
+            When a round closes, 10% of it is swapped SOL→$HUB in one on-chain transaction and split
+            three ways — {fmtBp(config.burnPctBp, 0)} bought back and burned, and the rest earmarked
+            evenly for the future $HUB/$OTC liquidity pool and the treasury's buy-and-hold float. The
+            remaining 90% is split across every active desk in proportion to its tier — Market Makers
+            earn the largest share, Traders the base share. No revenue is ever lost to rounding — any
+            leftover simply rolls into the next round.
           </li>
           <li className={li}>
             Claiming pays out every reward round you've earned since your last claim in a single
@@ -199,10 +204,12 @@ export function MechanicsPanel({ state }: { state: ProtocolState }) {
       <CollapsibleCard title="4. BUYBACK, BURN & LIQUIDITY">
         <ul className="space-y-1">
           <li className={li}>
-            Every reward round automatically earmarks {fmtBp(config.burnPctBp, 0)} of its revenue
-            for buyback & burn — an automated process that market-buys $HUB and destroys it forever,
-            permanently shrinking what's left. The token's own on-chain supply drop is the proof —
-            nothing to take on faith.
+            Every reward round automatically swaps 10% of its revenue SOL→$HUB in a single
+            synchronous transaction — {fmtBp(config.burnPctBp, 0)} is burned forever, and the
+            remaining half is split evenly between the future $HUB/$OTC liquidity pool and the
+            treasury's buy-and-hold float (itself capped as a share of supply; anything over the cap
+            is burned too). The token's own on-chain supply drop is the burn proof — nothing to take
+            on faith.
           </li>
           <li className={li}>
             A second burn happens immediately whenever the treasury sells a desk at a discount: half
@@ -214,9 +221,11 @@ export function MechanicsPanel({ state }: { state: ProtocolState }) {
             fees flow back into the reward pool too.
           </li>
           <li className={li}>
-            A second pool ($HUB/$OTC) opens once price has held steady for at least 14 days —
-            deepened using treasury OTC and $HUB holdings, never a market buy. Every dollar the
-            treasury puts into liquidity stays locked there; it's never sold.
+            A second pool ($HUB/$OTC) opens once price has held steady for at least 24 hours post
+            launch — seeded from the $HUB earmarked in every round's swap above plus treasury OTC
+            holdings, never a market buy. The LP mint is burned outright the moment it's seeded, so
+            every dollar the treasury puts into liquidity stays locked there forever; it's never
+            sold, only its trading fees are ever claimed.
           </li>
         </ul>
         <MermaidBlock source={BUYBACK_LP_DIAGRAM} title="buyback & liquidity (technical detail)" />

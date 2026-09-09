@@ -104,4 +104,12 @@ pub enum HubError {
     NoHubPotPending,
     #[msg("HUB Pot round payout would exceed a bucket's snapshotted amount")]
     HubPotRoundExceeded,
+    #[msg("Jupiter swap returned less than the required minimum output")]
+    SlippageExceeded,
+    #[msg("CPI target does not match the configured Jupiter program id")]
+    WrongJupiterProgram,
+    #[msg("Jupiter route requires accounts in remaining_accounts")]
+    SwapAccountsMissing,
+    #[msg("Treasury float vault has not been initialized")]
+    TreasuryFloatNotInitialized,
 }

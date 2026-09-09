@@ -182,7 +182,7 @@ export function TokenomicsPanel({ state }: { state: ProtocolState }) {
       <Panel title="TREASURY LOCK">
         <Row
           k="floor"
-          v={onChain ? `${fmtHub(onChain.treasuryLockUnits, d)} · 2% of max supply` : "—"}
+          v={onChain ? `${fmtHub(onChain.treasuryLockUnits, d)} · 2.5% of max supply` : "—"}
         />
         <Row k="vault" v={onChain ? <AddressLink address={onChain.treasuryLockVault} /> : "—"} />
         <Row

@@ -1,6 +1,6 @@
 {
   "name": "hubconnect-web",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "description": "$HUB treasury dashboard & yield tracker — standalone shell + mountable otchub module",

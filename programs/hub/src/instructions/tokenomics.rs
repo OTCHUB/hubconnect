@@ -492,7 +492,7 @@ pub struct DistributeTreasuryReward<'info> {
     #[account(mut)]
     pub authority: Signer<'info>,
     #[account(seeds = [SEED_CONFIG], bump = config.bump, has_one = authority @ HubError::Unauthorized, constraint = !config.paused @ HubError::Paused)]
-    pub config: Account<'info, Config>,
+    pub config: Box<Account<'info, Config>>,
     /// CHECK: Metaplex Core asset; current owner read directly — this is a push, matching
     /// `distribute_airdrop`'s "pay whoever holds the desk right now" policy.
     pub desk_asset: UncheckedAccount<'info>,
@@ -500,13 +500,13 @@ pub struct DistributeTreasuryReward<'info> {
         seeds = [SEED_TIER, desk_asset.key().as_ref()], bump = desk_tier.bump,
         constraint = !desk_tier.voided && desk_tier.tier > 0 @ HubError::DeskNotActive
     )]
-    pub desk_tier: Account<'info, DeskTier>,
+    pub desk_tier: Box<Account<'info, DeskTier>>,
     #[account(mut, seeds = [SEED_TOKENOMICS], bump = tokenomics.bump)]
-    pub tokenomics: Account<'info, TokenomicsConfig>,
+    pub tokenomics: Box<Account<'info, TokenomicsConfig>>,
     #[account(mut, seeds = [SEED_REWARD_ROUND, &round_index.to_le_bytes()], bump = round.bump)]
-    pub round: Account<'info, RewardRound>,
+    pub round: Box<Account<'info, RewardRound>>,
     #[account(seeds = [SEED_TREASURY], bump = treasury_state.bump)]
-    pub treasury_state: Account<'info, TreasuryState>,
+    pub treasury_state: Box<Account<'info, TreasuryState>>,
     /// CHECK: program-signed owner of `treasury_lock_vault`.
     #[account(seeds = [SEED_VAULT], bump = treasury_state.vault_bump)]
     pub vault: UncheckedAccount<'info>,

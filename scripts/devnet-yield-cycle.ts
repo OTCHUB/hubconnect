@@ -372,8 +372,10 @@ async function main() {
   }
   const burnBefore = (await ctx.program.account.burnState.fetch(burnKey)).burnPendingLamports;
   const [treasuryStateKey] = treasuryPda(ctx.program.programId);
+  // §A5: the LP-build leg is now swapped SOL→$HUB inside finalize_epoch, so this is $HUB base
+  // units post-swap (TreasuryState.lp_pending_hub_units), not a lamports figure anymore.
   const treasuryLpBefore = big(
-    (await ctx.program.account.treasuryState.fetch(treasuryStateKey)).lpPendingLamports,
+    (await ctx.program.account.treasuryState.fetch(treasuryStateKey)).lpPendingHubUnits,
   );
   const otcPotBeforeFinalize = await ctx.program.account.otcPotState.fetch(otcPotKey);
   const otcPendingBefore = big(otcPotBeforeFinalize.otcPendingLamports);
@@ -426,10 +428,13 @@ async function main() {
     sol(burnAfter),
   );
   const treasuryAfter = await ctx.program.account.treasuryState.fetch(treasuryStateKey);
+  // Exact $HUB amount depends on the Jupiter route's fill price, which this script does not
+  // quote — only assert the swap leg actually landed (lamports-denominated `expLp` no longer
+  // maps 1:1 onto `lp_pending_hub_units`, which is post-swap $HUB).
   check(
-    "TreasuryState.lp_pending += slice",
-    big(treasuryAfter.lpPendingLamports) - treasuryLpBefore === expLp,
-    sol(treasuryAfter.lpPendingLamports),
+    "TreasuryState.lp_pending_hub_units increased by the LP-build swap leg",
+    expLp === 0n || big(treasuryAfter.lpPendingHubUnits) > treasuryLpBefore,
+    `${treasuryLpBefore} → ${treasuryAfter.lpPendingHubUnits} $HUB units`,
   );
   const otcPotAfterFinalize = await ctx.program.account.otcPotState.fetch(otcPotKey);
   check(

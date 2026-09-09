@@ -274,6 +274,8 @@ export type Fixture = {
   otcPot: PublicKey;
   /** Pot-owned $OTC token account `record_otc_buy` deposits into / `claim_yield` pays from. */
   otcVault: PublicKey;
+  /** `opsWallet`'s $OTC account — the ops leg of `activate_tier_otc` / `upgrade_tier_otc`. */
+  opsOtc: PublicKey;
   /** Payer's own $OTC account, funded once, used as the `record_otc_buy` source in tests. */
   keeperOtc: PublicKey;
 };
@@ -300,6 +302,7 @@ export async function ensureInitialized(h: Harness): Promise<Fixture> {
   const existing = await h.program.account.config.fetchNullable(config);
   if (existing) {
     const otcVault = ata(pot, existing.otcMint);
+    const opsOtc = ata(existing.opsWallet, existing.otcMint);
     const keeperOtc = ata(h.payer.publicKey, existing.otcMint);
     fixture = {
       config,
@@ -314,6 +317,7 @@ export async function ensureInitialized(h: Harness): Promise<Fixture> {
       otcMint: existing.otcMint,
       otcPot,
       otcVault,
+      opsOtc,
       keeperOtc,
     };
     return fixture;
@@ -326,6 +330,7 @@ export async function ensureInitialized(h: Harness): Promise<Fixture> {
   const hubMint = await createSplMint(h, 6);
   const otcMint = await createSplMint(h, 6);
   const otcVault = ata(pot, otcMint);
+  const opsOtc = ata(opsWallet, otcMint);
   const keeperOtc = ata(h.payer.publicKey, otcMint);
 
   await h.program.methods
@@ -344,10 +349,13 @@ export async function ensureInitialized(h: Harness): Promise<Fixture> {
 
   // §A5 otc_pot bookkeeping: pot-owned vault + payer-as-keeper source account, then the
   // one-time init that wires them together and appoints the payer as the buy-recording keeper.
+  // Also create opsWallet's $OTC account here — the ops leg of activate_tier_otc/upgrade_tier_otc
+  // (opsWallet is never a signer, so anyone may fund its ATA; the payer does it once, up front).
   await h.provider.sendAndConfirm(
     new Transaction().add(
       createAtaIx(h.payer.publicKey, pot, otcMint),
       createAtaIx(h.payer.publicKey, h.payer.publicKey, otcMint),
+      createAtaIx(h.payer.publicKey, opsWallet, otcMint),
     ),
     [h.payer],
   );
@@ -372,6 +380,7 @@ export async function ensureInitialized(h: Harness): Promise<Fixture> {
     otcMint,
     otcPot,
     otcVault,
+    opsOtc,
     keeperOtc,
   };
   return fixture;

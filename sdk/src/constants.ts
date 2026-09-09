@@ -13,13 +13,17 @@ export const TIER_WEIGHTS = TIER_WEIGHTS_BP.map((w) => w / BPS); // [1.00,1.25,1
 export const STEP_FEE_LAMPORTS = LAMPORTS_PER_SOL / 2;
 export const OPS_PCT_BP = 1_000;
 /**
- * §A5 round split (unrelated to the flat-fee 90/10 above): every pot round splits 5% to $HUB
- * burn, 5% to the $HUB/$OTC LP-pending earmark, and the remaining 90% into the $OTC yield leg
- * (credited through `Config.accPerWeight`, paid out by `claim_yield` in $OTC — see
- * `OtcPotView`/`otcDueForLamports`).
+ * §A5 round split (unrelated to the flat-fee 90/10 above, 4-way): 90% buys $OTC and is
+ * distributed pro-rata to activated desks (credited through `Config.accPerWeight`, paid out by
+ * `claim_yield` in $OTC — see `OtcPotView`/`otcDueForLamports`). The other 10% is swapped
+ * SOL→$HUB in a single synchronous on-chain Jupiter CPI inside `finalize_epoch`, then the
+ * received $HUB splits 50/25/25 (of that 10%, i.e. 5%/2.5%/2.5% of total inflow): burned / earmarked
+ * for the $HUB/$OTC LP (`TreasuryView.lpPendingHubUnits`) / deposited into the treasury float
+ * (buy-and-hold, capped at `TREASURY_HUB_FLOAT_CAP_BP` of supply).
  */
 export const BURN_PCT_BP = 500;
-export const LP_PCT_BP = 500;
+export const LP_PCT_BP = 250;
+export const TREASURY_FLOAT_PCT_BP = 250;
 /**
  * $HUB base units required to reach each tier from scratch (cumulative table, not incremental) —
  * mirrors `TIER_HUB_COST_UNITS` in constants.rs: T1 100k, T2 125k, T3 150k, T4 200k. A fresh
@@ -44,12 +48,23 @@ export const SWEEP_PAYBACK_CAP_LAMPORTS = 4_200_000_000;
 export const FLOOR_STALENESS_BP = 500;
 export const LP_ENABLED = false;
 export const LP_TARGET_SOL_LAMPORTS = 100 * LAMPORTS_PER_SOL;
-export const TREASURY_HUB_FLOAT_CAP_BP = 200;
+/** Experimental, admin-updatable via `set_treasury_float_cap_bp` (§A6.3/§A7.1 "we are
+ * experimenting") — excess over the live cap at deposit time is burned, never rejected. */
+export const TREASURY_HUB_FLOAT_CAP_BP = 500;
 
-/** §A4.1 $OTC payment path: SOL step-fee value at `otc_per_sol` × this premium (2.00×). */
-export const OTC_PREMIUM_BP = 20_000;
-/** `activate_tier_otc` / `upgrade_tier_otc` reject an `otc_per_sol` older than this. */
-export const OTC_RATE_MAX_AGE_SECS = 86_400;
+/**
+ * §A4.1 $OTC payment path (revised): `activate_tier_otc` / `upgrade_tier_otc` charge the same
+ * flat 0.5 SOL activation fee as the SOL path (90% pot / 10% ops) **plus** an $OTC-denominated
+ * 2× premium that replaces the tier's direct $HUB burn. Pricing is no longer a static
+ * authority-refreshed rate — it's a real synchronous on-chain Jupiter OTC→$HUB swap, so it's
+ * dynamic as $HUB's market price moves. The caller supplies `otcSwapAmount` (sized off-chain via
+ * a live Jupiter quote so the swap clears at least `hubCostDeltaUnits` — enforced on-chain via
+ * balance-delta); an equal-scaled $OTC amount (`otcPotLeg`) is charged again and injected
+ * straight into `OtcPotState.otc_vault` (no swap — raises `total_otc_bought_units`, lifting the
+ * lifetime average buy rate `claim_yield` prices every desk's yield at), so the total $OTC
+ * charged is ~2× the swap leg's cost.
+ */
+export const OTC_PAY_SWAP_BURN_PCT_BP = 5_000;
 
 /**
  * §A6.3 second flywheel — the treasury's pro-rata claim on the OTC launcher's 70%
@@ -70,6 +85,11 @@ export const CREATOR_FEE_CLEAR_THRESHOLD_UNITS = 1_000 * 10 ** 6;
 export const RAYDIUM_CP_SWAP_PROGRAM_ID = "CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C";
 /** Raydium's dedicated CP-Swap liquidity-locking program (burn LP mint, permanent fee claim). */
 export const RAYDIUM_LOCK_CP_SWAP_PROGRAM_ID = "LockrWmn6K5twhz3y9w1dQERbmgSaRkfnTeTKbpofwE";
+/** Jupiter aggregator v6 — pinned in `jupiter_swap::swap_exact_in`'s synchronous CPI leg
+ * (`finalize_epoch`'s round-split swap and `otc_pay.rs`'s 2× premium swap-burn leg). */
+export const JUPITER_PROGRAM_ID = "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4";
+/** Native mint (wrapped SOL) — the input side of `finalize_epoch`'s SOL→$HUB Jupiter route. */
+export const WSOL_MINT = "So11111111111111111111111111111111111111112";
 
 export const MPL_CORE_PROGRAM_ID = "CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d";
 export const HUB_PROGRAM_ID = "7c5oPs9GvX8vrC5jVFketNx1ZLuPs7HeH8Qc4XJx7b7i";
@@ -278,21 +298,18 @@ export function hubCostDeltaUnits(from: number, to: number): number {
   return toCost - cumulativeHubCostUnits(from);
 }
 
-/**
- * $OTC base units due for `feeLamports` — mirrors `OtcPayConfig::otc_fee`:
- * `⌈fee × otcPerSol × premiumBp / (10⁹ × 10⁴)⌉` (rounds up in the protocol's favour).
- */
-export function otcFeeUnits(
-  feeLamports: number | bigint,
-  otcPerSol: number | bigint,
-  premiumBp: number = OTC_PREMIUM_BP,
-): bigint {
-  const num = BigInt(feeLamports) * BigInt(otcPerSol) * BigInt(premiumBp);
-  const den = BigInt(LAMPORTS_PER_SOL) * BigInt(BPS);
-  return (num + den - 1n) / den;
-}
 /** 90/10 split of a step fee. */
 export const splitFee = (fee: number) => {
   const toOps = Math.floor((fee * OPS_PCT_BP) / BPS);
   return { toOps, toPot: fee - toOps };
 };
+
+/**
+ * Mirrors `otc_pay::otc_pot_leg` — `otcPaidTotal = otcSwapAmount × BPS / OTC_PAY_SWAP_BURN_PCT_BP`
+ * (currently an even 50/50, so `otcPaidTotal = otcSwapAmount × 2`); the desk-pot leg
+ * (`toOtcPot`) is the remainder charged straight into `OtcPotState.otc_vault`, no swap.
+ */
+export function otcPotLeg(otcSwapAmount: bigint): { otcPaidTotal: bigint; toOtcPot: bigint } {
+  const otcPaidTotal = (otcSwapAmount * BigInt(BPS)) / BigInt(OTC_PAY_SWAP_BURN_PCT_BP);
+  return { otcPaidTotal, toOtcPot: otcPaidTotal - otcSwapAmount };
+}

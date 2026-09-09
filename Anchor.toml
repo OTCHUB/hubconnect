@@ -31,7 +31,10 @@ upgradeable = false
 
 [test.validator]
 bind_address = "127.0.0.1"
-url = "https://api.devnet.solana.com"
+# Forked from mainnet-beta (not devnet): Jupiter v6 and the OTC/Metaplex Core accounts below only
+# exist on mainnet-beta — see docs/hubconnect-spec.md and the m2-yield Jupiter CPI notes. A
+# devnet fork cannot resolve JUPITER_PROGRAM_ID (confirmed empty/System-owned on devnet).
+url = "https://api.mainnet-beta.solana.com"
 ledger = ".anchor/test-ledger"
 rpc_port = 8899
 
@@ -40,3 +43,10 @@ address = "CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d"
 
 [[test.validator.clone]]
 address = "9ZC25KLUrfgSoFVgjE1rrydZBbZns58UXi8A8ZhTdGfr"
+
+# Jupiter Aggregator v6 — required for the finalize_epoch / activate_tier_otc / upgrade_tier_otc
+# synchronous swap CPI. Real bytecode/account layout; still needs a liquid route to actually swap
+# (see jupiter_swap.rs doc comment — $HUB has no pool yet, so only liquid pairs like SOL/USDC can
+# exercise this end-to-end today).
+[[test.validator.clone]]
+address = "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4"

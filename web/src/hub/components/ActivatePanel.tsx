@@ -1,10 +1,14 @@
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { PublicKey } from "@solana/web3.js";
 import {
   BPS,
   HUB_DECIMALS,
+  OTC_PAY_SWAP_BURN_PCT_BP,
   TIER_HUB_COST_UNITS,
   TIER_NAMES,
+  ataPda,
+  otcPotLeg,
   pendingYieldLamports,
   splitFee,
   type ProtocolState,
@@ -16,7 +20,9 @@ import type { OwnedDesk } from "../hooks/useWalletPortfolio";
 import {
   MAX_TIER,
   executeTierChange,
+  fetchOtcToHubRoute,
   quoteTierChange,
+  type OtcSwapRoute,
   type PayMethod,
   type TierChangePhase,
   type TierQuote,
@@ -25,6 +31,10 @@ import { fmtSol, fmtUnits, shortKey } from "../lib/format";
 import type { TxLog } from "../lib/swap";
 import { Panel } from "./ui/Panel";
 import { TxLogView } from "./ui/TxLogView";
+
+/** Fixed by `OTC_PAY_SWAP_BURN_PCT_BP` (currently an even 50/50 swap/pot split) — not a live
+ *  quote, so this can be shown as soon as a tier quote exists. */
+const OTC_TOTAL_PREMIUM = (BPS / OTC_PAY_SWAP_BURN_PCT_BP).toFixed(2);
 
 type Props = {
   address: string;
@@ -55,6 +65,9 @@ export function ActivatePanel({ address, state, desks, onChanged, selectedAsset 
   const [phase, setPhase] = useState<TierChangePhase | null>(null);
   const [logs, setLogs] = useState<TxLog[]>([]);
   const [err, setErr] = useState<string | null>(null);
+  const [otcRoute, setOtcRoute] = useState<OtcSwapRoute | null>(null);
+  const [otcRouteLoading, setOtcRouteLoading] = useState(false);
+  const [otcRouteErr, setOtcRouteErr] = useState<string | null>(null);
 
   const otcPay = otcPayQ.data ?? null;
   const otcPot = state.otcPot;
@@ -83,17 +96,56 @@ export function ActivatePanel({ address, state, desks, onChanged, selectedAsset 
   const hasQuote = quote !== null;
   const otcAvailable = quote?.otcAvailable ?? false;
 
-  // $OTC can flip to unavailable mid-session (rate goes stale / path disabled): fall back to SOL.
+  // $OTC can flip to unavailable mid-session (path disabled): fall back to SOL.
   useEffect(() => {
     if (method === "otc" && hasQuote && !otcAvailable) setMethod("sol");
   }, [method, hasQuote, otcAvailable]);
+
+  // Pricing is a live Jupiter quote now (§otc_pay.rs), not a stored rate — fetch it whenever the
+  // $OTC path is selected and the tier change (i.e. its $HUB burn floor) is known.
+  useEffect(() => {
+    setOtcRoute(null);
+    setOtcRouteErr(null);
+    if (method !== "otc" || !desk || !quote || !otcAvailable) return;
+    let live = true;
+    setOtcRouteLoading(true);
+    fetchOtcToHubRoute({
+      taker: new PublicKey(address),
+      otcMint: new PublicKey(state.config.otcMint),
+      hubMint: new PublicKey(state.config.hubMint),
+      destinationTokenAccount: ataPda(new PublicKey(address), new PublicKey(state.config.hubMint))[0],
+      minHubOut: BigInt(quote.hubBurnUnits),
+    })
+      .then((route) => {
+        if (live) setOtcRoute(route);
+      })
+      .catch((e: Error) => {
+        if (live) setOtcRouteErr(e.message);
+      })
+      .finally(() => {
+        if (live) setOtcRouteLoading(false);
+      });
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on primitives, not `desk`/`quote` identity
+  }, [
+    method,
+    desk?.asset,
+    quote?.hubBurnUnits,
+    otcAvailable,
+    address,
+    state.config.otcMint,
+    state.config.hubMint,
+  ]);
 
   const split = quote ? splitFee(quote.solLamports) : null;
   const otcBal = balances.data?.otcUnits ?? null;
   const hubBal = balances.data?.hubUnits ?? null;
   const hubDecimals = balances.data?.hubDecimals ?? HUB_DECIMALS;
+  const otcTotalUnits = otcRoute ? otcPotLeg(otcRoute.otcSwapAmount).otcPaidTotal : null;
   const otcShort =
-    method === "otc" && quote?.otcUnits != null && otcBal !== null && otcBal < quote.otcUnits;
+    method === "otc" && otcTotalUnits != null && otcBal !== null && otcBal < otcTotalUnits;
   const solShort =
     method === "sol" && quote && balances.data
       ? balances.data.solLamports < BigInt(quote.solLamports)
@@ -109,6 +161,8 @@ export function ActivatePanel({ address, state, desks, onChanged, selectedAsset 
     if (!desk || !quote) return setErr("pick a desk and a target tier above its current tier");
     if (method === "otc" && !quote.otcAvailable)
       return setErr(`$OTC payment unavailable: ${quote.otcUnavailableReason}`);
+    if (method === "otc" && !otcRoute)
+      return setErr(otcRouteErr ?? "still fetching the $OTC→$HUB Jupiter route — wait a moment");
     if (hubShort) return setErr("insufficient $HUB balance for this activation's burn cost");
     if (claimBlocked)
       return setErr("pending yield must settle first, but the $OTC yield vault isn't funded yet");
@@ -126,6 +180,7 @@ export function ActivatePanel({ address, state, desks, onChanged, selectedAsset 
       otcPay,
       otcPot,
       pendingLamports: pending,
+      otcRoute: otcRoute ?? undefined,
       onLog: (l) => setLogs((p) => [...p, l]),
       onPhase: setPhase,
     });
@@ -138,7 +193,6 @@ export function ActivatePanel({ address, state, desks, onChanged, selectedAsset 
     }
   };
 
-  const premium = quote ? (quote.premiumBp / BPS).toFixed(2) : null;
   const otcTone = otcAvailable ? "text-green-300" : "text-green-800";
   const verb = fromTier ? "UPGRADE" : "ACTIVATE";
   const ticker = method === "sol" ? "SOL" : "$OTC";
@@ -150,7 +204,7 @@ export function ActivatePanel({ address, state, desks, onChanged, selectedAsset 
   return (
     <Panel
       title="ACTIVATE_DESK :: SOL | $OTC"
-      right={collected === null ? "SOL ONLY" : `$OTC collected for POL: ${collected} OTC`}
+      right={collected === null ? "SOL ONLY" : `lifetime $OTC paid (2× swap-burn): ${collected} OTC`}
     >
       {rows.length === 0 ? (
         <div className="text-xs text-green-700">
@@ -248,12 +302,16 @@ export function ActivatePanel({ address, state, desks, onChanged, selectedAsset 
               <div className="mt-1 flex justify-between gap-2">
                 <span className={method === "otc" ? "text-amber-300" : otcTone}>
                   $OTC:{" "}
-                  {quote.otcUnits != null
-                    ? `${fmtUnits(quote.otcUnits, otcDecimals)} OTC`
-                    : `unavailable — ${quote.otcUnavailableReason}`}
+                  {!otcAvailable
+                    ? `unavailable — ${quote.otcUnavailableReason}`
+                    : otcRouteErr
+                      ? `route error — ${otcRouteErr}`
+                      : otcRouteLoading || otcTotalUnits == null
+                        ? "quoting live Jupiter route…"
+                        : `${fmtUnits(otcTotalUnits, otcDecimals)} OTC`}
                 </span>
                 <span className={otcAvailable ? "text-green-600" : "text-green-800"}>
-                  {premium}× premium → POL reserve
+                  {OTC_TOTAL_PREMIUM}× total → half swapped to $HUB + burned, half → yield vault
                 </span>
               </div>
               <div
@@ -314,7 +372,11 @@ export function ActivatePanel({ address, state, desks, onChanged, selectedAsset 
               type="button"
               onClick={run}
               disabled={
-                busy || !hasQuote || hubShort || claimBlocked || (method === "otc" && !otcAvailable)
+                busy ||
+                !hasQuote ||
+                hubShort ||
+                claimBlocked ||
+                (method === "otc" && (!otcAvailable || !otcRoute))
               }
               className={`${btn} border-emerald-500/60 font-bold text-emerald-300 hover:bg-emerald-500/10`}
             >
@@ -340,7 +402,7 @@ export function ActivatePanel({ address, state, desks, onChanged, selectedAsset 
       {err && <div className="mt-2 text-[11px] text-amber-400">ERR: {err}</div>}
       <TxLogView logs={logs} />
       <div className="mt-2 text-[10px] text-green-700">
-        {`SOL fee = flat step_fee, paid once per activate/upgrade call (90% pot, 10% ops) — independent of how many tiers the call crosses. $HUB burn = full tier cost on a fresh activation, or just the difference from your current tier on an upgrade — never paid twice. $OTC fee = SOL value × otc_per_sol × ${premium ?? "2.00"} → program-custodied POL reserve. The tx is simulated unsigned first; a failing sim is dropped with no fee spent.`}
+        {`SOL fee = flat step_fee, paid once per activate/upgrade call (90% pot, 10% ops) — independent of how many tiers the call crosses. $HUB burn = full tier cost on a fresh activation, or just the difference from your current tier on an upgrade — never paid twice. $OTC fee = a live Jupiter $OTC→$HUB route sized to clear that $HUB burn (swapped and burned on-chain), plus an equal-scaled amount into the program-custodied yield vault — ${OTC_TOTAL_PREMIUM}× total, dynamic with $HUB's market price. The tx is simulated unsigned first; a failing sim is dropped with no fee spent.`}
       </div>
     </Panel>
   );

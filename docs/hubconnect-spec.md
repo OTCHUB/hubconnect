@@ -174,27 +174,35 @@ same $HUB twice, but the flat SOL fee is paid again on every call.
 Display names are UI-only (`sdk/src/constants.ts` `TIER_NAMES`); the program
 stores tier indices 1–4 and weights in basis points.
 
-### A4.1 Paying steps in $OTC (2× premium → POL reserve)
+### A4.1 Paying the $HUB-burn leg in $OTC (dynamic swap-burn, ~2× premium)
 
-Every call may alternatively pay its SOL leg in $OTC via `activate_tier_otc` /
-`upgrade_tier_otc` (same `target_tier` argument, same $HUB burn either way).
-The tier result is identical (same weight, same stamp, same lazy-revocation
-rules); only the SOL-equivalent payment leg differs:
+Every call may alternatively pay its **$HUB-burn leg** in $OTC via
+`activate_tier_otc` / `upgrade_tier_otc` (same `target_tier` argument). The
+**flat SOL fee is unchanged** — 0.5 SOL, 90% pot / 10% ops, booked as round
+inflow exactly like the SOL path (§A4) on both instructions. Only the tier's
+$HUB-burn leg differs, and it is no longer priced off a static
+authority-refreshed rate — it's a real, synchronous on-chain Jupiter
+$OTC→$HUB swap, so it floats with $HUB's live market price:
 
-| | SOL path | $OTC path |
+| | Direct burn (`activate_tier` / `upgrade_tier`) | $OTC swap-burn (`activate_tier_otc` / `upgrade_tier_otc`) |
 |---|---|---|
-| Price per call | 0.5 SOL (flat, see §A4) | `⌈0.5 SOL × otc_per_sol × 2.00⌉` $OTC units — the flat SOL fee's value **at a fixed 2× premium** (`OTC_PREMIUM_BP = 20_000`, written at init, not updatable) |
-| Reference rate | — | `OtcPayConfig.otc_per_sol` ($OTC base units per SOL), refreshed by the authority keeper (`set_otc_rate`); the path rejects a rate older than `OTC_RATE_MAX_AGE = 24h` |
-| $HUB burn | full tier cost (fresh) / delta (upgrade) — burned either way | same, burned either way |
-| Proceeds | 90% pot / 10% ops | 100% → **POL reserve**: the `["vault"]` PDA's $OTC token account. Nothing enters the pot or ops; the $OTC can only leave via a program instruction (`build_lp(HubOtc)`, §A6.2 phase 2) — it is the $OTC leg of the $OTC/$HUB pair, never operating capital |
-| Round inflow | yes (source A) | **no** — an $OTC-paid call adds weight without adding SOL inflow |
+| Flat SOL fee | 0.5 SOL (90% pot / 10% ops) | same 0.5 SOL (90% pot / 10% ops) — identical, booked as round inflow either way |
+| $HUB-burn leg | `BurnChecked` the tier's $HUB cost straight from the payer's ATA | caller supplies `otc_swap_amount` ($OTC input, sized off-chain via a live Jupiter quote); swapped $OTC→$HUB via `jupiter_swap::swap_exact_in` with `min_out = hub_cost_delta` — enforced on-chain via balance-delta, so it can never under-deliver the tier's own $HUB requirement; the $HUB received lands in the payer's own ATA and is `BurnChecked` there in full immediately (any amount cleared above the floor is a bonus burn) |
+| Desk-pot leg | — | an **equal-scaled** $OTC amount (`OTC_PAY_SWAP_BURN_PCT_BP = 5_000`, i.e. an even 50/50 split) is charged again and injected straight into `OtcPotState.otc_vault` — no swap, it only raises `total_otc_bought_units`, lifting the lifetime average buy rate `claim_yield` prices every desk's yield at (mirrors `clear_creator_fees`'s 80% desk-pot leg) |
+| Total $OTC cost | n/a | dynamic, priced at Jupiter's live rate — but because the desk-pot leg mirrors the swap leg 1:1, the total $OTC charged is always **~2× the swap leg's cost** ("2× premium" is now a pricing *outcome* of the 50/50 split, not a stored rate) |
 
-Example at 1 SOL = 1,000 $OTC: a fresh T4 activation costs 0.5 SOL or 1,000
-$OTC (500 $OTC of value × 2) plus burns 200,000 $HUB either way — one call.
+Example: a fresh T4 activation pays 0.5 SOL + burns 200,000 $HUB either way —
+one call. On the $OTC path the caller sizes `otc_swap_amount` off a live
+Jupiter quote so the swap clears ≥200,000 $HUB; an equal-scaled $OTC amount
+lands in the desk pot on top of the swap leg, so the total $OTC spent is ~2×
+what the swap alone would have cost at that quote.
+
 `OtcPayConfig` is a separate PDA created by the authority after
 `initialize_config` (`init_otc_payments`, starts disabled), so the path can be
-added to a live deployment without migrating `Config`; absent or disabled ⇒
-SOL-only.
+added to a live deployment without migrating `Config`. `enabled` is now its
+only mutable field (`set_otc_payments_enabled`) — there is no rate to
+refresh, since every call prices itself off a fresh Jupiter quote. Absent or
+disabled ⇒ direct-$HUB-burn only.
 
 ### A5. Yield engine
 
@@ -220,13 +228,23 @@ inflow (plus whole lamports of dust carried from earlier rounds) reaches
 seconds or days long depending on flow.
 
 ```text
-burn           = ⌊0.05 × round_inflow⌋                  [buy $HUB → burn, BURN_PCT_BP]
-lp_pending    += ⌊0.05 × round_inflow⌋                  [TreasuryState, phase-2 build_lp, LP_PCT_BP]
-distributable  = round_inflow − burn − lp_pending        [the 90% $OTC leg]
+burn           = ⌊0.05  × round_inflow⌋                 [BURN_PCT_BP]
+lp             = ⌊0.025 × round_inflow⌋                 [LP_PCT_BP]
+treasury_float = ⌊0.025 × round_inflow⌋                 [TREASURY_FLOAT_PCT_BP]
+swap_total     = burn + lp + treasury_float             [10% of inflow]
+distributable  = round_inflow − swap_total               [the 90% $OTC leg, unchanged mechanic]
 per_weight     = ⌊distributable × 10¹² / Σ w_j⌋          [scaled, u128, lamport-equivalent]
 acc_per_weight += per_weight                            [Config, lifetime]
 yield_i        = ⌊(acc_per_weight − stamp_i) × w_i / 10¹²⌋   [owed, lamport-equivalent]
 otc_due_i      = ⌊owed_i × OtcPotState.total_otc_bought_units / OtcPotState.total_lamports_spent⌋
+
+# swap_total lamports are spent immediately, in the same finalize_epoch call:
+hub_received   = jupiter_swap::swap_exact_in(swap_total SOL → $HUB, min_hub_out)
+hub_burn       = ⌊hub_received × burn / swap_total⌋
+hub_lp         = ⌊hub_received × lp   / swap_total⌋
+hub_float_req  = hub_received − hub_burn − hub_lp        [absorbs the floor-rounding remainder]
+hub_float_dep  = min(hub_float_req, float_cap_units − TreasuryState.treasury_float_units)
+hub_burn_total = hub_burn + (hub_float_req − hub_float_dep)   [cap excess folds into burn]
 ```
 
 `acc_per_weight` still accrues in **lamport-equivalent** units (unchanged accounting) —
@@ -245,15 +263,28 @@ running **lifetime average buy rate** — `total_otc_bought_units / total_lampor
 reverts with `NoOtcPurchased` until the first buy is recorded — there is nothing to
 convert into until then.
 
+The other 10% (`swap_total`) never sits as a pot liability waiting on a keeper —
+`finalize_epoch` itself pulls it out of the pot, wraps it into the vault-owned
+`vault_wsol` ATA (`SyncNative`), and routes it through a single **synchronous**
+Jupiter CPI (the caller assembles the route's `jupiter_data` + `remaining_accounts`
+off-chain from a live quote; the swap enforces `min_hub_out` via balance-delta). The
+$HUB that comes back splits 50/25/25 (of that 10%, i.e. 5%/2.5%/2.5% of total
+inflow) in the **same transaction**: `hub_burn_total` is `BurnChecked` from
+`vault_hub` immediately (`BurnState.total_hub_burned` ledger bump); `hub_lp` is
+earmarked in `TreasuryState.lp_pending_hub_units`, physically custodied in
+`vault_hub` until the phase-2 `build_lp(HubOtc)` adapter draws it down; `hub_float_dep`
+is `TransferChecked` into `TreasuryState.treasury_float_vault` (buy-and-hold),
+capped at `hub_float_cap_bp` of supply — any amount that would push past the live
+cap folds into the burn leg instead of being left un-swapped. No off-chain
+keeper round-trip, no `record_burn` draw, for this leg.
+
 Each `DeskTier` stores `stamp_acc_per_weight` (set at activation and on every
 claim), so one `claim_yield` pays everything a desk earned across **every round
 closed since its stamp** in a single transaction — there is no per-round claiming
 and nothing to catch up. Sub-lamport fractions (from the ⌊⌋ floors) accumulate in
 `Config.dust_scaled`; whole lamports of dust re-enter the next round as inflow,
 so the accounting is exactly zero-sum. Desks activated after a round closed do
-not share in it (their stamp is already past it). The 5% LP-build leg accumulates
-in `TreasuryState.lp_pending_lamports` (mirrors `BurnState.burn_pending_lamports`'s
-keeper-draw pattern) until the phase-2 `build_lp(HubOtc)` adapter lands.
+not share in it (their stamp is already past it).
 
 Direct-to-holder stream (no tier needed, per wallet, pro-rata on HUB held):
 `0.70 × f × V_HUB_volume` of OTC bought daily, where `f` = creator-fee rate
@@ -445,7 +476,7 @@ received (100% $OTC, from the launcher's holders-in-stock leg)
   (`total_received_otc`, `total_desk_pot_otc`, `total_burn_otc/hub`,
   `total_lp_otc`, `total_stack_otc/hub`, `total_ops_otc`,
   `total_ops_sol_lamports`) — the same "pending vs. lifetime" pattern as
-  `OtcPotState` and `TreasuryState.lp_pending_lamports`.
+  `OtcPotState` and `TreasuryState.lp_pending_hub_units`.
 - **`record_creator_fee`**: the treasury deposits its claimed $OTC into
   `creator_fee_vault` — an enforced `TransferChecked`, not a mere attestation
   (mirrors `record_otc_buy`'s deposit enforcement).
@@ -599,16 +630,16 @@ IDL account and singleton PDAs are listed in **Appendix — Deployment addresses
 
 | Account | Seeds (all under program id) | Key fields |
 |---|---|---|
-| `Config` | `["config"]` | authority, pot PDA, ops_wallet, treasury, **OTC-side refs** (otc_program, otc_desk_pot, desk_collection, hub_mint, otc_mint — runtime-set, §A2), tier_weights_bp[4], step_fee_lamports (flat, §A4), **tier_hub_cost_units[4]** (cumulative $HUB burn table, §A4), min_pot_threshold_lamports (0.1 SOL), burn_pct_bp (500), **lp_pct_bp (500)** — §A5 90/5/5 split, remainder is the $OTC-vault leg, ops_pct_bp (1000, step-fee split only), lp_enabled, lp_target_sol_lamports, lp_phase2_open_ts, paused, current_epoch, genesis_ts, total_weight_bp, pot_liability_lamports, **acc_per_weight (u128, lifetime, lamport-equivalent)**, **dust_scaled (u128)**, bumps |
+| `Config` | `["config"]` | authority, pot PDA, ops_wallet, treasury, **OTC-side refs** (otc_program, otc_desk_pot, desk_collection, hub_mint, otc_mint — runtime-set, §A2), tier_weights_bp[4], step_fee_lamports (flat, §A4), **tier_hub_cost_units[4]** (cumulative $HUB burn table, §A4), min_pot_threshold_lamports (0.1 SOL), burn_pct_bp (500), **lp_pct_bp (250)**, **treasury_float_pct_bp (250)** — §A5 4-way split (90/5/2.5/2.5), remainder is the $OTC-vault leg, ops_pct_bp (1000, step-fee split only), lp_enabled, lp_target_sol_lamports, lp_phase2_open_ts, paused, current_epoch, genesis_ts, total_weight_bp, pot_liability_lamports, **acc_per_weight (u128, lifetime, lamport-equivalent)**, **dust_scaled (u128)**, bumps |
 | `OtcPotState` | `["otc_pot"]` | authority (keeper trusted for `record_otc_buy`), otc_vault (vault-owned $OTC token account `claim_yield` pays from), otc_pending_lamports (pot liability awaiting a buy), total_lamports_spent, total_otc_bought_units (⇒ lifetime avg buy rate), last_buy_tx, bump — §A5 90% leg, created once via `init_otc_pot` |
 | `CreatorFeeState` | `["creator_fee"]` | authority (keeper), creator_fee_vault (vault-owned $OTC token account), clear_threshold_units (default 1,000 $OTC), pending_otc_units, burn/lp/stack/ops_pending_otc (per-leg earmarks awaiting a keeper draw), total_received_otc, total_desk_pot_otc, total_burn_otc/hub, total_lp_otc, total_stack_otc/hub, total_ops_otc, total_ops_sol_lamports, last_burn_result_tx / last_stack_tx (idempotency), bump — §A6.3 second flywheel, created once via `init_creator_fee_state` |
-| `Epoch` (one round) | `["epoch", epoch_index u64]` | index, start_ts, finalized_ts, inflow_lamports, distributed_lamports (credited), burn_pending_lamports, rolled_forward_lamports (floor remainder), total_weight_bp (Σw at close), per_weight_scaled, acc_per_weight_after, finalized |
+| `Epoch` (one round) | `["epoch", epoch_index u64]` | index, start_ts, finalized_ts, inflow_lamports, distributed_lamports (credited), burn_pending_lamports, **lp_pending_lamports**, **treasury_float_lamports** (the three swap-leg SOL amounts, §A5 4-way split — informational; spent synchronously, not a keeper-drawn balance), rolled_forward_lamports (floor remainder), total_weight_bp (Σw at close), per_weight_scaled, acc_per_weight_after, finalized |
 | `DeskTier` | `["tier", asset_id]` | asset_id, owner_at_activation, tier 1–4, activated_epoch, **stamp_acc_per_weight**, total_claimed_lamports, voided |
 | `Pot` (SOL escrow) | `["pot"]` | system-owned PDA; balance via lamports (no data) |
-| `BurnState` | `["burn"]` | authority, total_hub_burned, burn_pending_lamports, last_burn_tx[64] |
-| `TreasuryState` | `["treasury"]` | multisig, vault (PDA below), desks_owned, sweep_budget_cap_bp (1000), sweep_payback_cap_lamports (4.2 SOL), exit_discount_bp (1000), exit_hub_leg_bp (5000), floor_staleness_bp (500), hub_float_cap_bp (200), total_exits, total_sweeps, **lp_pending_lamports** (§A5 5% LP-build leg, drawn down by phase-2 `build_lp`) |
-| `Vault` (treasury custody) | `["vault"]` | program-signed PDA that holds treasury-side token positions (LP, §A6.2); no data account (derived only) |
-| `OtcPayConfig` | `["otc_pay"]` | §A4.1: enabled, otc_per_sol, rate_ts, premium_bp (20_000, fixed), pol_account (vault-owned $OTC ATA = POL reserve), total_otc_collected. Created by `init_otc_payments` after M1; optional |
+| `BurnState` | `["burn"]` | authority, total_hub_burned (lifetime ledger — bumped directly by `finalize_epoch`'s synchronous swap-burn, `activate_tier_otc`/`upgrade_tier_otc`'s swap-burn, and treasury discount-exit burns), burn_pending_lamports, last_burn_tx[64] (legacy off-chain-buyback fields — `record_burn` is not wired to any producer post-refactor; the round-split burn no longer round-trips through it) |
+| `TreasuryState` | `["treasury"]` | multisig, vault (PDA below), desks_owned, sweep_budget_cap_bp (1000), sweep_payback_cap_lamports (4.2 SOL), exit_discount_bp (1000), exit_hub_leg_bp (5000), floor_staleness_bp (500), **hub_float_cap_bp (500, admin-updatable via `set_treasury_float_cap_bp`)**, total_exits, total_sweeps, **lp_pending_hub_units** (§A5 2.5% LP-build leg, $HUB not lamports, drawn down by phase-2 `build_lp`), **vault_wsol** (vault-owned WSOL scratch ATA, the Jupiter swap's SOL-side input), **vault_hub** (vault-owned $HUB scratch ATA, the swap's destination + `lp_pending_hub_units`'s physical custody), **treasury_float_vault** (vault-owned $HUB buy-and-hold ATA, capped at `hub_float_cap_bp` of supply), **treasury_float_units** (running balance vs. the cap). The three new ATAs are recorded once via `init_treasury_float`; `finalize_epoch` rejects (`TreasuryFloatNotInitialized`) until they are |
+| `Vault` (treasury custody) | `["vault"]` | program-signed PDA that holds treasury-side token positions (LP, §A6.2) and signs the swap-leg transfers/burns above; no data account (derived only) |
+| `OtcPayConfig` | `["otc_pay"]` | §A4.1: enabled, pol_account (vault-owned $OTC ATA reserved for a future POL/`build_lp(HubOtc)` leg — the swap-burn/desk-pot split above no longer routes the per-call $OTC leg through it), total_otc_collected (lifetime $OTC charged across both legs). Created by `init_otc_payments`; optional. No stored rate — every call prices itself off a fresh Jupiter quote |
 | `HubPotConfig` | `["hub_pot"]` | §A5.1: otc/crclx/openai/anthropic mints (runtime-resolved) + their vault-owned token accounts, `<bucket>_pending_units` ×4 (awaiting `open_hub_pot_round`), `<bucket>_deposited_units` ×4 (lifetime), round_count. Created once via `init_hub_pot` |
 | `HubPotRound` | `["hub_pot_round", index u32]` | §A5.1: index, `<bucket>_units` ×4 (snapshotted at open), total_weight_bp (Σw at open), `<bucket>_distributed_units` ×4, claims, opened_ts |
 | `HubPotClaim` | `["hub_pot_claim", round_index u32, asset]` | §A5.1: one payout per desk asset per HUB Pot round — round, asset, owner, `<bucket>_units` ×4, claimed_ts (double-payout guard shared by `claim_hub_pot_reward` and `distribute_hub_pot_reward`, mirrors `AirdropClaim`/`RewardClaim`) |
@@ -630,7 +661,7 @@ the OTC program config on-chain and proposes updates.
 | 1 | `initialize_config` | payer, Config, Pot, BurnState, TreasuryState, Vault, Epoch[0] | once; args = ops_wallet, treasury, otc_program, otc_desk_pot, desk_collection, hub_mint, otc_mint, tier weights, step fee, `min_pot_threshold_lamports`; payer becomes `Config.authority` and `BurnState.authority`; opens round 0 |
 | 2 | `activate_tier` | payer, desk NFT (Metaplex Core asset), Config, Epoch, Pot, ops wallet, hub_mint, payer $HUB ATA, Token program, DeskTier | args: `target_tier` (1..4); verify payer owns desk asset via Core plugin/DAS **inside the instruction**; fresh activation (or re-activation of a voided tier) straight into `target_tier`; pay flat 0.5 SOL: 90% → Pot, 10% → ops; `BurnChecked` the full $HUB cost of `target_tier` from the payer's $HUB ATA |
 | 3 | `upgrade_tier` | payer, desk NFT, Config, Epoch, Pot, ops, hub_mint, payer $HUB ATA, Token program, DeskTier | args: `target_tier`; pay the same flat 0.5 SOL fee again (once, regardless of step size); `BurnChecked` only the $HUB delta between the current tier and `target_tier`; same ownership check (mismatch → void, no charge) |
-| 4 | `finalize_epoch` | keeper (permissionless), Config, Epoch, next Epoch, Pot, BurnState, TreasuryState | **threshold gate**: rejected (`PotBelowThreshold`) until inflow + dust carry ≥ `min_pot_threshold_lamports`; Σw > 0; 5% → burn-pending, 5% → `TreasuryState.lp_pending_lamports`, remaining 90% → `OtcPotState.otc_pending_lamports` (§A5); `acc_per_weight += ⌊distributable × 10¹² / Σw⌋` (still lamport-equivalent); opens the next round with the floor remainder |
+| 4 | `finalize_epoch` | keeper (permissionless), Config, Epoch, next Epoch, Pot, BurnState, OtcPotState, TreasuryState, vault PDA, hub_mint, vault_wsol, vault_hub, treasury_float_vault, Token program, Jupiter program, remaining_accounts (route) | args: `epoch_index`, `min_hub_out`, `jupiter_data`; **threshold gate**: rejected (`PotBelowThreshold`) until inflow + dust carry ≥ `min_pot_threshold_lamports`; requires `TreasuryState.vault_hub` initialized (`init_treasury_float` first); 90% → `OtcPotState.otc_pending_lamports`, `acc_per_weight += ⌊distributable × 10¹² / Σw⌋` (unchanged mechanic); the other 10% (5% burn / 2.5% LP / 2.5% treasury float) is pulled from the pot and swapped SOL→$HUB in one **synchronous** Jupiter CPI right here, then split 50/25/25 — burned / earmarked in `lp_pending_hub_units` / deposited in the float (capped, excess → burn), all in the same tx; opens the next round with the floor remainder (§A5) |
 | 4b | `init_otc_pot` | authority (one-time), Config, otc_vault, OtcPotState | args: `keeper` pubkey; creates `OtcPotState` + records its vault-owned $OTC token account (§A5) |
 | 4c | `record_otc_buy` | keeper (must be `OtcPotState.authority`), Config, OtcPotState, otc_mint, keeper $OTC ATA, otc_vault, Pot | args: `otc_bought`, `lamports_spent`, `buy_tx`; requires `!Config.paused`; `TransferChecked`-deposits `otc_bought` into `otc_vault` in this tx (enforced, not attested), then reimburses the keeper `lamports_spent` from the pot, capped at `otc_pending_lamports` (`OtcBuyExceedsPending`); updates the lifetime avg buy rate |
 | 5 | `claim_yield` | claimer, desk NFT, DeskTier, Config, OtcPotState, otc_mint, otc_vault, claimer $OTC ATA, Token program, Pot | **lazy revocation**: re-verify desk ownership on-chain NOW; if caller ≠ owner → void tier (voided = true, no refund) and revert; `owed = ⌊(acc − stamp) × w / 10¹²⌋` for every round since the stamp; reverts `NoOtcPurchased` until the first `record_otc_buy`; pays `otc_due = ⌊owed × total_otc_bought_units / total_lamports_spent⌋` in $OTC from `otc_vault`; stamp := acc; `NothingToClaim` when `owed` or `otc_due` rounds to zero |
@@ -640,10 +671,12 @@ the OTC program config on-chain and proposes updates.
 | 9 | `update_config` | authority (multisig), Config | only whitelisted fields (incl. `min_pot_threshold_lamports`, must be > 0); rate changes apply to rounds finalized afterwards |
 | 10 | `pause` / `unpause` | authority | halts activate/upgrade/claim and every keeper reimbursement draw that pays protocol-custodied funds out to an EOA (`record_burn`, `record_otc_buy`, `draw_creator_fee_leg`) on anomaly — the only fast stop against a compromised keeper key, since those three authorities aren't independently rotatable. Inbound deposits, permissionless internal bookkeeping (`clear_creator_fees`), and attestation-only instructions stay open so a legitimate keeper can settle in-flight recovery even while paused |
 | 13 | `build_lp` | treasury multisig, Config, treasury LP vault, AMM pool accounts | `lp_enabled` must be true; deposit paired liquidity per §A6.2 (HUB/SOL top-ups, or bookkeeping-only intent recording); LP tokens custodied in the treasury PDA vault; withdraw path can never sell HUB |
-| 14 | `init_otc_payments` | authority, Config, TreasuryState, Vault, pol_account, OtcPayConfig | §A4.1; `pol_account` must be an SPL token account with mint = `Config.otc_mint`, owner = vault PDA; creates `OtcPayConfig` disabled/unpriced with `premium_bp = OTC_PREMIUM_BP` |
-| 15 | `set_otc_rate` | authority, Config, OtcPayConfig | args `otc_per_sol`, `enabled`; stamps `rate_ts = now`; `enabled` with rate 0 rejected. The premium is not an argument |
-| 16 | `activate_tier_otc` | payer, desk NFT, Config, OtcPayConfig, otc_mint, payer $OTC ATA, pol_account, hub_mint, payer $HUB ATA, Token program, DeskTier | args: `target_tier`; same gates/state as #2; requires `enabled`, rate fresh (≤ 24h); `TransferChecked` of `otc_fee(step_fee(0, target_tier))` payer → POL reserve; `BurnChecked` the full $HUB cost of `target_tier`; no pot/ops/inflow booking; `total_otc_collected += fee` |
-| 17 | `upgrade_tier_otc` | payer, desk NFT, Config, OtcPayConfig, otc_mint, payer $OTC ATA, pol_account, hub_mint, payer $HUB ATA, Token program, DeskTier | args: `target_tier`; same gates/state as #3 (ownership change → void, no charge; `ClaimBeforeUpgrade`); fee `otc_fee(step_fee(from, target_tier))` → POL reserve; `BurnChecked` only the $HUB delta between `from` and `target_tier` |
+| 13a | `init_treasury_float` | treasury multisig (one-time), Config, TreasuryState, vault PDA, vault_wsol, vault_hub, treasury_float_vault | records the three vault-owned ATAs `finalize_epoch`'s synchronous Jupiter legs and the $OTC swap-burn leg need (WSOL scratch, $HUB scratch, $HUB buy-and-hold float); `finalize_epoch` rejects (`TreasuryFloatNotInitialized`) until this runs |
+| 13b | `set_treasury_float_cap_bp` | treasury multisig, Config, TreasuryState | args: `hub_float_cap_bp` (≤ 10,000 bp); experimental, admin-updatable — the multisig may retune the float cap at will; excess over the live cap at deposit time is burned, never rejected (§A6.3/§A7.1) |
+| 14 | `init_otc_payments` | authority, Config, TreasuryState, Vault, pol_account, OtcPayConfig | §A4.1; `pol_account` must be an SPL token account with mint = `Config.otc_mint`, owner = vault PDA; creates `OtcPayConfig` disabled, `total_otc_collected = 0` — no stored rate to initialize since pricing comes from a live Jupiter quote per call |
+| 15 | `set_otc_payments_enabled` | authority, Config, OtcPayConfig | args: `enabled`; on/off switch only — there is no rate to refresh (replaces the old `set_otc_rate`) |
+| 16 | `activate_tier_otc` | payer, desk NFT, Config, Epoch, Pot, ops_wallet, OtcPayConfig, otc_mint, payer $OTC ATA, OtcPotState, otc_vault, hub_mint, payer $HUB ATA, Token program, Jupiter program, DeskTier, remaining_accounts (route) | args: `target_tier`, `otc_swap_amount`, `jupiter_data`; same gates as #2; requires `otc_pay.enabled`; pays the same flat 0.5 SOL fee as #2 (90% pot / 10% ops, booked as inflow); swaps `otc_swap_amount` $OTC→$HUB via Jupiter (`min_out = hub_cost_delta`), `BurnChecked`s the full amount received from the payer's $HUB ATA; charges an equal-scaled $OTC amount straight into `otc_vault` (`OTC_PAY_SWAP_BURN_PCT_BP`, no swap); `total_otc_collected += otc_paid_total` |
+| 17 | `upgrade_tier_otc` | payer, desk NFT, Config, Epoch, Pot, ops_wallet, OtcPayConfig, otc_mint, payer $OTC ATA, OtcPotState, otc_vault, hub_mint, payer $HUB ATA, Token program, Jupiter program, DeskTier, remaining_accounts (route) | args: `target_tier`, `otc_swap_amount`, `jupiter_data`; same gates/state as #3 (ownership change → void, no charge); same flat-fee + swap-burn/desk-pot-leg mechanics as #16, priced off `hub_cost_delta(from, target_tier)` |
 | 18 | `init_creator_fee_state` | authority (one-time), Config, creator_fee_vault, CreatorFeeState | args: `keeper` pubkey, `clear_threshold_units`; creates `CreatorFeeState` + records its vault-owned $OTC token account (§A6.3) |
 | 19 | `record_creator_fee` | treasury multisig, Config, CreatorFeeState, otc_mint, treasury $OTC source, creator_fee_vault, Token program | args: `otc_received`; `TransferChecked`-deposits the treasury's claimed launcher holder-leg $OTC into `creator_fee_vault` (enforced, not attested); bumps `pending_otc_units` + `total_received_otc` |
 | 20 | `clear_creator_fees` | permissionless, CreatorFeeState, Config, otc_mint, OtcPotState, creator_fee_vault, otc_vault, Pot (signer PDA), Token program | rejected (`CreatorFeeBelowThreshold`) until `pending_otc_units ≥ clear_threshold_units`; splits the whole pending balance 80/5/5/5/5; 80% desk-pot leg moves in this tx (program-signed vault-to-vault transfer into `otc_vault`, bumps `OtcPotState.total_otc_bought_units` only — no swap); other four legs become `*_pending_otc` earmarks; desk-pot leg = remainder of the four floor-divided minor legs (absorbs all rounding dust) |
@@ -722,8 +755,10 @@ keeper-anyone with a small reward? — start permissioned, open later).
 **Unit (Rust):**
 - Tier math: flat SOL fee regardless of step size, $HUB burn cost deltas,
   weight lookups, void semantics.
-- Epoch math: pro-rata distribution, 90/5/5 split (burn / LP-pending / $OTC leg),
-  roll-forward, no rounding loss (last claimer gets remainder).
+- Epoch math: pro-rata distribution, 4-way split (90% $OTC leg / 5% burn /
+  2.5% LP / 2.5% treasury float), synchronous swap split + float-cap
+  excess-to-burn folding, roll-forward, no rounding loss (last claimer gets
+  remainder).
 - $OTC yield math: `record_otc_buy` pending/spent/bought bookkeeping, replay
   rejection (`buy_tx` reuse), overspend rejection (`OtcBuyExceedsPending`),
   `claim_yield`'s lamport→$OTC conversion at the lifetime avg buy rate.
@@ -981,16 +1016,16 @@ treasury ATA is the only locked holder.
 | TIER_STEPS / WEIGHTS | 4 / [1.00, 1.25, 1.60, 2.00] |
 | STEP_FEE | 0.5 SOL, flat — paid once per `activate_tier`/`upgrade_tier` call regardless of tiers crossed (90% pot / 10% ops) |
 | TIER_HUB_COST (cumulative) | T1 100,000 / T2 125,000 / T3 150,000 / T4 200,000 $HUB — fresh activation burns the full target-tier cost, upgrade burns only the delta from the current tier (§A4) |
-| OTC_PREMIUM | 2.00× (20_000 bp) — $OTC price = flat STEP_FEE value × premium (§A4.1); 100% → POL reserve |
-| OTC_RATE_MAX_AGE | 24h — $OTC path rejects an `otc_per_sol` older than this |
+| OTC_PAY_SWAP_BURN_PCT_BP | 50% (5_000 bp) — the $OTC path's swap leg vs. desk-pot leg split; symmetric 50/50 makes the total $OTC charged ~2× the swap leg's live-priced cost (§A4.1). No stored premium/rate — priced off a fresh Jupiter quote every call |
 | MIN_POT_THRESHOLD | 0.1 SOL per round (no clock; `update_config`-adjustable) |
 | ACC_SCALE | 10¹² (accumulator precision) |
-| BURN_PCT_BP | 5% of every round's distributable inflow → buy $HUB, burn (§A5) |
-| LP_PCT_BP | 5% of every round's distributable inflow → `TreasuryState.lp_pending_lamports`, phase-2 $HUB/$OTC LP (§A5) |
+| BURN_PCT_BP | 5% of every round's inflow → swapped SOL→$HUB (synchronous Jupiter CPI in `finalize_epoch`), burned (§A5) |
+| LP_PCT_BP | 2.5% of every round's inflow → swapped to $HUB, earmarked in `TreasuryState.lp_pending_hub_units` for the phase-2 $HUB/$OTC LP (§A5) |
+| TREASURY_FLOAT_PCT_BP | 2.5% of every round's inflow → swapped to $HUB, deposited into `TreasuryState.treasury_float_vault` (buy-and-hold, capped at `TREASURY_HUB_FLOAT_CAP`; excess folds into the burn leg) (§A5) |
 | OTC yield leg | remaining 90% — desks claim it in $OTC from `OtcPotState.otc_vault` at the pot's lifetime average buy rate (§A5) |
 | REWARD_STOCK ($HUB launch) | OTC |
 | LAUNCHER_SHARE | 0% |
-| TREASURY_HUB_FLOAT_CAP | ≤2% of supply (announced launch buy, tranched; never sold — source C claims + LP pairing only) |
+| TREASURY_HUB_FLOAT_CAP | ≤5% of supply, admin-updatable via `set_treasury_float_cap_bp` (experimental parameter, §A6.3/§A7.1); excess over the live cap at deposit time is burned instead of floated — separate from the immutable 2%/0.5% genesis yield/LP reserves (§A3, §A7.1) |
 | EXIT_DISCOUNT / HUB leg / SOL leg | 10% off live floor / 50% burned / 50% → pot |
 | SWEEP_BUDGET_CAP | 10% of treasury SOL per desk |
 | SWEEP_PAYBACK_CAP | ≤60 desk-days at D=0.07 (≈4.2 SOL/desk) |

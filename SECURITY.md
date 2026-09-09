@@ -2,8 +2,7 @@
 
 ## Scope
 
-- On-chain program `hub` — `7c5oPs9GvX8vrC5jVFketNx1ZLuPs7HeH8Qc4XJx7b7i` (same keypair on
-  devnet and mainnet-beta)
+- On-chain program `hub` — `7c5oPs9GvX8vrC5jVFketNx1ZLuPs7HeH8Qc4XJx7b7i`
 - TypeScript SDK and keeper in this repository
 
 The program embeds [solana-security-txt](https://github.com/neodyme-labs/solana-security-txt);

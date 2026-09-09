@@ -11,7 +11,7 @@ import {
   mintTo,
   tokenBalance,
 } from "./harness";
-import { epochPda, tierPda, otcPayPda } from "../sdk/src/pda";
+import { epochPda, tierPda, otcPayPda, vaultPda } from "../sdk/src/pda";
 import * as K from "../sdk/src/constants";
 
 export const bn = (n: number | bigint) => new anchor.BN(n.toString());
@@ -113,58 +113,78 @@ export function initOtcPayments(h: Harness, f: Fixture, polAccount: PublicKey) {
     .rpc();
 }
 
-/** §A4.1 #15 — authority refreshes the $OTC/SOL reference rate and the enable switch. */
-export function setOtcRate(h: Harness, f: Fixture, otcPerSol: number | bigint, enabled: boolean) {
+/** §A4.1 #15 (revised) — authority toggles the on/off switch only; pricing is a live Jupiter
+ * quote supplied per-call now (see `otcPotLeg` in `sdk/src/constants.ts`), not a stored rate. */
+export function setOtcPaymentsEnabled(h: Harness, f: Fixture, enabled: boolean) {
   const [otcPay] = otcPayPda(h.program.programId);
   return h.program.methods
-    .setOtcRate(bn(otcPerSol), enabled)
+    .setOtcPaymentsEnabled(enabled)
     .accountsPartial({ authority: h.payer.publicKey, config: f.config, otcPay })
     .rpc();
 }
 
-/** Accounts shared by both $OTC payment instructions (mints + POL reserve read from chain). */
+/** Accounts shared by both $OTC payment instructions: the $OTC-side pieces (pay config, mint,
+ * yield-vault bookkeeping) plus the Jupiter program pinned for the swap-burn CPI. The flat SOL
+ * fee (pot/ops/epoch) and $HUB-burn pieces are wired by the caller, exactly like the SOL path —
+ * there is no more `opsOtcAccount`: the ops leg is paid in SOL now, not $OTC. */
 async function otcPayAccounts(h: Harness, f: Fixture) {
   const [otcPay] = otcPayPda(h.program.programId);
   const c = await h.program.account.config.fetch(f.config);
-  const p = await h.program.account.otcPayConfig.fetch(otcPay);
   return {
-    config: f.config,
     otcPay,
     otcMint: c.otcMint,
-    polAccount: p.polAccount,
+    otcPot: f.otcPot,
+    otcVault: f.otcVault,
     hubMint: c.hubMint,
     tokenProgram: TOKEN_PROGRAM_ID,
+    jupiterProgram: new PublicKey(K.JUPITER_PROGRAM_ID),
   };
 }
 
-/** §A4.1 #16 — `activate_tier` paid in $OTC from `payerOtc` (owner's token account); the $HUB
- * tier cost is still burned from `payerHub`, exactly like the SOL path. */
+/**
+ * §A4.1 #16 (revised) — `activate_tier` paid in $OTC from `payerOtc`: the same flat 0.5 SOL fee
+ * as the SOL path (90% pot / 10% ops, booked as inflow) **plus** the $OTC 2× premium —
+ * `otcSwapAmount` swapped $OTC→$HUB via Jupiter (`min_out = hub_cost_delta`, burned in full) and
+ * an equal-scaled amount injected into the $OTC yield vault (see `otcPotLeg`). `jupiterData` /
+ * `remainingAccounts` are the caller-assembled Jupiter route (`payer` signs directly, no PDA) —
+ * empty defaults only satisfy the SOL-side fee path; a real swap needs a real Jupiter quote
+ * (blocked on the pending localnet Jupiter V6 clone, see Anchor.toml task).
+ */
 export async function activateOtc(
   h: Harness,
   f: Fixture,
   owner: Keypair,
   asset: PublicKey,
   payerOtc: PublicKey,
+  otcSwapAmount: number | bigint,
+  jupiterData: Buffer = Buffer.alloc(0),
+  remainingAccounts: { pubkey: PublicKey; isSigner: boolean; isWritable: boolean }[] = [],
 ) {
+  const { key: epoch } = await currentEpoch(h, f);
   const [deskTier] = tierPda(h.program.programId, asset);
   const payerHub = await ensureHubBalance(h, f, owner.publicKey);
   await h.program.methods
-    .activateTierOtc(1)
+    .activateTierOtc(1, bn(otcSwapAmount), jupiterData)
     .accountsPartial({
       payer: owner.publicKey,
       deskAsset: asset,
+      config: f.config,
+      epoch,
+      pot: f.pot,
+      opsWallet: f.opsWallet,
       ...(await otcPayAccounts(h, f)),
       payerOtc,
       payerHub,
       deskTier,
     })
+    .remainingAccounts(remainingAccounts)
     .signers([owner])
     .rpc();
   return deskTier;
 }
 
-/** §A4.1 #17 — `upgrade_tier` paid in $OTC from `payerOtc` (owner's token account); the $HUB
- * cost delta is still burned from `payerHub`, exactly like the SOL path. */
+/** §A4.1 #17 (revised) — `upgrade_tier` paid in $OTC from `payerOtc`; see `activateOtc` for the
+ * flat-fee + swap-burn/desk-pot split. Ownership change → void, no charge, like the SOL path. */
 export async function upgradeOtc(
   h: Harness,
   f: Fixture,
@@ -172,19 +192,28 @@ export async function upgradeOtc(
   asset: PublicKey,
   target: number,
   payerOtc: PublicKey,
+  otcSwapAmount: number | bigint,
+  jupiterData: Buffer = Buffer.alloc(0),
+  remainingAccounts: { pubkey: PublicKey; isSigner: boolean; isWritable: boolean }[] = [],
 ) {
+  const { key: epoch } = await currentEpoch(h, f);
   const [deskTier] = tierPda(h.program.programId, asset);
   const payerHub = await ensureHubBalance(h, f, owner.publicKey);
   return h.program.methods
-    .upgradeTierOtc(target)
+    .upgradeTierOtc(target, bn(otcSwapAmount), jupiterData)
     .accountsPartial({
       payer: owner.publicKey,
       deskAsset: asset,
+      config: f.config,
+      epoch,
+      pot: f.pot,
+      opsWallet: f.opsWallet,
       ...(await otcPayAccounts(h, f)),
       payerOtc,
       payerHub,
       deskTier,
     })
+    .remainingAccounts(remainingAccounts)
     .signers([owner])
     .rpc();
 }
@@ -264,13 +293,35 @@ export async function inflow(
     .rpc();
 }
 
-/** Raw finalize of `idx` (no waiting) — also used for negative cases. On success, immediately
- * settles the round's $OTC leg (see `settleOtcPending`) so claims never hit `NoOtcPurchased`. */
-export async function finalizeIdx(h: Harness, f: Fixture, idx: number) {
+/**
+ * Raw finalize of `idx` (no waiting) — also used for negative cases. On success, immediately
+ * settles the round's $OTC leg (see `settleOtcPending`) so claims never hit `NoOtcPurchased`.
+ *
+ * §A5: the 5%/2.5%/2.5% burn/lp/treasury-float legs are now swapped SOL→$HUB inside
+ * `finalize_epoch` via a synchronous Jupiter CPI, so the account list grew (vault/hub_mint/
+ * vault_wsol/vault_hub/treasury_float_vault/jupiter_program) and the ix takes `minHubOut` +
+ * `jupiterData` (+ `remainingAccounts` for the route). Empty defaults only work once
+ * `TreasuryState.vault_hub` is set (`init_treasury_float`, not yet wired into the fixture) and
+ * `swap_total == 0` (all three split bps at 0) — a real swap needs a real Jupiter route, blocked
+ * on the pending localnet Jupiter V6 clone (see Anchor.toml task).
+ */
+export async function finalizeIdx(
+  h: Harness,
+  f: Fixture,
+  idx: number,
+  swap: {
+    minHubOut?: number | bigint;
+    jupiterData?: Buffer;
+    remainingAccounts?: { pubkey: PublicKey; isSigner: boolean; isWritable: boolean }[];
+  } = {},
+) {
   const [epoch] = epochPda(h.program.programId, idx);
   const [nextEpoch] = epochPda(h.program.programId, idx + 1);
+  const [vault] = vaultPda(h.program.programId);
+  const cfg = await h.program.account.config.fetch(f.config);
+  const treasury = await h.program.account.treasuryState.fetch(f.treasuryState);
   const sig = await h.program.methods
-    .finalizeEpoch(bn(idx))
+    .finalizeEpoch(bn(idx), bn(swap.minHubOut ?? 0), swap.jupiterData ?? Buffer.alloc(0))
     .accountsPartial({
       keeper: h.payer.publicKey,
       config: f.config,
@@ -278,7 +329,17 @@ export async function finalizeIdx(h: Harness, f: Fixture, idx: number) {
       nextEpoch,
       pot: f.pot,
       burn: f.burn,
+      otcPot: f.otcPot,
+      treasuryState: f.treasuryState,
+      vault,
+      hubMint: cfg.hubMint,
+      vaultWsol: treasury.vaultWsol,
+      vaultHub: treasury.vaultHub,
+      treasuryFloatVault: treasury.treasuryFloatVault,
+      tokenProgram: TOKEN_PROGRAM_ID,
+      jupiterProgram: new PublicKey(K.JUPITER_PROGRAM_ID),
     })
+    .remainingAccounts(swap.remainingAccounts ?? [])
     .rpc();
   await settleOtcPending(h, f);
   return sig;
@@ -323,22 +384,31 @@ export async function shareOfRound(h: Harness, idx: number, tier: number) {
 /**
  * Claim everything pending for `asset` in ONE transaction, asserting the payout equals the
  * accumulator math and that the stamp caught up. §A5: paid in $OTC, priced at `otc_pot`'s
- * lifetime average buy rate — `settleOtcPending` keeps that rate at 1 in tests, so the $OTC
- * amount received equals the lamport-denominated `pendingOf` value. Returns $OTC base units
- * received (0 → no claim sent).
+ * lifetime average buy rate (`total_otc_bought_units / total_lamports_spent`) — mirrors
+ * `claim_yield`'s on-chain formula exactly. `settleOtcPending` keeps that rate at 1 on its own,
+ * but `activate_tier_otc` / `upgrade_tier_otc`'s desk-pot leg also raises
+ * `total_otc_bought_units` without a matching `total_lamports_spent`, so the rate can be > 1 by
+ * the time this runs; recomputing it live (rather than assuming 1:1) keeps this helper correct
+ * either way. Returns $OTC base units received (0 → no claim sent).
  */
 export async function claimPending(h: Harness, f: Fixture, owner: Keypair, asset: PublicKey) {
-  const expected = await pendingOf(h, f, asset);
-  if (expected === 0) return 0;
+  const owed = await pendingOf(h, f, asset);
+  if (owed === 0) return 0;
+  const p = await h.program.account.otcPotState.fetch(f.otcPot);
+  const expected = Number((BigInt(owed) * big(p.totalOtcBoughtUnits)) / big(p.totalLamportsSpent));
   const claimerOtc = await ensureOtcAccount(h, f, owner.publicKey);
   const b0 = await tokenBalance(h, claimerOtc);
   await claim(h, f, owner, asset);
   const got = Number((await tokenBalance(h, claimerOtc)) - b0);
-  expect(got, "single-tx claim (paid in $OTC at the test's 1:1 buy rate)").to.eq(expected);
+  expect(got, "single-tx claim (paid in $OTC at the pot's lifetime average buy rate)").to.eq(
+    expected,
+  );
   const t = await h.program.account.deskTier.fetch(tierPda(h.program.programId, asset)[0]);
   const c = await h.program.account.config.fetch(f.config);
   expect(t.stampAccPerWeight.eq(c.accPerWeight), "stamp == acc").to.eq(true);
-  expect(t.totalClaimedLamports.toNumber(), "lifetime ledger").to.be.gte(got);
+  // `total_claimed_lamports` is lamport-denominated (it accumulates `owed`, not the $OTC units
+  // paid out) — compare against `owed`, not `got`, since the buy rate can be != 1.
+  expect(t.totalClaimedLamports.toNumber(), "lifetime ledger").to.be.gte(owed);
   return got;
 }
 

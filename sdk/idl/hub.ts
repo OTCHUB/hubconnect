@@ -8,9 +8,9 @@ export type Hub = {
   "address": "7c5oPs9GvX8vrC5jVFketNx1ZLuPs7HeH8Qc4XJx7b7i",
   "metadata": {
     "name": "hub",
-    "version": "0.1.0",
+    "version": "1.0.0",
     "spec": "0.1.0",
-    "description": "$HUB protocol — stake-to-earn layer for OTC desk NFTs (community tooling)"
+    "description": "$HUB Yield Optimizer Protocol — Activate-to-earn Boosted Yield layer for OTC desk NFTs on Solana"
   },
   "instructions": [
     {
@@ -147,7 +147,9 @@ export type Hub = {
     {
       "name": "activateTierOtc",
       "docs": [
-        "§A4.1 #16 — `activate_tier` paid in $OTC at the 2× premium; proceeds → POL reserve."
+        "§A4.1 #16 — `activate_tier` paid in $OTC at the 2× premium: `otc_swap_amount` swapped",
+        "$OTC→$HUB via Jupiter (`min_out = hub_cost_delta`, burned in full) + an equal-scaled",
+        "amount injected into the $OTC yield vault (`OtcPotState`, no swap)."
       ],
       "discriminator": [
         23,
@@ -188,8 +190,50 @@ export type Hub = {
           }
         },
         {
-          "name": "otcPay",
+          "name": "epoch",
           "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  112,
+                  111,
+                  99,
+                  104
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "config.currentEpoch",
+                "account": "config"
+              }
+            ]
+          }
+        },
+        {
+          "name": "pot",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "opsWallet",
+          "writable": true
+        },
+        {
+          "name": "otcPay",
           "pda": {
             "seeds": [
               {
@@ -212,10 +256,39 @@ export type Hub = {
         },
         {
           "name": "payerOtc",
+          "docs": [
+            "desk-pot leg transfer and the Jupiter swap-burn leg (as part of `remaining_accounts`)."
+          ],
           "writable": true
         },
         {
-          "name": "polAccount",
+          "name": "otcPot",
+          "docs": [
+            "§A5 yield-vault bookkeeping; the desk-pot leg's `total_otc_bought_units` is credited here."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  111,
+                  116,
+                  99,
+                  95,
+                  112,
+                  111,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "otcVault",
+          "docs": [
+            "the desk-pot leg (no swap — already $OTC)."
+          ],
           "writable": true
         },
         {
@@ -224,10 +297,16 @@ export type Hub = {
         },
         {
           "name": "payerHub",
+          "docs": [
+            "destination; burned in full immediately after (this *is* the tier's $HUB cost burn)."
+          ],
           "writable": true
         },
         {
           "name": "tokenProgram"
+        },
+        {
+          "name": "jupiterProgram"
         },
         {
           "name": "deskTier",
@@ -259,6 +338,14 @@ export type Hub = {
         {
           "name": "targetTier",
           "type": "u8"
+        },
+        {
+          "name": "otcSwapAmount",
+          "type": "u64"
+        },
+        {
+          "name": "jupiterData",
+          "type": "bytes"
         }
       ]
     },
@@ -1890,7 +1977,11 @@ export type Hub = {
     {
       "name": "finalizeEpoch",
       "docs": [
-        "§B3 #4"
+        "§B3 #4 / §A5 4-way split — 90% distributed to desks (unchanged mechanic); the other 10%",
+        "(5% burn / 2.5% LP / 2.5% treasury float) is swapped SOL→$HUB via a synchronous Jupiter",
+        "CPI executed inside this instruction. `jupiter_data`/`ctx.remaining_accounts` are the",
+        "caller-assembled Jupiter route (see `jupiter_swap::swap_exact_in`); `min_hub_out` floors",
+        "the swap's received $HUB."
       ],
       "discriminator": [
         159,
@@ -1907,7 +1998,7 @@ export type Hub = {
           "name": "keeper",
           "docs": [
             "Permissionless: the math is deterministic, so anyone may close a round once the",
-            "threshold is met (they pay the next Epoch account's rent)."
+            "threshold is met (they pay the next Epoch account's rent and assemble the Jupiter route)."
           ],
           "writable": true,
           "signer": true
@@ -2032,6 +2123,48 @@ export type Hub = {
           }
         },
         {
+          "name": "vault",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "hubMint",
+          "writable": true
+        },
+        {
+          "name": "vaultWsol",
+          "writable": true
+        },
+        {
+          "name": "vaultHub",
+          "docs": [
+            "`lp_pending_hub_units`'s physical custody."
+          ],
+          "writable": true
+        },
+        {
+          "name": "treasuryFloatVault",
+          "writable": true
+        },
+        {
+          "name": "tokenProgram"
+        },
+        {
+          "name": "jupiterProgram"
+        },
+        {
           "name": "systemProgram",
           "address": "11111111111111111111111111111111"
         }
@@ -2040,6 +2173,14 @@ export type Hub = {
         {
           "name": "epochIndex",
           "type": "u64"
+        },
+        {
+          "name": "minHubOut",
+          "type": "u64"
+        },
+        {
+          "name": "jupiterData",
+          "type": "bytes"
         }
       ]
     },
@@ -2785,6 +2926,99 @@ export type Hub = {
         {
           "name": "systemProgram",
           "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "initTreasuryFloat",
+      "docs": [
+        "§A6.3/§A7.1 bridge — authority records the vault-owned WSOL scratch, $HUB scratch, and",
+        "$HUB buy-and-hold float ATAs `finalize_epoch`'s synchronous Jupiter legs need (one-time,",
+        "post-init, mirrors `init_otc_pot`)."
+      ],
+      "discriminator": [
+        81,
+        231,
+        116,
+        124,
+        179,
+        180,
+        125,
+        59
+      ],
+      "accounts": [
+        {
+          "name": "treasury",
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasuryState",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "vaultWsol"
+        },
+        {
+          "name": "vaultHub"
+        },
+        {
+          "name": "treasuryFloatVault"
         }
       ],
       "args": []
@@ -3946,19 +4180,20 @@ export type Hub = {
       ]
     },
     {
-      "name": "setOtcRate",
+      "name": "setOtcPaymentsEnabled",
       "docs": [
-        "§A4.1 #15 — authority refreshes the $OTC/SOL reference rate and the enable switch."
+        "§A4.1 #15 — authority toggles the $OTC payment path on/off. Pricing is a live Jupiter",
+        "quote supplied per-call (`otc_swap_amount`), not a stored rate."
       ],
       "discriminator": [
-        97,
-        190,
-        198,
-        119,
-        23,
-        18,
-        202,
-        143
+        208,
+        123,
+        148,
+        250,
+        195,
+        94,
+        48,
+        214
       ],
       "accounts": [
         {
@@ -4009,12 +4244,80 @@ export type Hub = {
       ],
       "args": [
         {
-          "name": "otcPerSol",
-          "type": "u64"
-        },
-        {
           "name": "enabled",
           "type": "bool"
+        }
+      ]
+    },
+    {
+      "name": "setTreasuryFloatCapBp",
+      "docs": [
+        "§A6.3/§A7.1 bridge — treasury multisig retunes the experimental treasury-float cap",
+        "(bp of $HUB max supply). Excess over the live cap at deposit time is burned, never",
+        "rejected."
+      ],
+      "discriminator": [
+        97,
+        179,
+        121,
+        199,
+        122,
+        82,
+        185,
+        165
+      ],
+      "accounts": [
+        {
+          "name": "treasury",
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasuryState",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "hubFloatCapBp",
+          "type": "u16"
         }
       ]
     },
@@ -4259,7 +4562,7 @@ export type Hub = {
     {
       "name": "upgradeTierOtc",
       "docs": [
-        "§A4.1 #17 — `upgrade_tier` paid in $OTC at the 2× premium; proceeds → POL reserve."
+        "§A4.1 #17 — `upgrade_tier` paid in $OTC at the 2× premium (see `activate_tier_otc`)."
       ],
       "discriminator": [
         6,
@@ -4300,8 +4603,50 @@ export type Hub = {
           }
         },
         {
-          "name": "otcPay",
+          "name": "epoch",
           "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  112,
+                  111,
+                  99,
+                  104
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "config.currentEpoch",
+                "account": "config"
+              }
+            ]
+          }
+        },
+        {
+          "name": "pot",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "opsWallet",
+          "writable": true
+        },
+        {
+          "name": "otcPay",
           "pda": {
             "seeds": [
               {
@@ -4324,10 +4669,39 @@ export type Hub = {
         },
         {
           "name": "payerOtc",
+          "docs": [
+            "desk-pot leg transfer and the Jupiter swap-burn leg (as part of `remaining_accounts`)."
+          ],
           "writable": true
         },
         {
-          "name": "polAccount",
+          "name": "otcPot",
+          "docs": [
+            "§A5 yield-vault bookkeeping; the desk-pot leg's `total_otc_bought_units` is credited here."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  111,
+                  116,
+                  99,
+                  95,
+                  112,
+                  111,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "otcVault",
+          "docs": [
+            "the desk-pot leg (no swap — already $OTC)."
+          ],
           "writable": true
         },
         {
@@ -4336,10 +4710,16 @@ export type Hub = {
         },
         {
           "name": "payerHub",
+          "docs": [
+            "destination; burned in full immediately after (this *is* the tier's $HUB cost burn)."
+          ],
           "writable": true
         },
         {
           "name": "tokenProgram"
+        },
+        {
+          "name": "jupiterProgram"
         },
         {
           "name": "deskTier",
@@ -4361,12 +4741,24 @@ export type Hub = {
               }
             ]
           }
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
         }
       ],
       "args": [
         {
           "name": "targetTier",
           "type": "u8"
+        },
+        {
+          "name": "otcSwapAmount",
+          "type": "u64"
+        },
+        {
+          "name": "jupiterData",
+          "type": "bytes"
         }
       ]
     }
@@ -4713,6 +5105,19 @@ export type Hub = {
       ]
     },
     {
+      "name": "epochSolSwapped",
+      "discriminator": [
+        186,
+        193,
+        241,
+        194,
+        62,
+        168,
+        162,
+        138
+      ]
+    },
+    {
       "name": "hubPotFunded",
       "discriminator": [
         245,
@@ -4817,16 +5222,16 @@ export type Hub = {
       ]
     },
     {
-      "name": "otcRateSet",
+      "name": "otcPaymentsEnabledSet",
       "discriminator": [
-        74,
+        4,
+        195,
+        142,
+        124,
+        133,
         104,
-        139,
-        74,
-        54,
-        196,
-        74,
-        213
+        88,
+        53
       ]
     },
     {
@@ -4879,6 +5284,32 @@ export type Hub = {
         61,
         5,
         126
+      ]
+    },
+    {
+      "name": "treasuryFloatCapUpdated",
+      "discriminator": [
+        131,
+        125,
+        229,
+        40,
+        254,
+        160,
+        217,
+        102
+      ]
+    },
+    {
+      "name": "treasuryFloatInitialized",
+      "discriminator": [
+        245,
+        252,
+        92,
+        138,
+        195,
+        23,
+        168,
+        210
       ]
     },
     {
@@ -5189,6 +5620,26 @@ export type Hub = {
       "code": 6050,
       "name": "hubPotRoundExceeded",
       "msg": "HUB Pot round payout would exceed a bucket's snapshotted amount"
+    },
+    {
+      "code": 6051,
+      "name": "slippageExceeded",
+      "msg": "Jupiter swap returned less than the required minimum output"
+    },
+    {
+      "code": 6052,
+      "name": "wrongJupiterProgram",
+      "msg": "CPI target does not match the configured Jupiter program id"
+    },
+    {
+      "code": 6053,
+      "name": "swapAccountsMissing",
+      "msg": "Jupiter route requires accounts in remaining_accounts"
+    },
+    {
+      "code": 6054,
+      "name": "treasuryFloatNotInitialized",
+      "msg": "Treasury float vault has not been initialized"
     }
   ],
   "types": [
@@ -5475,8 +5926,17 @@ export type Hub = {
           {
             "name": "lpPctBp",
             "docs": [
-              "§A5 5%: earmarked at finalize into `TreasuryState.lp_pending_lamports` for the",
-              "$HUB/$OTC LP (phase-2 `build_lp`). Remainder after burn + lp is the 90% $OTC leg."
+              "§A5 2.5%: swapped SOL→$HUB at finalize and earmarked into",
+              "`TreasuryState.lp_pending_hub_units` for the $HUB/$OTC LP (phase-2 `build_lp_otc_locked`)."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "treasuryFloatPctBp",
+            "docs": [
+              "§A5 2.5%: swapped SOL→$HUB at finalize and deposited into",
+              "`TreasuryState.treasury_float_vault` (buy-and-hold, capped). Remainder after",
+              "burn + lp + treasury_float is the 90% $OTC leg."
             ],
             "type": "u16"
           },
@@ -5587,6 +6047,9 @@ export type Hub = {
           },
           {
             "name": "lpPctBp"
+          },
+          {
+            "name": "treasuryFloatPctBp"
           },
           {
             "name": "opsPctBp"
@@ -6035,12 +6498,25 @@ export type Hub = {
           },
           {
             "name": "burnPendingLamports",
+            "docs": [
+              "§A5 5% — SOL input to this epoch's burn leg, swapped $HUB→burned synchronously inside",
+              "`finalize_epoch` (no longer a keeper-drawn pending balance)."
+            ],
             "type": "u64"
           },
           {
             "name": "lpPendingLamports",
             "docs": [
-              "§A5 5% — this round's LP-build earmark, added to `TreasuryState.lp_pending_lamports`."
+              "§A5 2.5% — SOL input to this epoch's LP-build leg, swapped to $HUB and added to",
+              "`TreasuryState.lp_pending_hub_units`."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "treasuryFloatLamports",
+            "docs": [
+              "§A5 2.5% — SOL input to this epoch's treasury-float leg, swapped to $HUB and deposited",
+              "into `TreasuryState.treasury_float_vault` (capped; excess folded into the burn leg)."
             ],
             "type": "u64"
           },
@@ -6099,10 +6575,23 @@ export type Hub = {
           },
           {
             "name": "burnPendingLamports",
+            "docs": [
+              "SOL input to this epoch's burn leg — swapped and burned synchronously, not left pending."
+            ],
             "type": "u64"
           },
           {
             "name": "lpPendingLamports",
+            "docs": [
+              "SOL input to this epoch's LP-build leg — swapped to $HUB and earmarked, not left pending."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "treasuryFloatLamports",
+            "docs": [
+              "SOL input to this epoch's treasury-float leg — swapped to $HUB and deposited/burned."
+            ],
             "type": "u64"
           },
           {
@@ -6120,6 +6609,52 @@ export type Hub = {
           {
             "name": "accPerWeight",
             "type": "u128"
+          }
+        ]
+      }
+    },
+    {
+      "name": "epochSolSwapped",
+      "docs": [
+        "The synchronous Jupiter SOL→$HUB CPI executed inside `finalize_epoch` for the combined",
+        "burn/LP/treasury-float legs (10% of inflow). `hub_received` splits 50/25/25 into",
+        "`hub_burned`/`hub_lp_earmarked`/`hub_float_requested`; `hub_float_deposited` may be less than",
+        "`hub_float_requested` if the cap was hit, with the remainder folded into `hub_burned`."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "epoch",
+            "type": "u64"
+          },
+          {
+            "name": "solSwappedLamports",
+            "type": "u64"
+          },
+          {
+            "name": "hubReceived",
+            "type": "u64"
+          },
+          {
+            "name": "hubBurned",
+            "type": "u64"
+          },
+          {
+            "name": "hubLpEarmarked",
+            "type": "u64"
+          },
+          {
+            "name": "hubFloatRequested",
+            "type": "u64"
+          },
+          {
+            "name": "hubFloatDeposited",
+            "type": "u64"
+          },
+          {
+            "name": "treasuryFloatUnitsAfter",
+            "type": "u64"
           }
         ]
       }
@@ -6682,7 +7217,10 @@ export type Hub = {
       "name": "otcPayConfig",
       "docs": [
         "§A4.1 `[\"otc_pay\"]` — $OTC as an alternative step-fee currency. Created by the authority",
-        "after `initialize_config` (no `Config` migration); absent ⇒ the path does not exist."
+        "after `initialize_config` (no `Config` migration); absent ⇒ the path does not exist. Pricing",
+        "is no longer a static authority-refreshed rate — the 2× premium is now a real synchronous",
+        "on-chain Jupiter OTC→$HUB swap (dynamic, priced at the live market rate), so this config only",
+        "holds the on/off switch and the dead-reserve pointer."
       ],
       "type": {
         "kind": "struct",
@@ -6690,24 +7228,6 @@ export type Hub = {
           {
             "name": "enabled",
             "type": "bool"
-          },
-          {
-            "name": "otcPerSol",
-            "docs": [
-              "Reference rate: $OTC base units per 1 SOL, refreshed by the authority (`set_otc_rate`)."
-            ],
-            "type": "u64"
-          },
-          {
-            "name": "rateTs",
-            "type": "i64"
-          },
-          {
-            "name": "premiumBp",
-            "docs": [
-              "Premium over the SOL step-fee value (bp). Written from `OTC_PREMIUM_BP`, never updated."
-            ],
-            "type": "u16"
           },
           {
             "name": "polAccount",
@@ -6724,6 +7244,21 @@ export type Hub = {
           {
             "name": "bump",
             "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "otcPaymentsEnabledSet",
+      "docs": [
+        "Authority toggles the $OTC payment path on/off (`init_otc_payments` starts it disabled)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "enabled",
+            "type": "bool"
           }
         ]
       }
@@ -6786,26 +7321,6 @@ export type Hub = {
           {
             "name": "bump",
             "type": "u8"
-          }
-        ]
-      }
-    },
-    {
-      "name": "otcRateSet",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "otcPerSol",
-            "type": "u64"
-          },
-          {
-            "name": "enabled",
-            "type": "bool"
-          },
-          {
-            "name": "ts",
-            "type": "i64"
           }
         ]
       }
@@ -6935,9 +7450,12 @@ export type Hub = {
     {
       "name": "tierPaidOtc",
       "docs": [
-        "§A4.1 — step(s) paid in $OTC at the 2× premium; nothing enters the pot, the $OTC lands in the",
-        "POL reserve. `from_tier == 0` is a fresh activation. `hub_burned_units` is paid separately —",
-        "the $HUB tier cost is always burned, on both the SOL and $OTC fee paths."
+        "§A4.1 (revised) — step(s) paid in $OTC: the flat 0.5 SOL activation fee (90% pot / 10% ops,",
+        "same as the SOL path — `fee_lamports`/`to_pot`/`to_ops`) plus the $OTC 2× premium, split into",
+        "a swap-burn leg (real on-chain Jupiter OTC→$HUB, burned in full — this *is* the tier's $HUB",
+        "cost burn, no separate direct debit from the payer's own $HUB wallet) and an equal-sized",
+        "desk-pot leg (raises `OtcPotState`'s lifetime average buy rate). `from_tier == 0` is a fresh",
+        "activation."
       ],
       "type": {
         "kind": "struct",
@@ -6963,23 +7481,43 @@ export type Hub = {
             "type": "u64"
           },
           {
-            "name": "solEquivalentLamports",
+            "name": "feeLamports",
             "type": "u64"
           },
           {
-            "name": "otcPaid",
+            "name": "toPot",
             "type": "u64"
           },
           {
-            "name": "otcPerSol",
+            "name": "toOps",
             "type": "u64"
           },
           {
-            "name": "premiumBp",
-            "type": "u16"
+            "name": "otcSwapAmount",
+            "docs": [
+              "$OTC input to the Jupiter swap-burn leg."
+            ],
+            "type": "u64"
           },
           {
             "name": "hubBurnedUnits",
+            "docs": [
+              "$HUB received from the swap and burned (≥ `hub_cost_delta`)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "toOtcPot",
+            "docs": [
+              "Equal to `otc_swap_amount`, injected into `OtcPotState.otc_vault` (no swap)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "otcPaidTotal",
+            "docs": [
+              "Total $OTC charged (`otc_swap_amount + to_otc_pot`), i.e. the \"2× premium\"."
+            ],
             "type": "u64"
           }
         ]
@@ -7217,6 +7755,45 @@ export type Hub = {
       }
     },
     {
+      "name": "treasuryFloatCapUpdated",
+      "docs": [
+        "Treasury multisig retunes the experimental float cap."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "hubFloatCapBp",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "treasuryFloatInitialized",
+      "docs": [
+        "Authority/treasury records the vault-owned $HUB scratch, WSOL scratch, and treasury-float",
+        "ATAs used by the synchronous Jupiter legs (one-time, post-init — mirrors `init_otc_pot`)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "vaultWsol",
+            "type": "pubkey"
+          },
+          {
+            "name": "vaultHub",
+            "type": "pubkey"
+          },
+          {
+            "name": "treasuryFloatVault",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
       "name": "treasuryRewardDistributed",
       "docs": [
         "Authority-pushed payout of one active desk's tier-weighted share of an open reward round."
@@ -7356,10 +7933,49 @@ export type Hub = {
             "type": "u32"
           },
           {
-            "name": "lpPendingLamports",
+            "name": "lpPendingHubUnits",
             "docs": [
-              "§A5 5% leg, earmarked at every `finalize_epoch`; drawn down once the phase-2 LP adapter",
-              "lands (mirrors `BurnState.burn_pending_lamports`'s keeper-draw pattern)."
+              "§A5 2.5% leg — lifetime $HUB swapped-in and earmarked for the $HUB/$OTC LP at every",
+              "`finalize_epoch`; audit/informational running total (mirrors the pre-swap",
+              "`lp_pending_lamports` field it replaces), physically sitting in `vault_hub` until",
+              "`build_lp_otc_locked` draws it via CPI."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "vaultHub",
+            "docs": [
+              "Vault-owned (`[\"vault\"]` PDA) $HUB scratch ATA: the Jupiter swap destination for both the",
+              "`finalize_epoch` round-split leg and the `otc_pay.rs` 2× premium swap-burn leg, and the",
+              "physical custody for `lp_pending_hub_units` until `build_lp_otc_locked` draws it. Set by",
+              "`init_treasury_float`."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "vaultWsol",
+            "docs": [
+              "Vault-owned (`[\"vault\"]` PDA) WSOL scratch ATA used only by `finalize_epoch`'s SOL→$HUB",
+              "leg (wrapped via System transfer + `SyncNative` immediately before the Jupiter CPI). Set",
+              "by `init_treasury_float`."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "treasuryFloatVault",
+            "docs": [
+              "Vault-owned (`[\"vault\"]` PDA) $HUB buy-and-hold ATA (§A6.3/§A7.1 \"source C\" float,",
+              "distinct from `TokenomicsConfig.treasury_lock_vault`'s immutable genesis floor) — the",
+              "`finalize_epoch` treasury-float leg's destination, capped at `hub_float_cap_bp` of supply;",
+              "excess at deposit time is burned instead. Set by `init_treasury_float`."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "treasuryFloatUnits",
+            "docs": [
+              "Lifetime $HUB deposited into `treasury_float_vault` — compared against",
+              "`HUB_MAX_SUPPLY_UNITS × hub_float_cap_bp / BPS_DENOMINATOR` at every deposit."
             ],
             "type": "u64"
           },

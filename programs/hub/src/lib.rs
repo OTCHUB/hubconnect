@@ -1,4 +1,4 @@
-//! $HUB protocol — stake-to-earn layer for OTC desk NFTs.
+//! $HUB Yield Optimizer Protocol — Activate-to-earn Boosted Yield layer for OTC desk NFTs on Solana.
 //! Implements docs/hubconnect-spec.md v1.2 (§B2 accounts, §B3 instructions).
 //! Community tooling; not affiliated with OTC.
 
@@ -52,9 +52,18 @@ pub mod hub {
         instructions::tiers::upgrade_tier(ctx, target_tier)
     }
 
-    /// §B3 #4
-    pub fn finalize_epoch(ctx: Context<FinalizeEpoch>, epoch_index: u64) -> Result<()> {
-        instructions::epochs::finalize_epoch(ctx, epoch_index)
+    /// §B3 #4 / §A5 4-way split — 90% distributed to desks (unchanged mechanic); the other 10%
+    /// (5% burn / 2.5% LP / 2.5% treasury float) is swapped SOL→$HUB via a synchronous Jupiter
+    /// CPI executed inside this instruction. `jupiter_data`/`ctx.remaining_accounts` are the
+    /// caller-assembled Jupiter route (see `jupiter_swap::swap_exact_in`); `min_hub_out` floors
+    /// the swap's received $HUB.
+    pub fn finalize_epoch<'info>(
+        ctx: Context<'info, FinalizeEpoch<'info>>,
+        epoch_index: u64,
+        min_hub_out: u64,
+        jupiter_data: Vec<u8>,
+    ) -> Result<()> {
+        instructions::epochs::finalize_epoch(ctx, epoch_index, min_hub_out, jupiter_data)
     }
 
     /// §B3 #5 (lazy revocation → #8 void_tier). One tx settles every closed round.
@@ -115,19 +124,35 @@ pub mod hub {
         instructions::otc_pay::init_otc_payments(ctx)
     }
 
-    /// §A4.1 #15 — authority refreshes the $OTC/SOL reference rate and the enable switch.
-    pub fn set_otc_rate(ctx: Context<SetOtcRate>, otc_per_sol: u64, enabled: bool) -> Result<()> {
-        instructions::otc_pay::set_otc_rate(ctx, otc_per_sol, enabled)
+    /// §A4.1 #15 — authority toggles the $OTC payment path on/off. Pricing is a live Jupiter
+    /// quote supplied per-call (`otc_swap_amount`), not a stored rate.
+    pub fn set_otc_payments_enabled(
+        ctx: Context<SetOtcPaymentsEnabled>,
+        enabled: bool,
+    ) -> Result<()> {
+        instructions::otc_pay::set_otc_payments_enabled(ctx, enabled)
     }
 
-    /// §A4.1 #16 — `activate_tier` paid in $OTC at the 2× premium; proceeds → POL reserve.
-    pub fn activate_tier_otc(ctx: Context<ActivateTierOtc>, target_tier: u8) -> Result<()> {
-        instructions::otc_pay::activate_tier_otc(ctx, target_tier)
+    /// §A4.1 #16 — `activate_tier` paid in $OTC at the 2× premium: `otc_swap_amount` swapped
+    /// $OTC→$HUB via Jupiter (`min_out = hub_cost_delta`, burned in full) + an equal-scaled
+    /// amount injected into the $OTC yield vault (`OtcPotState`, no swap).
+    pub fn activate_tier_otc<'info>(
+        ctx: Context<'info, ActivateTierOtc<'info>>,
+        target_tier: u8,
+        otc_swap_amount: u64,
+        jupiter_data: Vec<u8>,
+    ) -> Result<()> {
+        instructions::otc_pay::activate_tier_otc(ctx, target_tier, otc_swap_amount, jupiter_data)
     }
 
-    /// §A4.1 #17 — `upgrade_tier` paid in $OTC at the 2× premium; proceeds → POL reserve.
-    pub fn upgrade_tier_otc(ctx: Context<UpgradeTierOtc>, target_tier: u8) -> Result<()> {
-        instructions::otc_pay::upgrade_tier_otc(ctx, target_tier)
+    /// §A4.1 #17 — `upgrade_tier` paid in $OTC at the 2× premium (see `activate_tier_otc`).
+    pub fn upgrade_tier_otc<'info>(
+        ctx: Context<'info, UpgradeTierOtc<'info>>,
+        target_tier: u8,
+        otc_swap_amount: u64,
+        jupiter_data: Vec<u8>,
+    ) -> Result<()> {
+        instructions::otc_pay::upgrade_tier_otc(ctx, target_tier, otc_swap_amount, jupiter_data)
     }
 
     /// §A7.1 #18 — authority records the supply plan + the vault $HUB account funding the airdrop.
@@ -198,6 +223,23 @@ pub mod hub {
             deposit_account_count,
             with_metadata,
         )
+    }
+
+    /// §A6.3/§A7.1 bridge — authority records the vault-owned WSOL scratch, $HUB scratch, and
+    /// $HUB buy-and-hold float ATAs `finalize_epoch`'s synchronous Jupiter legs need (one-time,
+    /// post-init, mirrors `init_otc_pot`).
+    pub fn init_treasury_float(ctx: Context<InitTreasuryFloat>) -> Result<()> {
+        instructions::treasury::init_treasury_float(ctx)
+    }
+
+    /// §A6.3/§A7.1 bridge — treasury multisig retunes the experimental treasury-float cap
+    /// (bp of $HUB max supply). Excess over the live cap at deposit time is burned, never
+    /// rejected.
+    pub fn set_treasury_float_cap_bp(
+        ctx: Context<SetTreasuryFloatCapBp>,
+        hub_float_cap_bp: u16,
+    ) -> Result<()> {
+        instructions::treasury::set_treasury_float_cap_bp(ctx, hub_float_cap_bp)
     }
 
     /// §A6.3 #23 — authority creates the creator-fee flywheel bookkeeping (one-time, post-init).

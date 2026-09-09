@@ -25,9 +25,13 @@ pub struct Config {
     /// A round closes once the open epoch's inflow reaches this (no clock involved).
     pub min_pot_threshold_lamports: u64,
     pub burn_pct_bp: u16,
-    /// §A5 5%: earmarked at finalize into `TreasuryState.lp_pending_lamports` for the
-    /// $HUB/$OTC LP (phase-2 `build_lp`). Remainder after burn + lp is the 90% $OTC leg.
+    /// §A5 2.5%: swapped SOL→$HUB at finalize and earmarked into
+    /// `TreasuryState.lp_pending_hub_units` for the $HUB/$OTC LP (phase-2 `build_lp_otc_locked`).
     pub lp_pct_bp: u16,
+    /// §A5 2.5%: swapped SOL→$HUB at finalize and deposited into
+    /// `TreasuryState.treasury_float_vault` (buy-and-hold, capped). Remainder after
+    /// burn + lp + treasury_float is the 90% $OTC leg.
+    pub treasury_float_pct_bp: u16,
     pub ops_pct_bp: u16,
     pub lp_enabled: bool,
     pub lp_target_sol_lamports: u64,
@@ -65,9 +69,15 @@ pub struct Epoch {
     /// lamport-equivalent value — `claim_yield` converts it to $OTC at the pot's lifetime
     /// average buy rate).
     pub distributed_lamports: u64,
+    /// §A5 5% — SOL input to this epoch's burn leg, swapped $HUB→burned synchronously inside
+    /// `finalize_epoch` (no longer a keeper-drawn pending balance).
     pub burn_pending_lamports: u64,
-    /// §A5 5% — this round's LP-build earmark, added to `TreasuryState.lp_pending_lamports`.
+    /// §A5 2.5% — SOL input to this epoch's LP-build leg, swapped to $HUB and added to
+    /// `TreasuryState.lp_pending_hub_units`.
     pub lp_pending_lamports: u64,
+    /// §A5 2.5% — SOL input to this epoch's treasury-float leg, swapped to $HUB and deposited
+    /// into `TreasuryState.treasury_float_vault` (capped; excess folded into the burn leg).
+    pub treasury_float_lamports: u64,
     /// `distributable − distributed` (≤ 1 lamport of floor loss) → next epoch's opening inflow.
     pub rolled_forward_lamports: u64,
     /// Σw of non-voided DeskTiers at finalize (bp-weighted).
@@ -186,9 +196,28 @@ pub struct TreasuryState {
     pub hub_float_cap_bp: u16,
     pub total_exits: u32,
     pub total_sweeps: u32,
-    /// §A5 5% leg, earmarked at every `finalize_epoch`; drawn down once the phase-2 LP adapter
-    /// lands (mirrors `BurnState.burn_pending_lamports`'s keeper-draw pattern).
-    pub lp_pending_lamports: u64,
+    /// §A5 2.5% leg — lifetime $HUB swapped-in and earmarked for the $HUB/$OTC LP at every
+    /// `finalize_epoch`; audit/informational running total (mirrors the pre-swap
+    /// `lp_pending_lamports` field it replaces), physically sitting in `vault_hub` until
+    /// `build_lp_otc_locked` draws it via CPI.
+    pub lp_pending_hub_units: u64,
+    /// Vault-owned (`["vault"]` PDA) $HUB scratch ATA: the Jupiter swap destination for both the
+    /// `finalize_epoch` round-split leg and the `otc_pay.rs` 2× premium swap-burn leg, and the
+    /// physical custody for `lp_pending_hub_units` until `build_lp_otc_locked` draws it. Set by
+    /// `init_treasury_float`.
+    pub vault_hub: Pubkey,
+    /// Vault-owned (`["vault"]` PDA) WSOL scratch ATA used only by `finalize_epoch`'s SOL→$HUB
+    /// leg (wrapped via System transfer + `SyncNative` immediately before the Jupiter CPI). Set
+    /// by `init_treasury_float`.
+    pub vault_wsol: Pubkey,
+    /// Vault-owned (`["vault"]` PDA) $HUB buy-and-hold ATA (§A6.3/§A7.1 "source C" float,
+    /// distinct from `TokenomicsConfig.treasury_lock_vault`'s immutable genesis floor) — the
+    /// `finalize_epoch` treasury-float leg's destination, capped at `hub_float_cap_bp` of supply;
+    /// excess at deposit time is burned instead. Set by `init_treasury_float`.
+    pub treasury_float_vault: Pubkey,
+    /// Lifetime $HUB deposited into `treasury_float_vault` — compared against
+    /// `HUB_MAX_SUPPLY_UNITS × hub_float_cap_bp / BPS_DENOMINATOR` at every deposit.
+    pub treasury_float_units: u64,
     /// §A6.2 — one position per pair, HODL both legs.
     pub lp_hub_sol_active: bool,
     pub lp_hub_otc_active: bool,
@@ -199,16 +228,14 @@ pub struct TreasuryState {
 }
 
 /// §A4.1 `["otc_pay"]` — $OTC as an alternative step-fee currency. Created by the authority
-/// after `initialize_config` (no `Config` migration); absent ⇒ the path does not exist.
+/// after `initialize_config` (no `Config` migration); absent ⇒ the path does not exist. Pricing
+/// is no longer a static authority-refreshed rate — the 2× premium is now a real synchronous
+/// on-chain Jupiter OTC→$HUB swap (dynamic, priced at the live market rate), so this config only
+/// holds the on/off switch and the dead-reserve pointer.
 #[account]
 #[derive(InitSpace)]
 pub struct OtcPayConfig {
     pub enabled: bool,
-    /// Reference rate: $OTC base units per 1 SOL, refreshed by the authority (`set_otc_rate`).
-    pub otc_per_sol: u64,
-    pub rate_ts: i64,
-    /// Premium over the SOL step-fee value (bp). Written from `OTC_PREMIUM_BP`, never updated.
-    pub premium_bp: u16,
     /// Token account (mint = `Config.otc_mint`, owner = `["vault"]` PDA) that receives every $OTC
     /// fee. Program-custodied and reserved for the $OTC/$HUB POL leg (`build_lp(HubOtc)`).
     pub pol_account: Pubkey,
@@ -392,6 +419,7 @@ pub enum ConfigField {
     OtcMint,
     BurnPctBp,
     LpPctBp,
+    TreasuryFloatPctBp,
     OpsPctBp,
     LpEnabled,
     LpTargetSolLamports,
@@ -454,20 +482,6 @@ impl Config {
         to_cost
             .checked_sub(from_cost)
             .ok_or_else(|| error!(crate::errors::HubError::MathOverflow))
-    }
-}
-
-impl OtcPayConfig {
-    /// $OTC due for `fee_lamports`: `⌈fee × otc_per_sol × premium_bp / (10⁹ × 10⁴)⌉`.
-    /// Rounds up so the protocol never collects less than the premium value.
-    pub fn otc_fee(&self, fee_lamports: u64) -> Result<u64> {
-        use crate::constants::{BPS_DENOMINATOR, LAMPORTS_PER_SOL};
-        let num = (fee_lamports as u128)
-            .checked_mul(self.otc_per_sol as u128)
-            .and_then(|v| v.checked_mul(self.premium_bp as u128))
-            .ok_or_else(|| error!(crate::errors::HubError::MathOverflow))?;
-        let den = (LAMPORTS_PER_SOL as u128) * (BPS_DENOMINATOR as u128);
-        u64::try_from(num.div_ceil(den)).map_err(|_| error!(crate::errors::HubError::MathOverflow))
     }
 }
 
