@@ -17,6 +17,7 @@
     "orquestra:idl": "ts-node -T scripts/orquestra-idl.ts",
     "orquestra:send": "ts-node -T scripts/orquestra-send.ts",
     "devnet:desks": "ts-node -T scripts/devnet-mock-desks.ts",
+    "devnet:faucet-authority": "ts-node -T scripts/devnet-faucet-authority.ts",
     "devnet:cycle": "ts-node -T scripts/devnet-yield-cycle.ts",
     "authority": "ts-node -T scripts/hub-authority.ts",
     "mainnet:airdrop-snapshot": "ts-node -T scripts/mainnet-airdrop-snapshot.ts",

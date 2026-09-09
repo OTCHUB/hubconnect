@@ -44,15 +44,31 @@
     // Devnet sandbox — separate Worker, separate bundle, separate domain. Requires
     // `devnet.otchub.dev` to exist in the same Cloudflare zone as `otchub.dev` (one-time
     // DNS/zone setup); `wrangler deploy --env devnet` provisions the custom domain binding.
+    //
+    // Unlike `production` above, this env has a `main` script: workers/faucet.ts fronts the SPA,
+    // handling `/api/faucet/*` (token drips + Mock OTC Desk minting, devnet.otchub.dev/drip)
+    // itself and falling through to `env.ASSETS.fetch()` for everything else. `nodejs_compat` is
+    // required for the Buffer usage in @solana/web3.js + the faucet's raw instruction builders.
     "devnet": {
       "name": "hubconnect-web-devnet",
+      "main": "workers/faucet.ts",
+      "compatibility_flags": ["nodejs_compat"],
       "assets": {
         "directory": "./dist-devnet",
+        "binding": "ASSETS",
         "not_found_handling": "single-page-application",
         "html_handling": "auto-trailing-slash"
       },
       "routes": [{ "pattern": "devnet.otchub.dev", "custom_domain": true }],
-      "observability": { "enabled": true }
+      "observability": { "enabled": true },
+      // Rate-limit bucket for the faucet (per-wallet cooldowns + per-IP abuse guard). Created via
+      // `wrangler kv namespace create FAUCET_KV --env devnet`; id filled in after creation.
+      "kv_namespaces": [{ "binding": "FAUCET_KV", "id": "877e6b420c51440d83e1a9fabfd6c0d4" }]
+      // HUB_RPC_URL is a `wrangler secret` (not a `vars` entry — Cloudflare rejects a secret and
+      // a var sharing one binding name), set to a Helius devnet URL: the plain public
+      // api.devnet.solana.com endpoint 403s Cloudflare Workers' egress IPs. faucet.ts falls back
+      // to api.devnet.solana.com only when the secret is unset. Set/rotate with:
+      //   wrangler secret put HUB_RPC_URL --env devnet
     }
   }
 }
