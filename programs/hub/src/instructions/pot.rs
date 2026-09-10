@@ -73,8 +73,18 @@ pub fn pay_from_pot<'info>(
 }
 
 /// Split one round across Σw: `(per_weight_scaled, credited_lamports, ceil_slack_scaled)`.
-/// `credited = ⌈per_w × Σw / ACC_SCALE⌉ ≤ distributable`; the slack (< ACC_SCALE) is the part of
-/// `credited` the accumulator does not hand out, so it goes to dust and stays zero-sum.
+/// `credited = ⌊per_w × Σw / ACC_SCALE⌋ ≤ distributable`; the slack (< ACC_SCALE) is the
+/// sub-lamport remainder of `handed` that `credited` floors away — genuinely still-unspent pot
+/// SOL (not yet assigned to any desk's accumulator credit), so `finalize_epoch` may safely fold
+/// it into `dust_scaled` and re-book it as a *future* epoch's inflow (see the doc comment there)
+/// without manufacturing liability the pot doesn't have. Floor also keeps the accumulator's
+/// per-desk claims (`pending_yield`, itself floored) from ever summing past `credited`: for any
+/// non-negative integers whose real-valued sum is `handed / ACC_SCALE`, the sum of their floors
+/// is ≤ `⌊handed / ACC_SCALE⌋` — i.e. `credited` always has enough to cover every claim. (Using
+/// `div_ceil` here — as this used to — hands out `credited` = `distributable` outright, so there
+/// is no physical remainder left for `dust_scaled` to carry; re-crediting that already-spent
+/// capacity into a later epoch's inflow inflates `otc_pending_lamports` beyond
+/// `pot_liability_lamports`, eventually underflowing `record_otc_buy`'s liability debit.)
 pub fn round_credit(distributable: u64, total_weight_bp: u64) -> Result<(u128, u64, u128)> {
     require!(total_weight_bp > 0, HubError::NoActiveStakers);
     let scaled = (distributable as u128)
@@ -84,8 +94,8 @@ pub fn round_credit(distributable: u64, total_weight_bp: u64) -> Result<(u128, u
     let handed = per_w
         .checked_mul(total_weight_bp as u128)
         .ok_or_else(|| error!(HubError::MathOverflow))?;
-    let credited = handed.div_ceil(ACC_SCALE);
-    let slack = credited * ACC_SCALE - handed;
+    let credited = handed / ACC_SCALE;
+    let slack = handed - credited * ACC_SCALE;
     let credited = u64::try_from(credited).map_err(|_| error!(HubError::MathOverflow))?;
     Ok((per_w, credited, slack))
 }
@@ -316,8 +326,9 @@ mod tests {
 
     /// Four desks T1..T4, 10 SOL round: 0.5 SOL burn, 0.25 SOL LP, 0.25 SOL treasury-float
     /// (all three swapped SOL→$HUB via the synchronous Jupiter CPI), 9 SOL (the $OTC leg)
-    /// credited through the accumulator in 1.0/1.25/1.6/2.0 proportion. Σ payouts + dust ==
-    /// credited × ACC_SCALE exactly — nothing is stranded, nothing is over-paid.
+    /// credited through the accumulator in 1.0/1.25/1.6/2.0 proportion. `credited` (floored) and
+    /// the desks' own floored claims both derive from the same scaled `handed` total, so they
+    /// lose exactly the same amount in aggregate — nothing is stranded, nothing is over-paid.
     #[test]
     fn round_distribution_is_5_2_5_2_5_90() {
         let inflow = 10_000_000_000u64;
@@ -335,22 +346,26 @@ mod tests {
         assert!(slack < ACC_SCALE);
 
         let mut paid = 0u64;
-        let mut dust = slack;
+        let mut frac_sum = 0u128;
         let mut payouts = vec![];
         for w in TIER_WEIGHTS_BP {
             let (owed, frac) = pending_yield(per_w, 0, w as u64).unwrap();
             paid += owed;
-            dust += frac;
+            frac_sum += frac;
             payouts.push(owed);
         }
+        // `credited*ACC_SCALE + slack == handed == paid*ACC_SCALE + Σfrac` — both sides floor
+        // the same `handed` scaled total, just at different granularities (whole credited pool
+        // vs. per-desk claims), so they must agree exactly.
         assert_eq!(
-            paid as u128 * ACC_SCALE + dust,
-            credited as u128 * ACC_SCALE
+            credited as u128 * ACC_SCALE + slack,
+            paid as u128 * ACC_SCALE + frac_sum
         );
         assert_eq!(payouts[0], 9_000_000_000 * 10_000 / 58_500);
         assert!(payouts[3] > payouts[2] && payouts[2] > payouts[1] && payouts[1] > payouts[0]);
-        // Dust carries whole lamports back into the next round.
-        assert!(dust / ACC_SCALE + paid as u128 == credited as u128);
+        // Sum of floored per-desk claims never exceeds the floored whole-lamport pool that
+        // funds them — `record_otc_buy`'s pot payout can never come up short.
+        assert!(paid as u128 <= credited as u128);
     }
 
     /// Rounds accumulate: a tier that skips claiming still receives every round in one claim.

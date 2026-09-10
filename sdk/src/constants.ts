@@ -48,6 +48,9 @@ export const SWEEP_PAYBACK_CAP_LAMPORTS = 4_200_000_000;
 export const FLOOR_STALENESS_BP = 500;
 export const LP_ENABLED = false;
 export const LP_TARGET_SOL_LAMPORTS = 100 * LAMPORTS_PER_SOL;
+/** Dust floor `compound_lp_otc`/`compound_lp_basket` require `TreasuryState.lp_pending_hub_units`
+ * to clear before compounding (100 $HUB, 6dp) — mirrors `LP_COMPOUND_MIN_HUB_UNITS`. */
+export const LP_COMPOUND_MIN_HUB_UNITS = 100 * 10 ** 6;
 /** Experimental, admin-updatable via `set_treasury_float_cap_bp` (§A6.3/§A7.1 "we are
  * experimenting") — excess over the live cap at deposit time is burned, never rejected. */
 export const TREASURY_HUB_FLOAT_CAP_BP = 500;

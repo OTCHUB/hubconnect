@@ -29,7 +29,7 @@ permissions:
   contents: read
 
 env:
-  PROGRAM_ID: 5tCDEazUAkRjrkasup1uWcYo3t1C2ht76LmQva5rewQv
+  PROGRAM_ID: 7c5oPs9GvX8vrC5jVFketNx1ZLuPs7HeH8Qc4XJx7b7i
   LIBRARY_NAME: hub
   SOLANA_VERIFY_VERSION: 0.5.1
   # inputs.* is empty on tag pushes; the repository variable HUB_VERIFY_NETWORK picks the cluster then.

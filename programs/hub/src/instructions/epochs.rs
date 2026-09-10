@@ -104,25 +104,24 @@ pub fn finalize_epoch<'info>(
         HubError::TreasuryFloatNotInitialized
     );
 
-    // Whole lamports of dust re-enter as inflow. `dust_scaled` has two sources — round_credit's
-    // floor/ceiling slack, and §B3 #8 void_tier's forfeited pending — and neither needs (or may
-    // safely take) a fresh `pot_liability_lamports` credit here:
-    //   - slack's lamports were already booked as liability by `book_inflow` when the fee that
-    //     funded this round's inflow arrived; carrying it forward just defers which epoch's
-    //     `credited`/accumulator bucket it lands in.
-    //   - forfeited pending is a share of some past epoch's `credited` (also booked at
-    //     `book_inflow` time). By the time it's voided that liability is either (a) still live,
-    //     because `record_otc_buy` hasn't yet reimbursed that epoch's `otc_pending_lamports` in
-    //     full — already counted, or (b) already retired in bulk by `record_otc_buy` (which
-    //     subtracts a whole epoch's `credited` regardless of which desks actually claim) — in
-    //     which case the $OTC it would have paid is unclaimed surplus sitting in `otc_vault`,
-    //     not lamports sitting in the pot, so crediting it again here would manufacture
-    //     liability with no pot SOL behind it and eventually underflow a real reimbursement.
-    // Either way, `book_inflow`'s liability invariant already covers every lamport counted below.
+    // Whole lamports of dust re-enter the accumulator pool. `dust_scaled` has two sources —
+    // round_credit's floor/ceiling slack, and §B3 #8 void_tier's forfeited pending — and *both*
+    // are already-net-of-skim distributable SOL whose liability and `otc_pending_lamports` share
+    // were booked once, at whichever past epoch originally produced the `credited` they're a
+    // remainder/forfeiture of. Recycling them must only re-attribute *who* can claim that SOL
+    // (redistribute it into `acc_per_weight` for currently-active desks) — it must NOT be treated
+    // as fresh gross inflow: skimming it again into burn/lp/float would tax already-net money a
+    // second time, and re-adding its `credited` share to `otc_pending_lamports` would double-count
+    // an obligation that's been on the books since it was first credited (the fix below computes
+    // `swap_total`/`burn`/`lp`/`float` from *this epoch's own fresh inflow only*, then folds
+    // `carry` straight into the round's distributable pool after that split, and finally strips
+    // `carry` back out of `credited` before adding to `otc_pending_lamports` so only the genuinely
+    // new portion is counted).
     let carry = u64::try_from(config.dust_scaled / ACC_SCALE)
         .map_err(|_| error!(HubError::MathOverflow))?;
     config.dust_scaled %= ACC_SCALE;
-    e.inflow_lamports = add(e.inflow_lamports, carry)?;
+    let fresh_inflow = e.inflow_lamports;
+    e.inflow_lamports = add(fresh_inflow, carry)?;
     require!(
         e.inflow_lamports >= config.min_pot_threshold_lamports,
         HubError::PotBelowThreshold
@@ -130,13 +129,16 @@ pub fn finalize_epoch<'info>(
 
     // §A5 4-way split: 5% burn / 2.5% LP / 2.5% treasury-float (all three swapped SOL→$HUB in
     // one synchronous Jupiter CPI below) / 90% $OTC leg (credited through the accumulator,
-    // unchanged mechanic).
-    let burn = bps_of(e.inflow_lamports, config.burn_pct_bp)?;
-    let lp = bps_of(e.inflow_lamports, config.lp_pct_bp)?;
-    let float = bps_of(e.inflow_lamports, config.treasury_float_pct_bp)?;
+    // unchanged mechanic). The skim applies to `fresh_inflow` only — `carry` already went through
+    // this split (or never needed to, if it's the sub-lamport rounding remainder of a
+    // distributable pool that was itself already net-of-skim) in whichever epoch produced it.
+    let burn = bps_of(fresh_inflow, config.burn_pct_bp)?;
+    let lp = bps_of(fresh_inflow, config.lp_pct_bp)?;
+    let float = bps_of(fresh_inflow, config.treasury_float_pct_bp)?;
     let swap_total = add(add(burn, lp)?, float)?;
-    let distributable = sub(e.inflow_lamports, swap_total)?;
-    let (per_w, credited, slack) = round_credit(distributable, config.total_weight_bp)?;
+    let distributable_fresh = sub(fresh_inflow, swap_total)?;
+    let pool = add(distributable_fresh, carry)?;
+    let (per_w, credited, slack) = round_credit(pool, config.total_weight_bp)?;
     config.acc_per_weight = config
         .acc_per_weight
         .checked_add(per_w)
@@ -148,15 +150,20 @@ pub fn finalize_epoch<'info>(
     e.lp_pending_lamports = lp;
     e.treasury_float_lamports = float;
     e.distributed_lamports = credited;
-    e.rolled_forward_lamports = sub(distributable, credited)?;
+    e.rolled_forward_lamports = sub(pool, credited)?;
     e.per_weight_scaled = per_w;
     e.acc_per_weight_after = config.acc_per_weight;
     e.finalized_ts = now;
     e.finalized = true;
     assert_epoch_balanced(e)?;
 
+    // Only the fresh (not-yet-counted) slice of `credited` is new liability the keeper must buy
+    // $OTC against; `carry`'s slice was already added to `otc_pending_lamports` when it was first
+    // credited. `saturating_sub` is a defensive floor, not an expected branch: `credited` is
+    // `pool` (== `distributable_fresh + carry`) minus a sub-lamport rounding remainder that's
+    // always « 1 lamport, so `credited >= carry` in every practical case.
     let op = &mut ctx.accounts.otc_pot;
-    op.otc_pending_lamports = add(op.otc_pending_lamports, credited)?;
+    op.otc_pending_lamports = add(op.otc_pending_lamports, credited.saturating_sub(carry))?;
 
     // Move `swap_total` lamports out of the pot now — it is spent immediately below, not left
     // pending for a keeper to draw later — and retire the matching slice of pot liability.

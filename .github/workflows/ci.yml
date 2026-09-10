@@ -51,5 +51,7 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: solana-keygen new --no-bip39-passphrase -s -o ~/.config/solana/hubconnect-devnet.json
-      - run: anchor build
-      - run: anchor test --skip-build --validator legacy
+      # `npm test` builds `hub` twice — the default (mainnet) build and a second pass with the
+      # `mock-jupiter` Cargo feature — before running `anchor test`, since the M2/M3 suites drive
+      # `finalize_epoch`'s synchronous Jupiter CPI leg against the mock program on localnet.
+      - run: npm test

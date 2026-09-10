@@ -60,14 +60,29 @@ See [`docs/mechanics.md`](docs/mechanics.md) for the tier system, the flat activ
 $OTC dynamic swap-burn payment path, and the 4-way per-round yield split; see
 [`docs/tokenomics.md`](docs/tokenomics.md) for supply, allocation, and every burn sink.
 
+### M.I.M ETF — the HUB Pot basket
+
+Alongside the per-round $OTC yield above, activated desks also share in the **"HUB Pot"**
+(on-chain/SDK name; branded to holders as the **M.I.M ETF**, "Magic Internet Money" ETF) — a
+fixed 4-token basket, **$OTC, CRCLx, NVDAx, SPCXx**, funded entirely by the treasury's own
+13-stock desk-pot yield (the 9 non-basket stocks are swapped to SOL and split evenly across the
+4 buckets; the 4 basket stocks pass straight through, no swap). Desk owners pull their
+tier-weighted share per round via `claim_hub_pot_reward`, or the authority can push it with
+`distribute_hub_pot_reward` — both share one `HubPotClaim` PDA per round so a desk is paid at
+most once. $OTC and the whole basket are **Token-2022** mints; $HUB/WSOL/USDC stay classic SPL —
+every account/PDA that touches a basket mint resolves the correct token program per-mint
+(`otc_pay.rs`, `hub_pot.rs`) rather than assuming one. See
+[§A5.1 of the spec](docs/hubconnect-spec.md#a51-hub-pot--mim-etf-memestock-basket-yield-source-b-redirect)
+for the full funding diagram and instruction list.
+
 ## Quick Start
 
 ```sh
 git clone https://github.com/OTCHUB/hubconnect.git && cd hubconnect
 export PATH="$HOME/.cargo/bin:$HOME/.avm/bin:$HOME/.local/share/solana/install/active_release/bin:$PATH"
 npm install
-anchor build                                  # hub.so + target/idl/hub.json + target/types/hub.ts
-anchor test --skip-build --validator legacy   # localnet, clones Metaplex Core (see Toolchain below)
+npm test   # anchor build (mainnet default) + anchor build -p hub -- --features mock-jupiter (for the
+           # localnet-only two-hop swap in finalize_epoch) + anchor test --skip-build --validator legacy
 ```
 
 Read-only SDK (account decoders, PDA derivation, projection math) lives in [`sdk/`](sdk); the
@@ -93,12 +108,14 @@ see [Devnet](#devnet-b51) below.
 | OTC Desks collection | `D7sLW9uKZG3G7bNbWfMHvKSgVhU9nXdv7huTfepF5Jrh` | mainnet-only |
 | Raydium CP-Swap | `CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C` | devnet + mainnet |
 | Raydium `lock_cp_liquidity` | `LockrWmn6K5twhz3y9w1dQERbmgSaRkfnTeTKbpofwE` | devnet + mainnet |
+| Token-2022 program | `TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb` | devnet + mainnet — $OTC + the whole M.I.M ETF basket (CRCLx/NVDAx/SPCXx) mint through this program; $HUB/WSOL/USDC stay classic `TOKEN_PROGRAM_ID` |
 
 Full PDA table (`Config`, `Pot`, `BurnState`, `TreasuryState`, `Vault`, `Epoch[0]`) and current
 devnet `Config` values: [Appendix — Deployment addresses](docs/hubconnect-spec.md#appendix--deployment-addresses-verified-on-chain-2026-09-07)
-in the spec. `hub_mint`, `otc_mint`, `desk_collection`, `otc_desk_pot`, `ops_wallet` and
-`authority` are never hardcoded in the frontend — every consumer reads them live off the on-chain
-`Config` singleton (`§A3.2`). The devnet $HUB mint above is a **test-only mock** minted by
+in the spec. `hub_mint`, `otc_mint`, `desk_collection`, `otc_desk_pot`, `ops_wallet`, `authority`,
+and the M.I.M ETF basket's `crclx_mint`/`nvdax_mint`/`spcxx_mint` (`HubPotConfig`, §A5.1) are never
+hardcoded in the frontend — every consumer reads them live off the on-chain `Config` /
+`HubPotConfig` singletons (`§A3.2`). The devnet $HUB mint above is a **test-only mock** minted by
 `scripts/devnet-hub-mint.ts` — it is not the real $HUB token and carries no value.
 
 ## Security
@@ -116,8 +133,10 @@ in the spec. `hub_mint`, `otc_mint`, `desk_collection`, `otc_desk_pot`, `ops_wal
 ```
 programs/hub/        Anchor program — §B2 accounts, §B3 instructions
   src/constants.rs   Appendix defaults (written into Config at initialize_config)
-  src/state/         Config, Epoch, DeskTier, BurnState, TreasuryState, OtcPayConfig
-  src/instructions/  admin | tiers | otc_pay ($OTC step fees → POL reserve) | epochs | treasury
+  src/state/         Config, Epoch, DeskTier, BurnState, TreasuryState, OtcPayConfig, HubPotConfig
+  src/instructions/  admin | tiers | otc_pay ($OTC step fees → POL reserve) | epochs | treasury |
+                     hub_pot (§A5.1 M.I.M ETF basket: $OTC/CRCLx/NVDAx/SPCXx, Token-2022)
+programs/mock_jupiter/  Localnet-only Jupiter swap stand-in (`mock-jupiter` feature, tests only)
 sdk/                 PDA derivation + constants mirror; account decoders (M3)
 keeper/              §B4 services: keeper (epoch+burn), sweeper, treasury (exit), lp
 tests/               anchor-ts suites; HUB_CLUSTER=devnet targets Helius devnet (§B5.1)
@@ -148,13 +167,21 @@ pays `⌊(acc − stamp) × w / 10¹²⌋` across every round closed since the d
 ```sh
 export PATH="$HOME/.cargo/bin:$HOME/.avm/bin:$HOME/.local/share/solana/install/active_release/bin:$PATH"
 npm install
-anchor build            # hub.so + target/idl/hub.json + target/types/hub.ts
+anchor build                                        # hub.so + target/idl/hub.json + target/types/hub.ts
+anchor build -p hub -- --features mock-jupiter      # 2nd hub.so, localnet-only Jupiter CPI double
 anchor test --skip-build --validator legacy
 ```
 
 Anchor 1.x runs `anchor test` on surfpool by default; this suite uses `solana-test-validator`
 (`--validator legacy` or `ANCHOR_TEST_VALIDATOR=legacy`) so the `[test.validator.clone]` entries
 in `Anchor.toml` pull Metaplex Core from devnet. `Cargo.lock` regenerates with plain `cargo update`.
+`finalize_epoch`'s round split swaps SOL→$HUB via a synchronous on-chain Jupiter CPI
+(`programs/hub/src/instructions/jupiter_swap.rs`) — no real Jupiter route exists on a local
+validator, so the `mock-jupiter` Cargo feature swaps `hub`'s target program for
+`programs/mock_jupiter` (a pre-funded WSOL→USDC→$HUB two-hop stand-in, `sdk/src/constants.ts`'s
+`MOCK_JUPITER_PROGRAM_ID`); `npm test` builds both binaries so the M2/M3 suites can exercise the
+real accounting path end-to-end on localnet. Never build `hub` with `mock-jupiter` for a devnet or
+mainnet deploy — `scripts/verify-build.sh` and `devnet-deploy.sh` always use the default build.
 
 ## Repositories, branches, clusters
 
@@ -225,11 +252,14 @@ scripts/devnet-deploy.sh --init
 
 All $HUB mechanics pass the devnet stage (mock OTC-side accounts) before any mainnet deploy.
 
-The devnet Config starts with harness placeholders for every OTC-side key. Two operator scripts
+The devnet Config starts with harness placeholders for every OTC-side key. Operator scripts
 replace them with functional stand-ins (payer = Config.authority):
 
 ```sh
 npx ts-node -T scripts/devnet-hub-mint.ts        # SPL mint (1B × 10^6) → Config.hub_mint; ops_wallet → payer
+npx ts-node -T scripts/devnet-hub-pot-mint.ts    # CRCLx/NVDAx/SPCXx mock mints (classic SPL stand-ins;
+                                                 # mainnet basket tokens are Token-2022) + their vault-owned
+                                                 # token accounts → init_hub_pot's HubPotConfig
 npx ts-node -T scripts/devnet-mock-desks.ts      # Core collection mirroring mainnet "OTC Desks" (royalties
                                                  # 5% → pot) + desks minted to the payer; --tiers 1,2,3,0
                                                  # activates/upgrades them and checks Σw on-chain

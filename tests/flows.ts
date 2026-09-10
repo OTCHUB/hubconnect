@@ -13,6 +13,7 @@ import {
 } from "./harness";
 import { epochPda, tierPda, otcPayPda, vaultPda } from "../sdk/src/pda";
 import * as K from "../sdk/src/constants";
+import { MOCK_JUPITER_PROGRAM, mockRoute } from "../scripts/lib/mock-jupiter";
 
 export const bn = (n: number | bigint) => new anchor.BN(n.toString());
 export const big = (v: { toString(): string }) => BigInt(v.toString());
@@ -270,6 +271,12 @@ export async function settleOtcPending(h: Harness, f: Fixture) {
   const p = await h.program.account.otcPotState.fetch(f.otcPot);
   const pending = p.otcPendingLamports.toNumber();
   if (pending <= 0) return;
+  if (process.env.HUB_DEBUG_FINALIZE) {
+    const c = await h.program.account.config.fetch(f.config);
+    console.log(
+      `[settleOtcPending debug] pending=${pending} potLiability=${c.potLiabilityLamports.toString()}`,
+    );
+  }
   const sig = Array.from(Keypair.generate().secretKey);
   await h.program.methods
     .recordOtcBuy(bn(pending), bn(pending), sig)
@@ -284,6 +291,23 @@ export async function settleOtcPending(h: Harness, f: Fixture) {
       tokenProgram: TOKEN_PROGRAM_ID,
     })
     .rpc();
+}
+
+/**
+ * §A5 revenue-model extension — `register_treasury_inflow` skims `Config.protocol_fee_bp` to
+ * `ops_wallet` (floor-divided per on-chain `bps_of`) before booking the remainder as epoch
+ * inflow, so sending `net` lamports via `inflow(...)` only books `net − ⌊net × feeBp / BPS⌋`.
+ * This inverts that: the minimal gross amount to hand `inflow(...)` so the *booked* (net) delta
+ * equals exactly `net`, exact for any `feeBp` (not just the current 1_000 / 10%).
+ */
+export function grossForInflow(net: number, feeBp: number): number {
+  if (net <= 0) return 0;
+  if (feeBp === 0) return net;
+  const netOf = (gross: number) => gross - Math.floor((gross * feeBp) / K.BPS);
+  let gross = Math.ceil((net * K.BPS) / (K.BPS - feeBp));
+  while (netOf(gross) < net) gross++;
+  while (gross > 0 && netOf(gross - 1) >= net) gross--;
+  return gross;
 }
 
 export async function inflow(
@@ -316,11 +340,16 @@ export async function inflow(
  * USDC→$HUB), so the account list grew (vault/hub_mint/vault_wsol/vault_usdc/vault_hub/
  * treasury_float_vault/jupiter_program) and the ix takes `minUsdcOut` + `minHubOut` +
  * `hop1AccountCount` + `hop1Data` + `hop2Data` (+ `remainingAccounts`, the two hops'
- * caller-assembled route accounts concatenated, split on-chain at `hop1AccountCount`). Empty
- * defaults only work because `TreasuryState.vault_hub`/`vault_usdc` are now set
- * (`init_treasury_float`, wired into `ensureInitialized`) and `swap_total == 0` (all three split
- * bps at 0) — a real two-hop swap needs real Jupiter routes for each leg, blocked on the pending
- * localnet Jupiter V6 clone (see Anchor.toml task; same caveat as `activateOtc`/`upgradeOtc`).
+ * caller-assembled route accounts concatenated, split on-chain at `hop1AccountCount`).
+ *
+ * On localnet, unless the caller supplies its own `remainingAccounts`, this auto-assembles both
+ * hops against `programs/mock_jupiter` (see `scripts/lib/mock-jupiter.ts`) at a fixed synthetic
+ * 1:1:1 fill rate — mirrors `scripts/devnet-yield-cycle.ts`'s `buildFinalizeSwap`. This only
+ * works because the local build now always carries hub's `mock-jupiter` Cargo feature (see
+ * package.json's `test` script), which repoints `constants::JUPITER_PROGRAM_ID` at
+ * `programs/mock_jupiter`'s id, and because `ensureInitialized` pre-funds that mock's USDC/$HUB
+ * liquidity reserves. `test:devnet` (HUB_CLUSTER=devnet) is untouched — real Jupiter or a
+ * devnet-provisioned mock route only, via explicit `swap` args.
  */
 export async function finalizeIdx(
   h: Harness,
@@ -333,6 +362,7 @@ export async function finalizeIdx(
     hop1Data?: Buffer;
     hop2Data?: Buffer;
     remainingAccounts?: { pubkey: PublicKey; isSigner: boolean; isWritable: boolean }[];
+    jupiterProgram?: PublicKey;
   } = {},
 ) {
   const [epoch] = epochPda(h.program.programId, idx);
@@ -340,14 +370,63 @@ export async function finalizeIdx(
   const [vault] = vaultPda(h.program.programId);
   const cfg = await h.program.account.config.fetch(f.config);
   const treasury = await h.program.account.treasuryState.fetch(f.treasuryState);
+
+  let built: Partial<{
+    minUsdcOut: number;
+    minHubOut: number;
+    hop1AccountCount: number;
+    hop1Data: Buffer;
+    hop2Data: Buffer;
+    remainingAccounts: { pubkey: PublicKey; isSigner: boolean; isWritable: boolean }[];
+  }> = {};
+  if (h.cluster === "localnet" && swap.remainingAccounts === undefined) {
+    const epochAcct = await h.program.account.epoch.fetch(epoch);
+    // Mirrors on-chain `finalize_epoch`: the burn/lp/float skim is computed from this epoch's own
+    // fresh inflow only — the whole-lamport dust carry (round_credit slack + void_tier forfeitures)
+    // bypasses the skim entirely and is folded straight into the round's distributable pool.
+    const fresh = epochAcct.inflowLamports.toNumber();
+    const bpsOf = (bp: number) => Math.floor((fresh * bp) / K.BPS);
+    const swapTotal = bpsOf(cfg.burnPctBp) + bpsOf(cfg.lpPctBp) + bpsOf(cfg.treasuryFloatPctBp);
+    if (swapTotal > 0) {
+      const hop1 = mockRoute({
+        sourceAuthority: vault,
+        sourceAuthorityIsSigner: false, // vault is a PDA; hub re-signs via invoke_signed
+        sourceTokenAccount: treasury.vaultWsol,
+        sourceMint: new PublicKey(K.WSOL_MINT),
+        destinationTokenAccount: treasury.vaultUsdc,
+        destinationMint: cfg.usdcMint,
+        amountIn: swapTotal,
+        amountOut: swapTotal,
+      });
+      const hop2 = mockRoute({
+        sourceAuthority: vault,
+        sourceAuthorityIsSigner: false,
+        sourceTokenAccount: treasury.vaultUsdc,
+        sourceMint: cfg.usdcMint,
+        destinationTokenAccount: treasury.vaultHub,
+        destinationMint: cfg.hubMint,
+        amountIn: swapTotal,
+        amountOut: swapTotal,
+      });
+      built = {
+        minUsdcOut: swapTotal,
+        minHubOut: swapTotal,
+        hop1AccountCount: hop1.remainingAccounts.length,
+        hop1Data: hop1.jupiterData,
+        hop2Data: hop2.jupiterData,
+        remainingAccounts: [...hop1.remainingAccounts, ...hop2.remainingAccounts],
+      };
+    }
+  }
+
   const sig = await h.program.methods
     .finalizeEpoch(
       bn(idx),
-      bn(swap.minUsdcOut ?? 0),
-      bn(swap.minHubOut ?? 0),
-      swap.hop1AccountCount ?? 0,
-      swap.hop1Data ?? Buffer.alloc(0),
-      swap.hop2Data ?? Buffer.alloc(0),
+      bn(swap.minUsdcOut ?? built.minUsdcOut ?? 0),
+      bn(swap.minHubOut ?? built.minHubOut ?? 0),
+      swap.hop1AccountCount ?? built.hop1AccountCount ?? 0,
+      swap.hop1Data ?? built.hop1Data ?? Buffer.alloc(0),
+      swap.hop2Data ?? built.hop2Data ?? Buffer.alloc(0),
     )
     .accountsPartial({
       keeper: h.payer.publicKey,
@@ -365,9 +444,11 @@ export async function finalizeIdx(
       vaultHub: treasury.vaultHub,
       treasuryFloatVault: treasury.treasuryFloatVault,
       tokenProgram: TOKEN_PROGRAM_ID,
-      jupiterProgram: new PublicKey(K.JUPITER_PROGRAM_ID),
+      jupiterProgram:
+        swap.jupiterProgram ??
+        (h.cluster === "localnet" ? MOCK_JUPITER_PROGRAM : new PublicKey(K.JUPITER_PROGRAM_ID)),
     })
-    .remainingAccounts(swap.remainingAccounts ?? [])
+    .remainingAccounts(swap.remainingAccounts ?? built.remainingAccounts ?? [])
     .rpc();
   await settleOtcPending(h, f);
   return sig;
@@ -383,7 +464,7 @@ export async function effectiveInflow(h: Harness, f: Fixture) {
 export async function fillToThreshold(h: Harness, f: Fixture) {
   const { config } = await currentEpoch(h, f);
   const short = config.minPotThresholdLamports.toNumber() - (await effectiveInflow(h, f));
-  if (short > 0) await inflow(h, f, "c", short);
+  if (short > 0) await inflow(h, f, "c", grossForInflow(short, config.protocolFeeBp));
 }
 
 /** Make sure the threshold is met, then close the open round. Returns the closed index. */

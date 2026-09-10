@@ -33,6 +33,7 @@ import {
   effectiveInflow,
   fillToThreshold,
   inflow,
+  grossForInflow,
   finalizeCurrent,
   finalizeIdx,
   assertSolvent,
@@ -106,9 +107,13 @@ describe("M2 — yield engine", () => {
       u64: [new anchor.BN(before + LAMPORTS_PER_SOL)],
     });
     await expectFail(finalizeIdx(h, f, e0), "PotBelowThreshold");
-    await inflow(h, f, "b", LAMPORTS_PER_SOL - 1);
+    // `register_treasury_inflow` skims `Config.protocol_fee_bp` to `ops_wallet` before booking
+    // the remainder as epoch inflow (§A5) — gross up each send via `grossForInflow` so the *net*
+    // booked delta lands exactly 1 lamport short of, then exactly at, the new threshold.
+    const feeBp = (await h.program.account.config.fetch(f.config)).protocolFeeBp;
+    await inflow(h, f, "b", grossForInflow(LAMPORTS_PER_SOL - 1, feeBp));
     await expectFail(finalizeIdx(h, f, e0), "PotBelowThreshold"); // 1 lamport short
-    await inflow(h, f, "b", 1);
+    await inflow(h, f, "b", grossForInflow(1, feeBp));
     const inflowTotal = (await currentEpoch(h, f)).epoch.inflowLamports.toNumber();
     const acc0 = big((await h.program.account.config.fetch(f.config)).accPerWeight);
 
@@ -119,10 +124,12 @@ describe("M2 — yield engine", () => {
     expect(e.finalized).to.eq(true);
     expect(e.finalizedTs.toNumber()).to.be.gt(0);
     expect(e.burnPendingLamports.toNumber()).to.eq(burn);
-    // Zero-sum: inflow == burn + lp-pending + credited + floor remainder (≤ 1 lamport).
+    // Zero-sum: inflow == burn + lp-pending + treasury-float + credited + floor remainder
+    // (≤ 1 lamport) — mirrors the on-chain `assert_epoch_balanced` check exactly.
     expect(
       e.burnPendingLamports.toNumber() +
         e.lpPendingLamports.toNumber() +
+        e.treasuryFloatLamports.toNumber() +
         e.distributedLamports.toNumber() +
         e.rolledForwardLamports.toNumber(),
     ).to.eq(inflowTotal);
@@ -236,12 +243,15 @@ describe("M2 — yield engine", () => {
     await finalizeIdx(h, f, idx);
     const e = await h.program.account.epoch.fetch(epochPda(h.program.programId, idx)[0]);
     expect(e.inflowLamports.toNumber()).to.eq(booked + carry);
+    // The whole-lamport carry consumed above is fully extracted (`dust_scaled %= ACC_SCALE`),
+    // but this same finalize also adds this round's own sub-lamport `round_credit` slack
+    // (< ACC_SCALE) on top of whatever sub-lamport remainder was already sitting there — so the
+    // post-finalize total is bounded by 2×ACC_SCALE (< 2 whole lamports), not ACC_SCALE.
     expect(Number(big((await h.program.account.config.fetch(f.config)).dustScaled))).to.be.lt(
-      Number(K.ACC_SCALE),
+      Number(K.ACC_SCALE) * 2,
     );
     await assertSolvent(h, f);
   });
-
 });
 
 // §A4.1 — $OTC as an alternative step-fee currency. Mock 6-dp mint; 1 SOL = 1,000 OTC, so a

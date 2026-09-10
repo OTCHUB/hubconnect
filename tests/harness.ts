@@ -32,6 +32,7 @@ import {
   fetchAsset,
   mplCore,
 } from "@metaplex-foundation/mpl-core";
+import { ensureMockLiquidityAtaIx, mockLiquidityAta } from "../scripts/lib/mock-jupiter";
 
 export type Harness = {
   provider: anchor.AnchorProvider;
@@ -460,6 +461,26 @@ export async function ensureInitialized(h: Harness): Promise<Fixture> {
       treasuryFloatVault,
     })
     .rpc();
+
+  // `mock_jupiter`'s pre-funded liquidity reserves (localnet `anchor test` only — see the
+  // `mock-jupiter` Cargo feature this build now always carries locally, per package.json's
+  // `test` script). finalize_epoch's two-hop swap pays hop1's USDC-out and hop2's HUB-out from
+  // these reserves; the WSOL-in reserve needs no funding, it only ever receives. Both mints are
+  // this harness's own plain test mints, so the payer (their mint authority) can mint freely.
+  if (h.cluster === "localnet") {
+    await h.provider.sendAndConfirm(
+      new Transaction().add(
+        // wsolMint's reserve is hop1's `liquidity_in` — it must exist (even empty) for
+        // mock_swap's TransferChecked into it to find a valid token account.
+        ensureMockLiquidityAtaIx(h.payer.publicKey, wsolMint),
+        ensureMockLiquidityAtaIx(h.payer.publicKey, usdcMint),
+        ensureMockLiquidityAtaIx(h.payer.publicKey, hubMint),
+      ),
+      [h.payer],
+    );
+    await mintTo(h, usdcMint, mockLiquidityAta(usdcMint), 1_000_000_000n * 10n ** 6n);
+    await mintTo(h, hubMint, mockLiquidityAta(hubMint), 1_000_000_000n * 10n ** 6n);
+  }
 
   // §A7.1 tokenomics singleton — activate_tier/upgrade_tier's 50/50 burn-split
   // (Config.tier_cost_burn_bp) needs treasury_lock_vault as its reward-pool destination.

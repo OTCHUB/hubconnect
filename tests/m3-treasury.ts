@@ -14,6 +14,7 @@ import {
 } from "./harness";
 import { setConfig, bn } from "./flows";
 import { vaultPda, hubPotPda } from "../sdk/src/pda";
+import * as K from "../sdk/src/constants";
 
 describe("M3 — LP", () => {
   let h: Harness;
@@ -51,9 +52,9 @@ describe("M3 — LP", () => {
     // `keeper: Signer` posture. If it were permissioned like `build_lp`, every call below would
     // fail with `Unauthorized`/`ConstraintHasOne` instead of the program-logic errors asserted.
     const randomKeeper = await fundWallet(h, 1_000_000);
-    const call = () =>
+    const call = (otcAmount = 0, lpTokenAmount = 0) =>
       h.program.methods
-        .compoundLpOtc(bn(0), bn(0), 0, false)
+        .compoundLpOtc(bn(otcAmount), bn(lpTokenAmount), 0, false)
         .accountsPartial({
           keeper: randomKeeper.publicKey,
           config: f.config,
@@ -71,12 +72,24 @@ describe("M3 — LP", () => {
     await setConfig(h, f, "lpEnabled", { bool: [true] });
     await expectFail(call(), "LpPhase2Gated");
     await setConfig(h, f, "lpPhase2OpenTs", { i64: [bn(1)] });
-    // `lp_pending_hub_units` is still 0 (nothing has run `finalize_epoch`'s Jupiter leg in this
-    // suite) — below `LP_COMPOUND_MIN_HUB_UNITS`, so the dust-floor gate fires next. This is as
-    // far as this suite can exercise on-chain without a live Raydium pool (see
-    // `build_lp_otc_locked`'s tests for the same limitation); the deposit/cap/burn-excess path
-    // itself is exercised once genuine local Raydium pools land.
-    await expectFail(call(), "LpCompoundBelowThreshold");
+    // `lp_pending_hub_units` is a singleton bucket shared with the M2 suite, which runs real
+    // (mock) Jupiter swaps in `finalize_epoch` — by the time this test runs it may already sit
+    // at/above `LP_COMPOUND_MIN_HUB_UNITS` instead of the pristine-zero state this suite used to
+    // be able to assume. Assert whichever real gate that leaves live instead of hardcoding a
+    // value this suite doesn't control.
+    const pendingNow = (
+      await h.program.account.treasuryState.fetch(f.treasuryState)
+    ).lpPendingHubUnits.toNumber();
+    if (pendingNow < K.LP_COMPOUND_MIN_HUB_UNITS) {
+      await expectFail(call(), "LpCompoundBelowThreshold");
+    } else {
+      // Past the dust floor — a zero otc/lp amount now hits the next real gate instead.
+      await expectFail(call(), "ZeroAmount");
+      // This is as far as this suite can exercise on-chain without a live Raydium pool (see
+      // `build_lp_otc_locked`'s tests for the same limitation); the deposit/cap/burn-excess path
+      // itself is exercised once genuine local Raydium pools land.
+      await expectFail(call(1, 1), "LpAccountsMissing");
+    }
 
     await setConfig(h, f, "lpEnabled", { bool: [false] });
     await setConfig(h, f, "lpPhase2OpenTs", { i64: [bn(0)] });
