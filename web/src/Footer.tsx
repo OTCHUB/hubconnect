@@ -1,5 +1,12 @@
-// Mirrors otchub's page footer (src/pages/Home.jsx) — same copy pattern, credits, and link
-// styling — so the $HUB dashboard closes out the same way every other otchub eco site does.
+import { GithubIcon } from "./hub/components/ui/Icons";
+
+// Public repo backing the deployed $HUB program — same one scripts/verify-build.sh builds
+// from, so this is the "verify the source yourself" link for anyone reading the footer.
+const HUB_GITHUB_URL = "https://github.com/OTCHUB/hubconnect";
+
+// Byte-identical with otchub's page footer (src/components/otc/Footer.jsx, mounted on
+// src/pages/Hub.jsx) — same copy, order, and link styling — so the $HUB dashboard closes out
+// the same way on otchub.dev, app.otchub.dev, and devnet.otchub.dev.
 export function Footer() {
   const linkCls = "underline hover:text-green-400";
   return (
@@ -18,6 +25,16 @@ export function Footer() {
           className={linkCls}
         >
           fomo.otchub.dev ↗
+        </a>
+        {" · "}
+        <a
+          href={HUB_GITHUB_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={`inline-flex items-center gap-1 ${linkCls}`}
+        >
+          <GithubIcon className="h-3 w-3" aria-hidden="true" />
+          source ↗
         </a>
       </div>
       <div>© 2026 otchub.dev</div>

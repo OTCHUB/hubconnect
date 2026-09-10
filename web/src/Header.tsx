@@ -4,7 +4,7 @@ import { EnvBadge, rpcHost, useHub, useWallet } from "./hub";
 import { WalletConnect } from "./hub/components/WalletConnect";
 import { AddressLink } from "./hub/components/ui/AddressLink";
 import { CopyButton } from "./hub/components/ui/CopyButton";
-import { DropletIcon, XIcon } from "./hub/components/ui/Icons";
+import { CloseIcon, DropletIcon, MenuIcon, XIcon } from "./hub/components/ui/Icons";
 import { shortKey } from "./hub/lib/format";
 import { ThemeToggle } from "./components/ThemeToggle";
 
@@ -130,8 +130,34 @@ function HeaderWallet() {
 export function Header() {
   const { cluster, programId, connection } = useHub();
   const headerCls =
-    "sticky top-[34px] z-40 rounded-none border border-green-500/30 bg-[#000000] font-mono";
+    "sticky top-[34px] z-40 rounded-none border border-green-500/30 bg-black font-mono";
   const dividerCls = "border-green-500/30";
+
+  // Route nav (DASHBOARD…DRIP) collapses behind a hamburger below `sm` — otherwise 5-6 bracket
+  // pills wrap onto their own crowded rows on narrow viewports. Mirrors the outside-click/Escape
+  // dismissal pattern used by `HeaderWallet` above.
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const mobileNavRef = useRef<HTMLDivElement>(null);
+  const closeMobileNav = () => setMobileNavOpen(false);
+
+  useEffect(() => {
+    if (!mobileNavOpen) return;
+    const onOutside = (e: MouseEvent) => {
+      if (mobileNavRef.current && !mobileNavRef.current.contains(e.target as Node)) {
+        setMobileNavOpen(false);
+      }
+    };
+    const onEsc = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMobileNavOpen(false);
+    };
+    document.addEventListener("mousedown", onOutside);
+    document.addEventListener("keydown", onEsc);
+    return () => {
+      document.removeEventListener("mousedown", onOutside);
+      document.removeEventListener("keydown", onEsc);
+    };
+  }, [mobileNavOpen]);
+
   return (
     <header className={headerCls}>
       {/* Single-row identity bar: logo + label vertically centered, actions pinned right. Wraps
@@ -186,33 +212,59 @@ export function Header() {
           <HeaderWallet />
         </div>
       </div>
-      <nav className={`flex flex-wrap items-center gap-1.5 border-b px-3 py-2 ${dividerCls}`}>
-        <NavLink to="/hub" end className={navLinkCls}>
-          DASHBOARD
-        </NavLink>
-        <NavLink to="/hub/treasury" className={navLinkCls}>
-          TREASURY
-        </NavLink>
-        <NavLink to="/hub/tokenomics" className={navLinkCls}>
-          TOKENOMICS
-        </NavLink>
-        <NavLink to="/hub/mechanics" className={navLinkCls}>
-          MECHANICS
-        </NavLink>
-        <NavLink to="/hub/deployments" className={navLinkCls}>
-          DEPLOYMENTS
-        </NavLink>
-        {cluster === "devnet" && (
-          <NavLink
-            to="/drip"
-            className={dripLinkCls}
-            title="devnet-only faucet — get test $HUB/$OTC + mint a Mock OTC Desk"
+      <div className={`border-b ${dividerCls}`} ref={mobileNavRef}>
+        {/* Hamburger toggle — route links live in the collapsible panel below on mobile; `sm:`
+         *  and up always show the full row instead (see `hub-nav-links`). */}
+        <div className="px-3 py-2 sm:hidden">
+          <button
+            type="button"
+            onClick={() => setMobileNavOpen((o) => !o)}
+            className="inline-flex w-full items-center justify-center gap-1.5 rounded-none border border-green-500/50 px-2 py-1.5 text-[10px] tracking-widest text-green-400 hover:bg-green-500/10"
+            aria-expanded={mobileNavOpen}
+            aria-controls="hub-nav-links"
           >
-            <DropletIcon className="h-3 w-3" />
-            DRIP
+            {mobileNavOpen ? (
+              <CloseIcon className="h-3.5 w-3.5" />
+            ) : (
+              <MenuIcon className="h-3.5 w-3.5" />
+            )}
+            [{mobileNavOpen ? "CLOSE" : "MENU"}]
+          </button>
+        </div>
+        <nav
+          id="hub-nav-links"
+          className={`${
+            mobileNavOpen ? "flex" : "hidden"
+          } flex-col gap-1.5 px-3 pb-2 sm:flex sm:flex-row sm:flex-wrap sm:items-center sm:px-3 sm:py-2 sm:pb-2`}
+        >
+          <NavLink to="/hub" end className={navLinkCls} onClick={closeMobileNav}>
+            [DASHBOARD]
           </NavLink>
-        )}
-      </nav>
+          <NavLink to="/hub/treasury" className={navLinkCls} onClick={closeMobileNav}>
+            [TREASURY]
+          </NavLink>
+          <NavLink to="/hub/tokenomics" className={navLinkCls} onClick={closeMobileNav}>
+            [TOKENOMICS]
+          </NavLink>
+          <NavLink to="/hub/mechanics" className={navLinkCls} onClick={closeMobileNav}>
+            [MECHANICS]
+          </NavLink>
+          <NavLink to="/hub/deployments" className={navLinkCls} onClick={closeMobileNav}>
+            [DEPLOYMENTS]
+          </NavLink>
+          {cluster === "devnet" && (
+            <NavLink
+              to="/drip"
+              className={dripLinkCls}
+              onClick={closeMobileNav}
+              title="devnet-only faucet — get test $HUB/$OTC + mint a Mock OTC Desk"
+            >
+              <DropletIcon className="h-3 w-3" />
+              [DRIP]
+            </NavLink>
+          )}
+        </nav>
+      </div>
       <div className="flex flex-wrap items-center gap-x-4 px-3 py-1 text-[10px] text-green-500/50">
         <span>cluster: {cluster}</span>
         <span className="truncate">rpc: {rpcHost(connection.rpcEndpoint)}</span>

@@ -28,15 +28,6 @@ export function TerminalBottomBar({ children }: { children: ReactNode }) {
   return (
     <div className="fixed inset-x-0 bottom-0 z-40 border-t border-green-500/20 bg-black px-3 py-1.5 text-center font-mono text-[10px] text-green-500/40 sm:text-[11px]">
       {children}
-      {" · "}
-      <a
-        href="https://github.com/OTCHUB/hubconnect"
-        target="_blank"
-        rel="noopener noreferrer"
-        className="underline hover:text-green-500/70"
-      >
-        SOURCE ↗
-      </a>
     </div>
   );
 }
