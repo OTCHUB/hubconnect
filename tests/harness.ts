@@ -256,6 +256,40 @@ export async function tokenBalance(h: Harness, tokenAccount: PublicKey): Promise
   return info.data.readBigUInt64LE(64);
 }
 
+const TOKEN_ACCOUNT_SIZE = 165;
+
+/** spl-token `InitializeAccount3` (ix 18): account · mint · owner (no Rent sysvar needed). */
+function initializeAccount3(account: PublicKey, mint: PublicKey, owner: PublicKey) {
+  return new TransactionInstruction({
+    programId: TOKEN_PROGRAM_ID,
+    keys: [
+      { pubkey: account, isSigner: false, isWritable: true },
+      { pubkey: mint, isSigner: false, isWritable: false },
+    ],
+    data: Buffer.concat([Buffer.from([18]), owner.toBuffer()]),
+  });
+}
+
+/** Fresh plain (non-ATA) spl-token account — needed whenever an owner needs two-or-more
+ * accounts of the same mint (an ATA can only ever represent one); mirrors
+ * `scripts/devnet-treasury-float.ts`, which tests must not import (env side effects). */
+async function createTokenAccount(h: Harness, mint: PublicKey, owner: PublicKey): Promise<PublicKey> {
+  const account = Keypair.generate();
+  const rent = await h.provider.connection.getMinimumBalanceForRentExemption(TOKEN_ACCOUNT_SIZE);
+  const tx = new Transaction().add(
+    SystemProgram.createAccount({
+      fromPubkey: h.payer.publicKey,
+      newAccountPubkey: account.publicKey,
+      lamports: rent,
+      space: TOKEN_ACCOUNT_SIZE,
+      programId: TOKEN_PROGRAM_ID,
+    }),
+    initializeAccount3(account.publicKey, mint, owner),
+  );
+  await h.provider.sendAndConfirm(tx, [h.payer, account]);
+  return account.publicKey;
+}
+
 export type Fixture = {
   config: PublicKey;
   pot: PublicKey;
@@ -366,6 +400,28 @@ export async function ensureInitialized(h: Harness): Promise<Fixture> {
   // Deep $OTC supply so the keeper can always fund a 1:1 base-unit buy for every round's
   // credited amount in tests (see flows.ts `settleOtcPending`).
   await mintTo(h, otcMint, keeperOtc, 10_000_000_000_000n);
+
+  // §A6.3/§A7.1 bridge: `finalize_epoch`'s synchronous Jupiter legs (vault_wsol/vault_hub/
+  // treasury_float_vault) gate on TreasuryState.vault_hub != default, so this must run before
+  // any finalize_epoch call — mirrors `scripts/devnet-treasury-float.ts` (not imported directly;
+  // tests must not pull in scripts' env side effects). vault_hub and treasury_float_vault share
+  // (owner, mint), which an ATA can't represent twice, so both are plain spl-token accounts.
+  const wsolMint = new PublicKey(K.WSOL_MINT);
+  const vaultWsol = await createTokenAccount(h, wsolMint, vault);
+  const vaultHub = await createTokenAccount(h, hubMint, vault);
+  const treasuryFloatVault = await createTokenAccount(h, hubMint, vault);
+  await h.program.methods
+    .initTreasuryFloat()
+    .accountsPartial({
+      treasury: h.payer.publicKey,
+      config,
+      treasuryState,
+      vault,
+      vaultWsol,
+      vaultHub,
+      treasuryFloatVault,
+    })
+    .rpc();
 
   fixture = {
     config,

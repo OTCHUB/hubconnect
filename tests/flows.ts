@@ -300,10 +300,10 @@ export async function inflow(
  * §A5: the 5%/2.5%/2.5% burn/lp/treasury-float legs are now swapped SOL→$HUB inside
  * `finalize_epoch` via a synchronous Jupiter CPI, so the account list grew (vault/hub_mint/
  * vault_wsol/vault_hub/treasury_float_vault/jupiter_program) and the ix takes `minHubOut` +
- * `jupiterData` (+ `remainingAccounts` for the route). Empty defaults only work once
- * `TreasuryState.vault_hub` is set (`init_treasury_float`, not yet wired into the fixture) and
- * `swap_total == 0` (all three split bps at 0) — a real swap needs a real Jupiter route, blocked
- * on the pending localnet Jupiter V6 clone (see Anchor.toml task).
+ * `jupiterData` (+ `remainingAccounts` for the route). Empty defaults only work because
+ * `TreasuryState.vault_hub` is now set (`init_treasury_float`, wired into `ensureInitialized`)
+ * and `swap_total == 0` (all three split bps at 0) — a real swap needs a real Jupiter route,
+ * blocked on the pending localnet Jupiter V6 clone (see Anchor.toml task).
  */
 export async function finalizeIdx(
   h: Harness,
