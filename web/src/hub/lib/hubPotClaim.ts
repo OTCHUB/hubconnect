@@ -1,10 +1,16 @@
 // M.I.M ETF claim portal (§A5.1): `claim_hub_pot_reward` lets a desk's current owner pull their
-// own tier-weighted share of the $OTC/CRCLx/OpenAI/Anthropic basket for one open `HubPotRound`,
+// own tier-weighted share of the $OTC/CRCLx/NVDAx/SPCXx basket for one open `HubPotRound`,
 // self-signed and self-funded (tx fee + any missing bucket ATA rent + the `HubPotClaim` receipt
 // rent) — the pull counterpart to the authority-pushed `distribute_hub_pot_reward`, sharing the
 // same `HubPotClaim` PDA so a desk is paid at most once per round regardless of path. Same
 // reliability model as `lib/claim.ts`'s `executeClaimYield`: every tx is simulated unsigned
 // first, one wallet prompt signs the whole passing batch.
+//
+// Each bucket mint gets its own `token_program` account on-chain (`otcTokenProgram`,
+// `crclxTokenProgram`, `nvdaxTokenProgram`, `spcxxTokenProgram`) since `update_hub_pot_mint`
+// can move any bucket to a different mint on a different token program later — never assume
+// classic Token here. Resolved live from each mint account's actual owner program, same
+// pattern the on-chain `otc_pay.rs` helpers use.
 import {
   ComputeBudgetProgram,
   Connection,
@@ -22,7 +28,6 @@ import {
   tierPda,
   treasuryPda,
   vaultPda,
-  TOKEN_PROGRAM_ID,
   type HubPotView,
   type HubProgram,
 } from "@hub-sdk";
@@ -34,23 +39,27 @@ export type HubPotClaimResult = { asset: string; ok: boolean; sig?: string; reas
 
 const CU_LIMIT = 400_000;
 const CU_PRICE_MICRO = 10_000;
-/** Each ix touches ~20 accounts (4 mints/vaults/claimant ATAs) — keep 1 per tx for message size. */
+/** Each ix touches ~20 accounts (4 mints/vaults/claimant ATAs/token programs) — keep 1 per tx
+ *  for message size. */
 const MAX_IXS_PER_TX = 1;
 const SYSTEM_PROGRAM = new PublicKey("11111111111111111111111111111111");
 
 const BUCKET_MINTS = (pot: HubPotView) =>
-  [pot.otcMint, pot.crclxMint, pot.openaiMint, pot.anthropicMint].map((m) => new PublicKey(m));
+  [pot.otcMint, pot.crclxMint, pot.nvdaxMint, pot.spcxxMint].map((m) => new PublicKey(m));
 
-/** Unsigned `claim_hub_pot_reward` instruction for one desk asset, one round. */
+/** Unsigned `claim_hub_pot_reward` instruction for one desk asset, one round. `tokenPrograms`
+ *  must be the 4 bucket mints' actual owner programs, in `[otc, crclx, nvdax, spcxx]` order. */
 export async function buildClaimHubPotRewardIx(
   program: HubProgram,
   claimant: PublicKey,
   deskAsset: PublicKey,
   roundIndex: number,
   pot: HubPotView,
+  tokenPrograms: PublicKey[],
 ): Promise<TransactionInstruction> {
   const id = program.programId;
-  const [otcMint, crclxMint, openaiMint, anthropicMint] = BUCKET_MINTS(pot);
+  const [otcMint, crclxMint, nvdaxMint, spcxxMint] = BUCKET_MINTS(pot);
+  const [otcTokenProgram, crclxTokenProgram, nvdaxTokenProgram, spcxxTokenProgram] = tokenPrograms;
   return program.methods
     .claimHubPotReward(roundIndex)
     .accountsStrict({
@@ -64,17 +73,20 @@ export async function buildClaimHubPotRewardIx(
       vault: vaultPda(id)[0],
       otcMint,
       crclxMint,
-      openaiMint,
-      anthropicMint,
+      nvdaxMint,
+      spcxxMint,
       otcVault: new PublicKey(pot.otcVault),
       crclxVault: new PublicKey(pot.crclxVault),
-      openaiVault: new PublicKey(pot.openaiVault),
-      anthropicVault: new PublicKey(pot.anthropicVault),
-      claimantOtc: ataPda(claimant, otcMint)[0],
-      claimantCrclx: ataPda(claimant, crclxMint)[0],
-      claimantOpenai: ataPda(claimant, openaiMint)[0],
-      claimantAnthropic: ataPda(claimant, anthropicMint)[0],
-      tokenProgram: new PublicKey(TOKEN_PROGRAM_ID),
+      nvdaxVault: new PublicKey(pot.nvdaxVault),
+      spcxxVault: new PublicKey(pot.spcxxVault),
+      claimantOtc: ataPda(claimant, otcMint, otcTokenProgram)[0],
+      claimantCrclx: ataPda(claimant, crclxMint, crclxTokenProgram)[0],
+      claimantNvdax: ataPda(claimant, nvdaxMint, nvdaxTokenProgram)[0],
+      claimantSpcxx: ataPda(claimant, spcxxMint, spcxxTokenProgram)[0],
+      otcTokenProgram,
+      crclxTokenProgram,
+      nvdaxTokenProgram,
+      spcxxTokenProgram,
       claim: hubPotClaimPda(id, roundIndex, deskAsset)[0],
       systemProgram: SYSTEM_PROGRAM,
     })
@@ -104,15 +116,28 @@ export async function executeClaimHubPotReward(opts: {
 
   onPhase?.("build");
   const mints = BUCKET_MINTS(pot);
-  const atas = mints.map((m) => ataPda(claimant, m)[0]);
+  const mintInfos = await connection.getMultipleAccountsInfo(mints, "confirmed");
+  const tokenPrograms = mintInfos.map((info, i) => {
+    if (!info) throw new Error(`bucket mint ${mints[i].toBase58()} not found on-chain`);
+    return info.owner;
+  });
+  const atas = mints.map((m, i) => ataPda(claimant, m, tokenPrograms[i])[0]);
   const ataInfos = await connection.getMultipleAccountsInfo(atas, "confirmed");
   const preamble = mints
-    .filter((_, i) => !ataInfos[i])
-    .map((m) => createAtaIdempotentIx(claimant, claimant, m));
+    .map((m, i) => ({ mint: m, tokenProgram: tokenPrograms[i], exists: !!ataInfos[i] }))
+    .filter((x) => !x.exists)
+    .map((x) => createAtaIdempotentIx(claimant, claimant, x.mint, x.tokenProgram));
 
   const ixs = await Promise.all(
     assets.map((a) =>
-      buildClaimHubPotRewardIx(program, claimant, new PublicKey(a), roundIndex, pot),
+      buildClaimHubPotRewardIx(
+        program,
+        claimant,
+        new PublicKey(a),
+        roundIndex,
+        pot,
+        tokenPrograms,
+      ),
     ),
   );
   const bh = await connection.getLatestBlockhash("confirmed");

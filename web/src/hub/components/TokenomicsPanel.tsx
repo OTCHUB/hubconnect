@@ -98,7 +98,7 @@ export function TokenomicsPanel({ state }: { state: ProtocolState }) {
             sub={
               onChain
                 ? `floor · locked in vault, no withdraw ix exists`
-                : "$OTC · CRCLx · OpenAI · Anthropic basket · never sold"
+                : "$OTC · CRCLx · NVDAx · SPCXx basket · never sold"
             }
           />
           <Stat

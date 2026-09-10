@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { PublicKey } from "@solana/web3.js";
-import { ataPda } from "@hub-sdk";
+import { ataPda, TOKEN_2022_PROGRAM_ID } from "@hub-sdk";
 import { useHub } from "../HubProvider";
 
 export type PayerBalances = {
@@ -28,7 +28,7 @@ export function usePayerBalances(
     refetchInterval: 20_000,
     queryFn: async (): Promise<PayerBalances> => {
       const owner = new PublicKey(address!);
-      const [otcAta] = ataPda(owner, new PublicKey(otcMint!));
+      const [otcAta] = ataPda(owner, new PublicKey(otcMint!), TOKEN_2022_PROGRAM_ID);
       const [hubAta] = ataPda(owner, new PublicKey(hubMint!));
       const [sol, otcTok, hubTok] = await Promise.all([
         connection.getBalance(owner, "confirmed"),

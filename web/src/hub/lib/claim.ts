@@ -18,7 +18,7 @@ import {
   otcPotPda,
   potPda,
   tierPda,
-  TOKEN_PROGRAM_ID,
+  TOKEN_2022_PROGRAM_ID,
   type ConfigView,
   type HubProgram,
   type OtcPotView,
@@ -58,8 +58,8 @@ export async function buildClaimYieldIx(
       otcPot: otcPotPda(id)[0],
       otcMint,
       otcVault: new PublicKey(otcPot.otcVault),
-      claimerOtc: ataPda(claimer, otcMint)[0],
-      tokenProgram: new PublicKey(TOKEN_PROGRAM_ID),
+      claimerOtc: ataPda(claimer, otcMint, TOKEN_2022_PROGRAM_ID)[0],
+      tokenProgram: new PublicKey(TOKEN_2022_PROGRAM_ID),
       systemProgram: SYSTEM_PROGRAM,
     })
     .instruction();
@@ -130,9 +130,11 @@ export async function executeClaimYield(opts: {
 
   onPhase?.("build");
   const otcMint = new PublicKey(config.otcMint);
-  const [claimerOtc] = ataPda(claimer, otcMint);
+  const [claimerOtc] = ataPda(claimer, otcMint, TOKEN_2022_PROGRAM_ID);
   const otcAtaInfo = await connection.getAccountInfo(claimerOtc, "confirmed");
-  const preamble = otcAtaInfo ? [] : [createAtaIdempotentIx(claimer, claimer, otcMint)];
+  const preamble = otcAtaInfo
+    ? []
+    : [createAtaIdempotentIx(claimer, claimer, otcMint, TOKEN_2022_PROGRAM_ID)];
   const ixs = await Promise.all(
     assets.map((a) => buildClaimYieldIx(program, claimer, new PublicKey(a), config, otcPot)),
   );

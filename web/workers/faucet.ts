@@ -12,7 +12,7 @@
 // Routes:
 //   POST /api/faucet/drip       { wallet } -> one combined starter-kit request, gated by a single
 //                                8h-per-wallet cooldown: mints 100,000 $HUB, 100,000 $OTC, and 10
-//                                each of CRCLx/OpenAI/Anthropic (the M.I.M ETF basket) to `wallet`,
+//                                each of CRCLx/NVDAx/SPCXx (the M.I.M ETF basket) to `wallet`,
 //                                then mints it an unactivated Mock OTC Desk Core asset (see
 //                                mintDeskAsset below). Requires the wallet to already hold native
 //                                devnet SOL to pay for its own follow-up txs (activate_tier's step
@@ -234,7 +234,7 @@ async function handleStatus(env: Env): Promise<Response> {
       ? null
       : cfg.deskCollection.toBase58(),
     hubPot: hubPot
-      ? { crclx: hubPot.crclxMint, openai: hubPot.openaiMint, anthropic: hubPot.anthropicMint }
+      ? { crclx: hubPot.crclxMint, nvdax: hubPot.nvdaxMint, spcxx: hubPot.spcxxMint }
       : null,
   });
 }
@@ -289,7 +289,7 @@ async function mintDeskAsset(ctx: FaucetCtx, cfg: FaucetConfig, wallet: PublicKe
 
 /**
  * §Faucet starter kit — one combined request, one 8h-per-wallet cooldown: 100,000 $HUB,
- * 100,000 $OTC, 10 each of CRCLx/OpenAI/Anthropic (the M.I.M ETF basket "stock" mints), and 1
+ * 100,000 $OTC, 10 each of CRCLx/NVDAx/SPCXx (the M.I.M ETF basket "stock" mints), and 1
  * unactivated Mock OTC Desk NFT, all sent/minted to `wallet`. The wallet still needs its own
  * native devnet SOL to pay for its follow-up txs (activate_tier's step fee, claim_yield, etc.)
  * — the faucet only ever covers its own gas, never the recipient's.
@@ -321,8 +321,8 @@ async function handleDrip(request: Request, env: Env): Promise<Response> {
     ["hub", cfg.hubMint],
     ["otc", cfg.otcMint],
     ["crclx", new PublicKey(hubPot.crclxMint)],
-    ["openai", new PublicKey(hubPot.openaiMint)],
-    ["anthropic", new PublicKey(hubPot.anthropicMint)],
+    ["nvdax", new PublicKey(hubPot.nvdaxMint)],
+    ["spcxx", new PublicKey(hubPot.spcxxMint)],
   ];
 
   const infos = await ctx.connection.getMultipleAccountsInfo(mints.map(([, m]) => m));

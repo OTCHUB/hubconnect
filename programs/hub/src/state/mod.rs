@@ -249,7 +249,7 @@ pub struct TreasuryState {
     pub lp_hub_deposited: u64,
     pub lp_quote_deposited: u64,
     /// §A5.1 extension — MemeStock basket LP beyond HUB/OTC, indexed by
-    /// `LpPair::basket_index()` (Crclx=0, Openai=1, Anthropic=2). Mirrors the 4 fields above
+    /// `LpPair::basket_index()` (Crclx=0, Nvdax=1, Spcxx=2 — i.e. CRCLx/NVDAx/SPCXx). Mirrors the 4 fields above
     /// exactly, generalized to an array so one compounder ix (`compound_lp_basket`) threshold-gates
     /// and deposits all three pairs. `lp_basket_pending_hub_units` is fed by `harvest_lp_fees`'
     /// HUB-side yield leg (there is no `finalize_epoch` earmark for these pairs — unlike HUB/OTC,
@@ -376,7 +376,7 @@ pub struct RewardClaim {
     pub bump: u8,
 }
 
-/// §A5.1 `["hub_pot"]` — MemeStock basket ($OTC, CRCLx, OpenAI, Anthropic) bookkeeping.
+/// §A5.1 `["hub_pot"]` — MemeStock basket ($OTC, CRCLx, NVDAx, SPCXx) bookkeeping.
 /// Created once via `init_hub_pot`. Funded by the treasury's converted source-B (13-stock
 /// treasury-desk) yield via `fund_hub_pot`; independent of `TokenomicsConfig`'s single-asset
 /// $HUB reward path (§A6.3/§A7.1 bridge) — different funding source, different vaults.
@@ -385,23 +385,23 @@ pub struct RewardClaim {
 pub struct HubPotConfig {
     pub otc_mint: Pubkey,
     pub crclx_mint: Pubkey,
-    pub openai_mint: Pubkey,
-    pub anthropic_mint: Pubkey,
+    pub nvdax_mint: Pubkey,
+    pub spcxx_mint: Pubkey,
     /// Vault-owned (`["vault"]` PDA) token accounts, one per bucket mint above.
     pub otc_vault: Pubkey,
     pub crclx_vault: Pubkey,
-    pub openai_vault: Pubkey,
-    pub anthropic_vault: Pubkey,
+    pub nvdax_vault: Pubkey,
+    pub spcxx_vault: Pubkey,
     /// Earmarked since the last `open_hub_pot_round`, awaiting the next snapshot.
     pub otc_pending_units: u64,
     pub crclx_pending_units: u64,
-    pub openai_pending_units: u64,
-    pub anthropic_pending_units: u64,
+    pub nvdax_pending_units: u64,
+    pub spcxx_pending_units: u64,
     /// Lifetime totals, for dashboard display — never decreases.
     pub otc_deposited_units: u64,
     pub crclx_deposited_units: u64,
-    pub openai_deposited_units: u64,
-    pub anthropic_deposited_units: u64,
+    pub nvdax_deposited_units: u64,
+    pub spcxx_deposited_units: u64,
     pub round_count: u32,
     pub bump: u8,
 }
@@ -415,13 +415,13 @@ pub struct HubPotRound {
     pub index: u32,
     pub otc_units: u64,
     pub crclx_units: u64,
-    pub openai_units: u64,
-    pub anthropic_units: u64,
+    pub nvdax_units: u64,
+    pub spcxx_units: u64,
     pub total_weight_bp: u64,
     pub otc_distributed_units: u64,
     pub crclx_distributed_units: u64,
-    pub openai_distributed_units: u64,
-    pub anthropic_distributed_units: u64,
+    pub nvdax_distributed_units: u64,
+    pub spcxx_distributed_units: u64,
     pub claims: u32,
     pub opened_ts: i64,
     pub bump: u8,
@@ -437,8 +437,8 @@ pub struct HubPotClaim {
     pub owner: Pubkey,
     pub otc_units: u64,
     pub crclx_units: u64,
-    pub openai_units: u64,
-    pub anthropic_units: u64,
+    pub nvdax_units: u64,
+    pub spcxx_units: u64,
     pub claimed_ts: i64,
     pub bump: u8,
 }
@@ -508,7 +508,8 @@ impl Config {
         );
         let idx = (tier - 1) as usize;
         let stale = self.last_price_update_ts == 0
-            || now.saturating_sub(self.last_price_update_ts) > crate::constants::PRICE_STALENESS_SECS;
+            || now.saturating_sub(self.last_price_update_ts)
+                > crate::constants::PRICE_STALENESS_SECS;
         if stale {
             Ok(crate::constants::TIER_HUB_COST_UNITS[idx])
         } else {

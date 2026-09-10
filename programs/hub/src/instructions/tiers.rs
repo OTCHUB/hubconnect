@@ -300,7 +300,8 @@ pub struct ClaimYield<'info> {
     /// CHECK: claimer's $OTC token account (mint/owner verified in handler).
     #[account(mut)]
     pub claimer_otc: UncheckedAccount<'info>,
-    /// CHECK: classic SPL Token program, asserted in `transfer_checked`.
+    /// CHECK: $OTC's token program — Token-2022, asserted in `transfer_checked` against
+    /// `otc_mint`'s actual owner.
     pub token_program: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
 }

@@ -20,7 +20,7 @@ export type FaucetStatus = {
   otcMint: string;
   /** null until Config.desk_collection is set on this cluster. */
   deskCollection: string | null;
-  hubPot: { crclx: string; openai: string; anthropic: string } | null;
+  hubPot: { crclx: string; nvdax: string; spcxx: string } | null;
 };
 
 export type MintDeskResult = {
@@ -38,7 +38,7 @@ export type DripResult = {
   explorer: string;
   wallet: string;
   /** Whole-token amounts per mint label, e.g. `{ hub: "100000", otc: "100000", ... }`. */
-  amounts: Record<"hub" | "otc" | "crclx" | "openai" | "anthropic", string>;
+  amounts: Record<"hub" | "otc" | "crclx" | "nvdax" | "spcxx", string>;
   /** The one Mock OTC Desk NFT minted alongside the tokens in this same drip. */
   desk: MintDeskResult;
 };

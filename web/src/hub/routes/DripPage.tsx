@@ -178,7 +178,7 @@ export function DripPage() {
         }
       >
         <p className="mb-2 text-xs text-green-400/90">
-          One request sends 100,000 $HUB, 100,000 $OTC, 10 each of CRCLx / OpenAI / Anthropic (the
+          One request sends 100,000 $HUB, 100,000 $OTC, 10 each of CRCLx / NVDAx / SPCXx (the
           M.I.M ETF basket), and mints 1 unactivated Mock OTC Desk NFT — everything needed to
           activate a desk and test the HUB Pot claim. One request per wallet per 8h.
         </p>
@@ -216,8 +216,8 @@ export function DripPage() {
           <div className="mt-2 space-y-1 text-[11px] text-green-400/90">
             <div>
               {dripResult.amounts.hub} $HUB · {dripResult.amounts.otc} $OTC ·{" "}
-              {dripResult.amounts.crclx} CRCLx · {dripResult.amounts.openai} OPENAI ·{" "}
-              {dripResult.amounts.anthropic} ANTHROPIC
+              {dripResult.amounts.crclx} CRCLx · {dripResult.amounts.nvdax} NVDAX ·{" "}
+              {dripResult.amounts.spcxx} SPCXX
             </div>
             <a
               href={dripResult.explorer}

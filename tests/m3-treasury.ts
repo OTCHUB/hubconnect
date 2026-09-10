@@ -131,23 +131,23 @@ describe("M3 — LP", () => {
     const [vault] = vaultPda(h.program.programId);
     const [hubPot] = hubPotPda(h.program.programId);
     const crclxMint = await createSplMint(h, 6);
-    const openaiMint = await createSplMint(h, 6);
-    const anthropicMint = await createSplMint(h, 6);
+    const nvdaxMint = await createSplMint(h, 6);
+    const spcxxMint = await createSplMint(h, 6);
     const otcVault = ata(vault, f.otcMint);
     const crclxVault = ata(vault, crclxMint);
-    const openaiVault = ata(vault, openaiMint);
-    const anthropicVault = ata(vault, anthropicMint);
+    const nvdaxVault = ata(vault, nvdaxMint);
+    const spcxxVault = ata(vault, spcxxMint);
     await h.provider.sendAndConfirm(
       new Transaction().add(
         createAtaIx(h.payer.publicKey, vault, f.otcMint),
         createAtaIx(h.payer.publicKey, vault, crclxMint),
-        createAtaIx(h.payer.publicKey, vault, openaiMint),
-        createAtaIx(h.payer.publicKey, vault, anthropicMint),
+        createAtaIx(h.payer.publicKey, vault, nvdaxMint),
+        createAtaIx(h.payer.publicKey, vault, spcxxMint),
       ),
       [h.payer],
     );
     await h.program.methods
-      .initHubPot(f.otcMint, crclxMint, openaiMint, anthropicMint)
+      .initHubPot(f.otcMint, crclxMint, nvdaxMint, spcxxMint)
       .accountsPartial({
         authority: h.payer.publicKey,
         config: f.config,
@@ -155,8 +155,8 @@ describe("M3 — LP", () => {
         vault,
         otcVault,
         crclxVault,
-        openaiVault,
-        anthropicVault,
+        nvdaxVault,
+        spcxxVault,
         hubPot,
       })
       .rpc();

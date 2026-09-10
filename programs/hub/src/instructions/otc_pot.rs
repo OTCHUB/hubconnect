@@ -72,7 +72,8 @@ pub struct RecordOtcBuy<'info> {
     /// CHECK: system-owned lamport vault PDA.
     #[account(mut, seeds = [SEED_POT], bump = config.pot_bump)]
     pub pot: UncheckedAccount<'info>,
-    /// CHECK: classic SPL Token program, asserted in `transfer_checked`.
+    /// CHECK: classic Token or Token-2022 program (dispatched to whichever `otc_mint` is
+    /// actually owned by — $OTC is Token-2022), asserted in `transfer_checked`.
     pub token_program: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
 }

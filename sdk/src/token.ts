@@ -5,6 +5,9 @@ import { Connection, PublicKey, TransactionInstruction, type AccountInfo } from 
 import { ataPda, tokenMetadataPda } from "./pda";
 import { ASSOCIATED_TOKEN_PROGRAM_ID, TOKEN_PROGRAM_ID } from "./constants";
 
+/** Public key type accepted for a token-program argument (string or `PublicKey`). */
+type TokenProgramId = PublicKey | string;
+
 export type MintView = {
   address: string;
   supplyUnits: bigint;
@@ -126,13 +129,18 @@ export async function fetchHubTokenState(
  * `require_token_account` only checks mint/owner), so the frontend must ensure it exists. Safe
  * to always prepend: a no-op when the ATA is already there, one-time init otherwise. Kept here
  * (not `@solana/spl-token`) so the SDK stays a single dependency-light package.
+ *
+ * `tokenProgramId` must be whichever token program actually owns `mint` — defaults to classic
+ * `TOKEN_PROGRAM_ID` for backwards compatibility ($HUB/WSOL/USDC), but callers must pass
+ * `TOKEN_2022_PROGRAM_ID` for $OTC or any M.I.M ETF basket mint (CRCLx/NVDAx/SPCXx).
  */
 export function createAtaIdempotentIx(
   payer: PublicKey,
   owner: PublicKey,
   mint: PublicKey,
+  tokenProgramId: TokenProgramId = TOKEN_PROGRAM_ID,
 ): TransactionInstruction {
-  const [ata] = ataPda(owner, mint);
+  const [ata] = ataPda(owner, mint, tokenProgramId);
   return new TransactionInstruction({
     programId: new PublicKey(ASSOCIATED_TOKEN_PROGRAM_ID),
     keys: [
@@ -145,7 +153,7 @@ export function createAtaIdempotentIx(
         isSigner: false,
         isWritable: false,
       },
-      { pubkey: new PublicKey(TOKEN_PROGRAM_ID), isSigner: false, isWritable: false },
+      { pubkey: new PublicKey(tokenProgramId), isSigner: false, isWritable: false },
     ],
     data: Buffer.from([1]),
   });

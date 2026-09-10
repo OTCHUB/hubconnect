@@ -7,7 +7,7 @@
 //   HUB_CLUSTER=devnet npx ts-node -T scripts/dexscreener-manifest.ts --out manifest.devnet.json
 //
 // Deliberately does NOT fold HubPotConfig vault balances into $HUB's `supply.locked`/`circulating`
-// figures: those vaults hold OTC/CRCLx/OPENAI/ANTHROPIC — a different set of mints, not $HUB — so
+// figures: those vaults hold OTC/CRCLx/NVDAx/SPCXx — a different set of mints, not $HUB — so
 // summing them into $HUB's supply math would misstate the very numbers a DexScreener reviewer is
 // there to check. dexscreenerTokenInfo() already computes correct $HUB-only locked/circulating
 // from Program-owned $HUB holdings; the basket vaults are reported separately below instead.
@@ -93,25 +93,25 @@ async function main() {
         deposited: hubPot.crclxDepositedUnits,
       },
       {
-        id: "openai",
-        label: "OPENAI",
-        mint: hubPot.openaiMint,
-        vault: hubPot.openaiVault,
-        pending: hubPot.openaiPendingUnits,
-        deposited: hubPot.openaiDepositedUnits,
+        id: "nvdax",
+        label: "NVDAx",
+        mint: hubPot.nvdaxMint,
+        vault: hubPot.nvdaxVault,
+        pending: hubPot.nvdaxPendingUnits,
+        deposited: hubPot.nvdaxDepositedUnits,
       },
       {
-        id: "anthropic",
-        label: "ANTHROPIC",
-        mint: hubPot.anthropicMint,
-        vault: hubPot.anthropicVault,
-        pending: hubPot.anthropicPendingUnits,
-        deposited: hubPot.anthropicDepositedUnits,
+        id: "spcxx",
+        label: "SPCXx",
+        mint: hubPot.spcxxMint,
+        vault: hubPot.spcxxVault,
+        pending: hubPot.spcxxPendingUnits,
+        deposited: hubPot.spcxxDepositedUnits,
       },
     ];
     const decimals = await Promise.all(buckets.map((b) => mintDecimals(connection, b.mint)));
     basket = {
-      note: "M.I.M ETF / MemeStock Basket reserves — separate from $HUB supply above; these vaults hold OTC/CRCLx/OPENAI/ANTHROPIC, not $HUB.",
+      note: "M.I.M ETF / MemeStock Basket reserves — separate from $HUB supply above; these vaults hold OTC/CRCLx/NVDAx/SPCXx, not $HUB.",
       roundCount: hubPot.roundCount,
       buckets: buckets.map((b, idx) => ({
         id: b.id,

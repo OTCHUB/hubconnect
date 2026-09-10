@@ -10,7 +10,7 @@ import {
 import { useHub } from "../HubProvider";
 
 /** Decimals for each of the 4 MemeStock basket mints, resolved live (never hardcoded — §A2). */
-export type HubPotDecimals = { otc: number; crclx: number; openai: number; anthropic: number };
+export type HubPotDecimals = { otc: number; crclx: number; nvdax: number; spcxx: number };
 
 export type HubPotDisplay = {
   /** `null` ⇒ `init_hub_pot` has not been called yet on this cluster. */
@@ -31,17 +31,17 @@ export function useHubPot() {
       const pot = await fetchHubPot(program);
       if (!pot) return { pot: null, decimals: null, latestRound: null };
 
-      const mints = [pot.otcMint, pot.crclxMint, pot.openaiMint, pot.anthropicMint].map(
+      const mints = [pot.otcMint, pot.crclxMint, pot.nvdaxMint, pot.spcxxMint].map(
         (m) => new PublicKey(m),
       );
       const [mintInfos, latestRound] = await Promise.all([
         connection.getMultipleAccountsInfo(mints),
         pot.roundCount > 0 ? fetchHubPotRound(program, pot.roundCount - 1) : null,
       ]);
-      const [otc, crclx, openai, anthropic] = mints.map((m, i) =>
+      const [otc, crclx, nvdax, spcxx] = mints.map((m, i) =>
         mintInfos[i] ? parseMint(m, mintInfos[i]!.data).decimals : 6,
       );
-      return { pot, decimals: { otc, crclx, openai, anthropic }, latestRound };
+      return { pot, decimals: { otc, crclx, nvdax, spcxx }, latestRound };
     },
   });
 }

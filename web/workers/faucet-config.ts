@@ -13,6 +13,6 @@ export const DRIP_UNITS = {
   hub: 100_000n * 1_000_000n,
   otc: 100_000n * 1_000_000n,
   crclx: 10n * 1_000_000n,
-  openai: 10n * 1_000_000n,
-  anthropic: 10n * 1_000_000n,
+  nvdax: 10n * 1_000_000n,
+  spcxx: 10n * 1_000_000n,
 } as const;

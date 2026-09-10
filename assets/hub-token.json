@@ -3,5 +3,8 @@
   "symbol": "HUB",
   "description": "$HUB Protocol — Yield optimizer layer for OTC desk NFTs and RWA Earnings.",
   "image": "https://gateway.irys.xyz/5gC3LJt2TRfDcQ1mnAotEG85V7AX61LNjZgCfmKXQfZC",
-  "external_url": "https://github.com/OTCHUB/hubconnect"
+  "external_url": "https://github.com/OTCHUB/hubconnect",
+  "extensions": {
+    "twitter": "https://x.com/otchubdev"
+  }
 }

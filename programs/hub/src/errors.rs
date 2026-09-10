@@ -102,6 +102,10 @@ pub enum HubError {
     NoHubPotPending,
     #[msg("HUB Pot round payout would exceed a bucket's snapshotted amount")]
     HubPotRoundExceeded,
+    #[msg(
+        "HUB Pot bucket still has a pending balance; open/settle a round before swapping its mint"
+    )]
+    HubPotBucketNotDrained,
     #[msg("Jupiter swap returned less than the required minimum output")]
     SlippageExceeded,
     #[msg("CPI target does not match the configured Jupiter program id")]

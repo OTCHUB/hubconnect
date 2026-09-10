@@ -6,6 +6,7 @@ import {
   fetchOwnedDesks,
   fetchTokenomics,
   pendingYieldLamports,
+  TOKEN_2022_PROGRAM_ID,
   vaultPda,
   type DeskTierView,
   type ProtocolState,
@@ -62,7 +63,7 @@ export function useTreasuryPortfolio(state: ProtocolState | null) {
       const [vault] = vaultPda(programId);
       const collection = new PublicKey(config.deskCollection);
       const otcMint = new PublicKey(config.otcMint);
-      const [otcAta] = ataPda(treasury, otcMint);
+      const [otcAta] = ataPda(treasury, otcMint, TOKEN_2022_PROGRAM_ID);
 
       const [owned, solLamports, otc, tokenomics] = await Promise.all([
         fetchOwnedDesks(connection, treasury, collection),

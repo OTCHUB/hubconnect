@@ -67,7 +67,8 @@ pub struct RecordCreatorFee<'info> {
     /// CHECK: creator-fee vault recorded on CreatorFeeState at init.
     #[account(mut, address = creator_fee_state.creator_fee_vault @ HubError::InvalidTokenAccount)]
     pub creator_fee_vault: UncheckedAccount<'info>,
-    /// CHECK: classic SPL Token program, asserted in `transfer_checked`.
+    /// CHECK: classic Token or Token-2022 program ($OTC is Token-2022; dispatched to whichever
+    /// program actually owns `otc_mint`), asserted in `transfer_checked`.
     pub token_program: UncheckedAccount<'info>,
 }
 
@@ -123,7 +124,8 @@ pub struct ClearCreatorFees<'info> {
     /// token accounts are owned by this PDA — same custody design as `otc_vault`).
     #[account(seeds = [SEED_POT], bump = config.pot_bump)]
     pub pot: UncheckedAccount<'info>,
-    /// CHECK: classic SPL Token program, asserted in `transfer_checked`.
+    /// CHECK: classic Token or Token-2022 program ($OTC is Token-2022), asserted in
+    /// `transfer_checked`.
     pub token_program: UncheckedAccount<'info>,
 }
 
@@ -212,7 +214,8 @@ pub struct DrawCreatorFeeLeg<'info> {
     /// CHECK: system-owned lamport vault PDA; signs the vault outflow.
     #[account(seeds = [SEED_POT], bump = config.pot_bump)]
     pub pot: UncheckedAccount<'info>,
-    /// CHECK: classic SPL Token program, asserted in `transfer_checked`.
+    /// CHECK: classic Token or Token-2022 program ($OTC is Token-2022), asserted in
+    /// `transfer_checked`.
     pub token_program: UncheckedAccount<'info>,
 }
 

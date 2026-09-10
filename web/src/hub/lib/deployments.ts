@@ -161,7 +161,7 @@ const PDA_ROWS: [string, string, string, PdaFn][] = [
   [
     "hub-pot",
     "HUB POT PDA (M.I.M ETF)",
-    "§A5.1 MemeStock basket ($OTC / CRCLx / OpenAI / Anthropic) bookkeeping.",
+    "§A5.1 MemeStock basket ($OTC / CRCLx / NVDAx / SPCXx) bookkeeping.",
     hubPotPda,
   ],
 ];

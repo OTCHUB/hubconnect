@@ -105,6 +105,10 @@ export const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 export const MPL_CORE_PROGRAM_ID = "CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d";
 export const HUB_PROGRAM_ID = "7c5oPs9GvX8vrC5jVFketNx1ZLuPs7HeH8Qc4XJx7b7i";
 export const TOKEN_PROGRAM_ID = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
+/** Token-2022 program — $OTC and the whole M.I.M ETF basket (CRCLx/NVDAx/SPCXx) are Token-2022
+ * mints; $HUB/WSOL/USDC remain classic `TOKEN_PROGRAM_ID`. Pass whichever one actually owns a
+ * given mint to `ataPda`/`createAtaIdempotentIx` — never assume classic. */
+export const TOKEN_2022_PROGRAM_ID = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
 export const ASSOCIATED_TOKEN_PROGRAM_ID = "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL";
 export const TOKEN_METADATA_PROGRAM_ID = "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s";
 
@@ -164,7 +168,7 @@ export const AIRDROP_PER_DESK_UNITS = BigInt(AIRDROP_PER_DESK) * 10n ** BigInt(H
  * too so the preview math and UI agree with the program before a snapshot is even published.
  */
 export const AIRDROP_DESK_CAP = 2_500;
-/** Yield reserve: 2% of supply backing the OTC-launcher reward basket ($OTC, CRCLx, OpenAI, Anthropic). */
+/** Yield reserve: 2% of supply backing the OTC-launcher reward basket ($OTC, CRCLx, NVDAx, SPCXx). */
 export const YIELD_RESERVE_BP = 200;
 /** LP reserve: 0.5% of supply held to seed/deepen the launched coin's own liquidity. */
 export const LP_RESERVE_BP = 50;
@@ -249,7 +253,7 @@ export function tokenomicsPlan(
     { id: "public", label: "Public · OTC launch curve", units: publicUnits, bp: publicBp },
     {
       id: "yield",
-      label: "Yield reserve ($OTC · CRCLx · OpenAI · Anthropic basket)",
+      label: "Yield reserve ($OTC · CRCLx · NVDAx · SPCXx basket)",
       units: yieldReserveUnits,
       bp: yieldReserveBp,
     },

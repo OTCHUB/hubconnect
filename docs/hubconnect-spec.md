@@ -309,7 +309,7 @@ Direct-to-holder stream (no tier needed, per wallet, pro-rata on HUB held):
 ### A5.1 HUB Pot — "M.I.M ETF" MemeStock basket yield (source B redirect)
 
 $HUB's primary holder reward is a fixed 4-token basket — **$OTC, CRCLx,
-OpenAI, Anthropic** (the "MemeStock basket"), branded to holders as the
+NVDAx, SPCXx** (the "MemeStock basket"), branded to holders as the
 **M.I.M ETF ("Magic Internet Money" ETF)** — funded entirely by the
 treasury's own desk-pot yield (source B: the 13-stock rotation claimed by the
 treasury-owned desks, §A2/A6). "HUB Pot" is the on-chain/SDK name
@@ -322,8 +322,8 @@ consolidated straight into the basket instead of being sold to SOL:
 
 ```text
 13-stock claim (treasury-owned desks, per round)
- ├─ OTC, CRCLx, ANTHROPIC, OPENAI (4 native basket stocks) → pass straight through, NO SWAP
- └─ AAPLx, MSFTx, NVDAx, AMZNx, SPCXx, POLYMARKET, KALSHI, NEURALINK, ANDURIL (9 stocks)
+ ├─ OTC, CRCLx, NVDAx, SPCXx (4 native basket stocks) → pass straight through, NO SWAP
+ └─ AAPLx, MSFTx, AMZNx, ANTHROPIC, POLYMARKET, KALSHI, NEURALINK, ANDURIL, OPENAI (9 stocks)
      → swap each to SOL (Jupiter, slippage-capped) → sum the SOL proceeds
      → split the total evenly 25/25/25/25 across the 4 buckets
      → swap each 25% share SOL → its bucket token
@@ -347,7 +347,7 @@ consolidated straight into the basket instead of being sold to SOL:
   source B did before this feature) is strictly more efficient: fewer swap
   hops, no slippage paid on assets that don't need to move.
 - **`HubPotConfig`** (`["hub_pot"]`, one-time via `init_hub_pot`) records the
-  4 mints (otc, crclx, openai, anthropic — resolved at init, never
+  4 mints (otc, crclx, nvdax, spcxx — resolved at init, never
   hardcoded) and their vault-owned token accounts, plus pending /
   lifetime-deposited totals per bucket (mirrors `TokenomicsConfig`'s
   reward-pending bookkeeping).
@@ -549,7 +549,7 @@ No emissions, no minted staking rewards — supply is monotonic down after launc
 
 | Slice | Share | Notes |
 |---|---|---|
-| Yield reserve | 2.00% | Held by the treasury multisig, never sold — backs the OTC-launcher reward basket ($OTC, CRCLx, OpenAI, Anthropic) that funds desk-holder yield. |
+| Yield reserve | 2.00% | Held by the treasury multisig, never sold — backs the OTC-launcher reward basket ($OTC, CRCLx, NVDAx, SPCXx) that funds desk-holder yield. |
 | LP reserve | 0.50% | Held by the treasury multisig, never sold — seeds/deepens $HUB's own liquidity position. |
 | Desk airdrop | ≤2.50% | 10,000 $HUB per desk asset activated on otcdesks.cash before the snapshot, capped at the first 2,500 activated desks (`AIRDROP_DESK_CAP`); paid via Merkle claim to the desk's current owner. Scales down with fewer desks — the shortfall simply stays public. |
 | Public / bonding curve | ≥95.00% | Everything not carved out above — bought up the OTC launcher's bonding curve. 0% team/dev allocation. |
@@ -658,7 +658,7 @@ IDL account and singleton PDAs are listed in **Appendix — Deployment addresses
 | `TreasuryState` | `["treasury"]` | multisig, vault (PDA below), desks_owned, sweep_budget_cap_bp (1000), sweep_payback_cap_lamports (4.2 SOL), exit_discount_bp (1000), exit_hub_leg_bp (5000), floor_staleness_bp (500), **hub_float_cap_bp (500, admin-updatable via `set_treasury_float_cap_bp`)**, total_exits, total_sweeps, **lp_pending_hub_units** (§A5 2.5% LP-build leg, $HUB not lamports, drawn down by phase-2 `build_lp`), **vault_wsol** (vault-owned WSOL scratch ATA, the Jupiter swap's SOL-side input), **vault_hub** (vault-owned $HUB scratch ATA, the swap's destination + `lp_pending_hub_units`'s physical custody), **treasury_float_vault** (vault-owned $HUB buy-and-hold ATA, capped at `hub_float_cap_bp` of supply), **treasury_float_units** (running balance vs. the cap). The three new ATAs are recorded once via `init_treasury_float`; `finalize_epoch` rejects (`TreasuryFloatNotInitialized`) until they are |
 | `Vault` (treasury custody) | `["vault"]` | program-signed PDA that holds treasury-side token positions (LP, §A6.2) and signs the swap-leg transfers/burns above; no data account (derived only) |
 | `OtcPayConfig` | `["otc_pay"]` | §A4.1: enabled, pol_account (vault-owned $OTC ATA reserved for a future POL/`build_lp(HubOtc)` leg — the swap-burn/desk-pot split above no longer routes the per-call $OTC leg through it), total_otc_collected (lifetime $OTC charged across both legs). Created by `init_otc_payments`; optional. No stored rate — every call prices itself off a fresh Jupiter quote |
-| `HubPotConfig` | `["hub_pot"]` | §A5.1: otc/crclx/openai/anthropic mints (runtime-resolved) + their vault-owned token accounts, `<bucket>_pending_units` ×4 (awaiting `open_hub_pot_round`), `<bucket>_deposited_units` ×4 (lifetime), round_count. Created once via `init_hub_pot` |
+| `HubPotConfig` | `["hub_pot"]` | §A5.1: otc/crclx/nvdax/spcxx mints (runtime-resolved) + their vault-owned token accounts, `<bucket>_pending_units` ×4 (awaiting `open_hub_pot_round`), `<bucket>_deposited_units` ×4 (lifetime), round_count. Created once via `init_hub_pot` |
 | `HubPotRound` | `["hub_pot_round", index u32]` | §A5.1: index, `<bucket>_units` ×4 (snapshotted at open), total_weight_bp (Σw at open), `<bucket>_distributed_units` ×4, claims, opened_ts |
 | `HubPotClaim` | `["hub_pot_claim", round_index u32, asset]` | §A5.1: one payout per desk asset per HUB Pot round — round, asset, owner, `<bucket>_units` ×4, claimed_ts (double-payout guard shared by `claim_hub_pot_reward` and `distribute_hub_pot_reward`, mirrors `AirdropClaim`/`RewardClaim`) |
 
@@ -702,11 +702,11 @@ the OTC program config on-chain and proposes updates.
 | 23 | `record_creator_fee_stack` | keeper, CreatorFeeState | args: `otc_spent`, `hub_amount`, `stack_tx`; attests an off-chain OTC→HUB swap whose $HUB landed in the treasury's float (plain wallet transfer, outside program custody); idempotency via `stack_tx`; bumps `total_stack_hub` |
 | 24 | `record_creator_fee_ops` | keeper, Config, CreatorFeeState, ops_wallet, System program | args: `otc_spent`, `sol_amount`; enforced (not attested) — transfers `sol_amount` lamports keeper → `Config.ops_wallet` in the same instruction as the ledger bump; bumps `total_ops_sol_lamports` |
 | 25 | `build_lp_otc_locked` | treasury multisig, Config, TreasuryState, treasury vault PDA, Raydium CP-Swap `deposit` accounts + locking-program `lock_cp_liquidity` accounts (remaining_accounts, split at `deposit_account_count`) | §A6.2 phase-2 only, gated on `lp_phase2_open_ts`; args: `hub_amount`, `otc_amount`, `lp_token_amount`, `deposit_account_count`, `with_metadata`; CPIs Raydium `deposit` then `lock_cp_liquidity` **in the same tx** — burns the LP mint, creates a `LockedLiquidity` record so the treasury PDA keeps claiming pool fees forever; bumps `TreasuryState.lp_hub_otc_active/lp_hub_deposited/lp_quote_deposited` |
-| 33 | `init_hub_pot` | authority (one-time), Config, 4 basket vaults, HubPotConfig | §A5.1; args: otc/crclx/openai/anthropic mints; creates `HubPotConfig` + records its 4 vault-owned token accounts |
-| 34 | `fund_hub_pot` | treasury multisig, Config, HubPotConfig, 4 mints, 4 treasury source ATAs, 4 vaults, Token program | §A5.1; args: `otc_amount`, `crclx_amount`, `openai_amount`, `anthropic_amount`; four enforced `TransferChecked` deposits (not attested) in one instruction; bumps each bucket's pending + lifetime-deposited totals |
+| 33 | `init_hub_pot` | authority (one-time), Config, 4 basket vaults, HubPotConfig | §A5.1; args: otc/crclx/nvdax/spcxx mints; creates `HubPotConfig` + records its 4 vault-owned token accounts |
+| 34 | `fund_hub_pot` | treasury multisig, Config, HubPotConfig, 4 mints, 4 treasury source ATAs, 4 vaults, 4 token programs (one per bucket — never assumed classic, `update_hub_pot_mint` can move a bucket to Token-2022 or back) | §A5.1; args: `otc_amount`, `crclx_amount`, `nvdax_amount`, `spcxx_amount`; four enforced `TransferChecked` deposits (not attested) in one instruction; bumps each bucket's pending + lifetime-deposited totals |
 | 35 | `open_hub_pot_round` | permissionless, Config, HubPotConfig, HubPotRound | §A5.1; requires `Config.total_weight_bp > 0` (`NoActiveStakers`) and at least one bucket pending > 0 (`NoRewardPending`); snapshots all 4 pending balances × Σw into a new `HubPotRound`, zeroes pending |
-| 36 | `distribute_hub_pot_reward` | authority, desk NFT, DeskTier, Config, HubPotConfig, HubPotRound, TreasuryState, vault PDA, 4 mints, 4 vaults, owner's 4 basket ATAs, Token program, HubPotClaim | §A5.1; args: `round_index`; pays one active desk's tier-weighted share of all 4 buckets to its current owner in a single tx (4 `TransferChecked` CPIs); per-bucket capped at `round.<bucket>_units` (`HubPotRoundExceeded`); one claim per desk asset per round (`HubPotClaim` PDA) |
-| 37 | `claim_hub_pot_reward` | claimant (desk owner, signer), desk NFT, DeskTier, Config, HubPotConfig, HubPotRound, TreasuryState, vault PDA, 4 mints, 4 vaults, claimant's 4 basket ATAs (pre-existing, claimant-funded rent), Token program, HubPotClaim | §A5.1; args: `round_index`; user-initiated pull — identical math/over-draw guard to #36; shares the same `HubPotClaim` PDA as #36 (mirrors `claim_airdrop`/`distribute_airdrop`), so a desk is paid at most once per round regardless of path; per desk per call — bulk claiming across several owned desks is client-side batching (one ix per desk per tx, like `claim_yield`) |
+| 36 | `distribute_hub_pot_reward` | authority, desk NFT, DeskTier, Config, HubPotConfig, HubPotRound, TreasuryState, vault PDA, 4 mints, 4 vaults, owner's 4 basket ATAs, 4 token programs (one per bucket), HubPotClaim | §A5.1; args: `round_index`; pays one active desk's tier-weighted share of all 4 buckets to its current owner in a single tx (4 `TransferChecked` CPIs); per-bucket capped at `round.<bucket>_units` (`HubPotRoundExceeded`); one claim per desk asset per round (`HubPotClaim` PDA) |
+| 37 | `claim_hub_pot_reward` | claimant (desk owner, signer), desk NFT, DeskTier, Config, HubPotConfig, HubPotRound, TreasuryState, vault PDA, 4 mints, 4 vaults, claimant's 4 basket ATAs (pre-existing, claimant-funded rent), 4 token programs (one per bucket), HubPotClaim | §A5.1; args: `round_index`; user-initiated pull — identical math/over-draw guard to #36; shares the same `HubPotClaim` PDA as #36 (mirrors `claim_airdrop`/`distribute_airdrop`), so a desk is paid at most once per round regardless of path; per desk per call — bulk claiming across several owned desks is client-side batching (one ix per desk per tx, like `claim_yield`) |
 
 Program-level invariants to assert everywhere: `inflow_lamports ==
 distributed + burn_pending + rolled_forward`; pot lamports ≥ liability; DeskTier
@@ -736,7 +736,7 @@ why source B was redirected).
    ATA balance, call OTC `claim(index)` (slots 10–12 with `config_ext` +
    `vault_ext`) to the treasury's stock ATA (custom `[owner, tokenProgram,
    mint]` ATA order; Token-2022 for all but OTC). The 4 basket stocks (OTC,
-   CRCLx, ANTHROPIC, OPENAI) pass straight through untouched; the other 9 are
+   CRCLx, NVDAx, SPCXx) pass straight through untouched; the other 9 are
    sold for SOL via Jupiter with slippage caps, the SOL proceeds summed and
    split evenly 25/25/25/25, then each share swapped into its bucket token.
    Once all four bucket amounts are on hand, call `fund_hub_pot` (not

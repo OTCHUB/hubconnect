@@ -52,12 +52,8 @@ pub const TIER_HUB_COST_UNITS: [u64; TIER_COUNT] = [
 /// two-hop Jupiter swap (WSOL→USDC→$HUB) — see `PRICE_CLAMP_BP`/`PRICE_UPDATE_MIN_SOL_LAMPORTS`/
 /// `PRICE_STALENESS_SECS`. Same dollar cost for every activator regardless of when they show up;
 /// only the token-unit burn size (and therefore the deflationary pressure) changes with price.
-pub const TIER_USD_COST_MICROS: [u64; TIER_COUNT] = [
-    50_000_000,
-    60_000_000,
-    70_000_000,
-    80_000_000,
-];
+pub const TIER_USD_COST_MICROS: [u64; TIER_COUNT] =
+    [50_000_000, 60_000_000, 70_000_000, 80_000_000];
 
 /// A round's priced leg (`finalize_epoch`'s SOL input to the two-hop swap) must be at least this
 /// large to be eligible to move the cached $HUB-per-tier cost — a thinner, keeper-controlled
@@ -254,7 +250,7 @@ pub const HUB_MAX_SUPPLY_UNITS: u64 = HUB_MAX_SUPPLY * HUB_UNIT;
 pub const AIRDROP_PER_DESK: u64 = 10_000;
 pub const AIRDROP_PER_DESK_UNITS: u64 = AIRDROP_PER_DESK * HUB_UNIT;
 /// Yield reserve: 2% of MAX_SUPPLY held by the treasury multisig (never sold), backing the
-/// OTC-launcher reward basket ($OTC, CRCLx, OpenAI, Anthropic) that funds desk-holder yield.
+/// OTC-launcher reward basket ($OTC, CRCLx, NVDAx, SPCXx) that funds desk-holder yield.
 pub const YIELD_RESERVE_BP: u16 = 200;
 /// LP reserve: 0.5% of MAX_SUPPLY held by the treasury multisig (never sold) so the launched
 /// coin can seed/deepen its own liquidity position.
@@ -312,13 +308,23 @@ pub const SEED_HUB_POT_ROUND: &[u8] = b"hub_pot_round";
 /// `["hub_pot_claim", round_index, asset]` — one payout per desk asset per HUB Pot round.
 pub const SEED_HUB_POT_CLAIM: &[u8] = b"hub_pot_claim";
 
-/// Classic SPL Token program ($OTC is a pump.fun mint, 6 decimals, Token-v1).
+/// Classic SPL Token program ($HUB, WSOL and USDC are all classic Token-v1 mints — the two-hop
+/// price leg and $HUB burn/transfer paths only ever touch this program).
 pub const TOKEN_PROGRAM_ID: Pubkey = pubkey!("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
-/// spl-token `TransferChecked` instruction discriminator.
+/// Token-2022 (Token Extensions) program. $OTC and the whole MemeStock basket (CRCLx/NVDAx/
+/// SPCXx xStock RWA mints) are issued as Token-2022, not classic Token-v1 — every helper in
+/// `otc_pay.rs` that moves or reads one of those mints' accounts must accept either program,
+/// dispatching the CPI to whichever one the account is actually owned by (never hardcoded),
+/// so it works for both a classic mint ($HUB) and a Token-2022 mint ($OTC/basket) alike.
+pub const TOKEN_2022_PROGRAM_ID: Pubkey = pubkey!("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
+/// spl-token / Token-2022 `TransferChecked` instruction discriminator (identical byte in both
+/// programs — Token-2022 is wire-compatible with classic Token for every base instruction).
 pub const TOKEN_IX_TRANSFER_CHECKED: u8 = 12;
-/// spl-token `BurnChecked` instruction discriminator.
+/// spl-token / Token-2022 `BurnChecked` instruction discriminator.
 pub const TOKEN_IX_BURN_CHECKED: u8 = 15;
-/// spl-token `Account` length; `Mint.decimals` offset.
+/// spl-token `Account` length (Token-2022's base layout is identical for the first 165 bytes;
+/// an account with extensions is longer, never shorter — callers must compare with `>=`, not
+/// `==`). `Mint.decimals` offset — likewise a fixed prefix shared by both programs.
 pub const TOKEN_ACCOUNT_LEN: usize = 165;
 pub const MINT_DECIMALS_OFFSET: usize = 44;
 

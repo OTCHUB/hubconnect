@@ -1,4 +1,4 @@
-//! §A5.1 — HUB Pot: the MemeStock basket ($OTC, CRCLx, OpenAI, Anthropic) reward, funded by the
+//! §A5.1 — HUB Pot: the MemeStock basket ($OTC, CRCLx, NVDAx, SPCXx) reward, funded by the
 //! treasury's converted source-B (13-stock treasury-desk) yield. Mirrors `tokenomics.rs`'s
 //! `fund_treasury_reward` / `open_reward_round` / `distribute_treasury_reward` trio exactly,
 //! generalized from 1 mint to 4 — independent bookkeeping, independent vaults, independent
@@ -10,7 +10,7 @@ use crate::constants::*;
 use crate::errors::HubError;
 use crate::events::*;
 use crate::instructions::mpl_core::require_desk;
-use crate::instructions::otc_pay::{require_token_account, transfer_checked};
+use crate::instructions::otc_pay::{require_token_account, token_account_amount, transfer_checked};
 use crate::instructions::pot::{bps_of, sub};
 use crate::instructions::tokenomics::reward_share;
 use crate::state::*;
@@ -30,10 +30,10 @@ pub struct InitHubPot<'info> {
     pub otc_vault: UncheckedAccount<'info>,
     /// CHECK: spl-token account, mint = crclx_mint, owner = vault (verified in handler).
     pub crclx_vault: UncheckedAccount<'info>,
-    /// CHECK: spl-token account, mint = openai_mint, owner = vault (verified in handler).
-    pub openai_vault: UncheckedAccount<'info>,
-    /// CHECK: spl-token account, mint = anthropic_mint, owner = vault (verified in handler).
-    pub anthropic_vault: UncheckedAccount<'info>,
+    /// CHECK: spl-token account, mint = nvdax_mint, owner = vault (verified in handler).
+    pub nvdax_vault: UncheckedAccount<'info>,
+    /// CHECK: spl-token account, mint = spcxx_mint, owner = vault (verified in handler).
+    pub spcxx_vault: UncheckedAccount<'info>,
     #[account(init, payer = authority, space = 8 + HubPotConfig::INIT_SPACE, seeds = [SEED_HUB_POT], bump)]
     pub hub_pot: Account<'info, HubPotConfig>,
     pub system_program: Program<'info, System>,
@@ -46,8 +46,8 @@ pub fn init_hub_pot(
     ctx: Context<InitHubPot>,
     otc_mint: Pubkey,
     crclx_mint: Pubkey,
-    openai_mint: Pubkey,
-    anthropic_mint: Pubkey,
+    nvdax_mint: Pubkey,
+    spcxx_mint: Pubkey,
 ) -> Result<()> {
     require_token_account(&ctx.accounts.otc_vault, &otc_mint, ctx.accounts.vault.key)?;
     require_token_account(
@@ -56,25 +56,171 @@ pub fn init_hub_pot(
         ctx.accounts.vault.key,
     )?;
     require_token_account(
-        &ctx.accounts.openai_vault,
-        &openai_mint,
+        &ctx.accounts.nvdax_vault,
+        &nvdax_mint,
         ctx.accounts.vault.key,
     )?;
     require_token_account(
-        &ctx.accounts.anthropic_vault,
-        &anthropic_mint,
+        &ctx.accounts.spcxx_vault,
+        &spcxx_mint,
         ctx.accounts.vault.key,
     )?;
     let p = &mut ctx.accounts.hub_pot;
     p.otc_mint = otc_mint;
     p.crclx_mint = crclx_mint;
-    p.openai_mint = openai_mint;
-    p.anthropic_mint = anthropic_mint;
+    p.nvdax_mint = nvdax_mint;
+    p.spcxx_mint = spcxx_mint;
     p.otc_vault = ctx.accounts.otc_vault.key();
     p.crclx_vault = ctx.accounts.crclx_vault.key();
-    p.openai_vault = ctx.accounts.openai_vault.key();
-    p.anthropic_vault = ctx.accounts.anthropic_vault.key();
+    p.nvdax_vault = ctx.accounts.nvdax_vault.key();
+    p.spcxx_vault = ctx.accounts.spcxx_vault.key();
     p.bump = ctx.bumps.hub_pot;
+    Ok(())
+}
+
+/// Bucket selector for `update_hub_pot_mint` — lets governance rotate a basket asset (e.g. a
+/// synthetic pre-IPO token judged too exposed to post-listing deviation risk, as with the
+/// original OpenAI/Anthropic pre-IPO legs before genesis swapped them for the live, directly
+/// custodied NVDAx/SPCXx xStock RWAs) for a different mint without a program upgrade/migration.
+/// Mirrors `CreatorFeeLeg`'s enum-selects-a-field pattern; field *names* on `HubPotConfig`
+/// (otc/crclx/nvdax/spcxx) are fixed identifiers from genesis and don't necessarily track which
+/// real-world asset currently backs a bucket — e.g. the "nvdax" bucket may later be kept as a
+/// label while its mint points at a different asset entirely.
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HubPotBucket {
+    Otc,
+    Crclx,
+    Nvdax,
+    Spcxx,
+}
+
+#[derive(Accounts)]
+pub struct UpdateHubPotMint<'info> {
+    pub authority: Signer<'info>,
+    #[account(seeds = [SEED_CONFIG], bump = config.bump, has_one = authority @ HubError::Unauthorized)]
+    pub config: Account<'info, Config>,
+    #[account(seeds = [SEED_TREASURY], bump = treasury_state.bump)]
+    pub treasury_state: Account<'info, TreasuryState>,
+    /// CHECK: program-signed custody PDA; owns `old_vault`, must own `new_vault` (verified in
+    /// the handler), and signs the dust-sweep transfer below.
+    #[account(seeds = [SEED_VAULT], bump = treasury_state.vault_bump)]
+    pub vault: UncheckedAccount<'info>,
+    #[account(mut, seeds = [SEED_HUB_POT], bump = hub_pot.bump)]
+    pub hub_pot: Account<'info, HubPotConfig>,
+    /// CHECK: the selected bucket's *current* mint (matched against `hub_pot` in the handler);
+    /// read only for `TransferChecked` decimals on the dust sweep below.
+    pub old_mint: UncheckedAccount<'info>,
+    /// CHECK: the selected bucket's current vault (matched against `hub_pot` in the handler);
+    /// any residual balance is swept to `sweep_dest` before the swap is recorded, so nothing is
+    /// stranded once `hub_pot` stops pointing at it.
+    #[account(mut)]
+    pub old_vault: UncheckedAccount<'info>,
+    /// CHECK: `Config.ops_wallet`'s ATA for `old_mint` (verified in handler) — destination for
+    /// any leftover `old_vault` balance; only touched when that balance is non-zero.
+    #[account(mut)]
+    pub sweep_dest: UncheckedAccount<'info>,
+    /// CHECK: spl-token account, mint = `new_mint`, owner = `vault` PDA (verified in handler) —
+    /// created off-chain ahead of time, same pattern as `init_hub_pot`'s bucket vaults.
+    pub new_vault: UncheckedAccount<'info>,
+    /// CHECK: `old_mint`'s token program — classic Token or Token-2022, dispatched to whichever
+    /// one `old_mint` is actually owned by — asserted in `transfer_checked`. Only ever touches
+    /// one bucket's mint per call, so a single dynamically-validated account suffices here
+    /// (unlike `FundHubPot`/`DistributeHubPotReward`/`ClaimHubPotReward`, which move all 4
+    /// buckets in one instruction and so need one `token_program` account per bucket).
+    pub token_program: UncheckedAccount<'info>,
+}
+
+/// Swaps one HUB Pot bucket's backing mint + vault. Requires the bucket's pending balance to be
+/// zero first (settle it via `open_hub_pot_round` + distribute/claim, or a `fund_hub_pot` call
+/// that simply never earmarks it) so no in-flight reward math is silently reassigned to a
+/// different asset mid-round. Any dust still sitting in the old vault (e.g. rounding remainder
+/// below a claim's floor) is swept to `ops_wallet` rather than blocking the swap.
+pub fn update_hub_pot_mint(
+    ctx: Context<UpdateHubPotMint>,
+    bucket: HubPotBucket,
+    new_mint: Pubkey,
+) -> Result<()> {
+    let (current_mint, current_vault, pending) = {
+        let p = &ctx.accounts.hub_pot;
+        match bucket {
+            HubPotBucket::Otc => (p.otc_mint, p.otc_vault, p.otc_pending_units),
+            HubPotBucket::Crclx => (p.crclx_mint, p.crclx_vault, p.crclx_pending_units),
+            HubPotBucket::Nvdax => (p.nvdax_mint, p.nvdax_vault, p.nvdax_pending_units),
+            HubPotBucket::Spcxx => (p.spcxx_mint, p.spcxx_vault, p.spcxx_pending_units),
+        }
+    };
+    require!(pending == 0, HubError::HubPotBucketNotDrained);
+    require!(new_mint != current_mint, HubError::InvariantViolated);
+    require_keys_eq!(
+        ctx.accounts.old_vault.key(),
+        current_vault,
+        HubError::InvalidTokenAccount
+    );
+    require_keys_eq!(
+        ctx.accounts.old_mint.key(),
+        current_mint,
+        HubError::InvalidTokenAccount
+    );
+    require_token_account(
+        &ctx.accounts.old_vault,
+        &current_mint,
+        &ctx.accounts.vault.key(),
+    )?;
+    require_token_account(
+        &ctx.accounts.sweep_dest,
+        &current_mint,
+        &ctx.accounts.config.ops_wallet,
+    )?;
+    require_token_account(
+        &ctx.accounts.new_vault,
+        &new_mint,
+        &ctx.accounts.vault.key(),
+    )?;
+
+    let leftover = token_account_amount(&ctx.accounts.old_vault)?;
+    if leftover > 0 {
+        let vault_bump = ctx.accounts.treasury_state.vault_bump;
+        let seeds: &[&[&[u8]]] = &[&[SEED_VAULT, &[vault_bump]]];
+        transfer_checked(
+            &ctx.accounts.token_program,
+            &ctx.accounts.old_vault,
+            &ctx.accounts.old_mint,
+            &ctx.accounts.sweep_dest,
+            &ctx.accounts.vault,
+            leftover,
+            seeds,
+        )?;
+    }
+
+    let new_vault_key = ctx.accounts.new_vault.key();
+    let p = &mut ctx.accounts.hub_pot;
+    match bucket {
+        HubPotBucket::Otc => {
+            p.otc_mint = new_mint;
+            p.otc_vault = new_vault_key;
+        }
+        HubPotBucket::Crclx => {
+            p.crclx_mint = new_mint;
+            p.crclx_vault = new_vault_key;
+        }
+        HubPotBucket::Nvdax => {
+            p.nvdax_mint = new_mint;
+            p.nvdax_vault = new_vault_key;
+        }
+        HubPotBucket::Spcxx => {
+            p.spcxx_mint = new_mint;
+            p.spcxx_vault = new_vault_key;
+        }
+    }
+
+    emit!(HubPotMintUpdated {
+        bucket: bucket as u8,
+        old_mint: current_mint,
+        new_mint,
+        old_vault: current_vault,
+        new_vault: new_vault_key,
+        swept_to_ops: leftover,
+    });
     Ok(())
 }
 
@@ -92,24 +238,24 @@ pub struct FundHubPot<'info> {
     /// CHECK: matched against hub_pot.crclx_mint; decimals read for TransferChecked.
     #[account(address = hub_pot.crclx_mint @ HubError::InvalidTokenAccount)]
     pub crclx_mint: UncheckedAccount<'info>,
-    /// CHECK: matched against hub_pot.openai_mint; decimals read for TransferChecked.
-    #[account(address = hub_pot.openai_mint @ HubError::InvalidTokenAccount)]
-    pub openai_mint: UncheckedAccount<'info>,
-    /// CHECK: matched against hub_pot.anthropic_mint; decimals read for TransferChecked.
-    #[account(address = hub_pot.anthropic_mint @ HubError::InvalidTokenAccount)]
-    pub anthropic_mint: UncheckedAccount<'info>,
+    /// CHECK: matched against hub_pot.nvdax_mint; decimals read for TransferChecked.
+    #[account(address = hub_pot.nvdax_mint @ HubError::InvalidTokenAccount)]
+    pub nvdax_mint: UncheckedAccount<'info>,
+    /// CHECK: matched against hub_pot.spcxx_mint; decimals read for TransferChecked.
+    #[account(address = hub_pot.spcxx_mint @ HubError::InvalidTokenAccount)]
+    pub spcxx_mint: UncheckedAccount<'info>,
     /// CHECK: treasury's $OTC source ATA (mint/owner verified in handler).
     #[account(mut)]
     pub treasury_otc: UncheckedAccount<'info>,
     /// CHECK: treasury's CRCLx source ATA (mint/owner verified in handler).
     #[account(mut)]
     pub treasury_crclx: UncheckedAccount<'info>,
-    /// CHECK: treasury's OpenAI-stock source ATA (mint/owner verified in handler).
+    /// CHECK: treasury's NVDAx source ATA (mint/owner verified in handler).
     #[account(mut)]
-    pub treasury_openai: UncheckedAccount<'info>,
-    /// CHECK: treasury's Anthropic-stock source ATA (mint/owner verified in handler).
+    pub treasury_nvdax: UncheckedAccount<'info>,
+    /// CHECK: treasury's SPCXx source ATA (mint/owner verified in handler).
     #[account(mut)]
-    pub treasury_anthropic: UncheckedAccount<'info>,
+    pub treasury_spcxx: UncheckedAccount<'info>,
     /// CHECK: recorded on HubPotConfig at init.
     #[account(mut, address = hub_pot.otc_vault @ HubError::InvalidTokenAccount)]
     pub otc_vault: UncheckedAccount<'info>,
@@ -117,11 +263,11 @@ pub struct FundHubPot<'info> {
     #[account(mut, address = hub_pot.crclx_vault @ HubError::InvalidTokenAccount)]
     pub crclx_vault: UncheckedAccount<'info>,
     /// CHECK: recorded on HubPotConfig at init.
-    #[account(mut, address = hub_pot.openai_vault @ HubError::InvalidTokenAccount)]
-    pub openai_vault: UncheckedAccount<'info>,
+    #[account(mut, address = hub_pot.nvdax_vault @ HubError::InvalidTokenAccount)]
+    pub nvdax_vault: UncheckedAccount<'info>,
     /// CHECK: recorded on HubPotConfig at init.
-    #[account(mut, address = hub_pot.anthropic_vault @ HubError::InvalidTokenAccount)]
-    pub anthropic_vault: UncheckedAccount<'info>,
+    #[account(mut, address = hub_pot.spcxx_vault @ HubError::InvalidTokenAccount)]
+    pub spcxx_vault: UncheckedAccount<'info>,
     /// CHECK: `Config.protocol_fee_bp`'s skim destination for the $OTC leg — ops_wallet's own
     /// ATA (mint/owner verified in handler), same 10% carve-out as `register_treasury_inflow`.
     #[account(mut)]
@@ -129,14 +275,24 @@ pub struct FundHubPot<'info> {
     /// CHECK: skim destination for the CRCLx leg — verified as above.
     #[account(mut)]
     pub ops_crclx: UncheckedAccount<'info>,
-    /// CHECK: skim destination for the OpenAI-stock leg — verified as above.
+    /// CHECK: skim destination for the NVDAx leg — verified as above.
     #[account(mut)]
-    pub ops_openai: UncheckedAccount<'info>,
-    /// CHECK: skim destination for the Anthropic-stock leg — verified as above.
+    pub ops_nvdax: UncheckedAccount<'info>,
+    /// CHECK: skim destination for the SPCXx leg — verified as above.
     #[account(mut)]
-    pub ops_anthropic: UncheckedAccount<'info>,
-    /// CHECK: classic SPL Token program, asserted in `transfer_checked`.
-    pub token_program: UncheckedAccount<'info>,
+    pub ops_spcxx: UncheckedAccount<'info>,
+    /// CHECK: $OTC's token program (Token-2022 today; whichever program `hub_pot.otc_mint` is
+    /// actually owned by after a future `update_hub_pot_mint`), asserted in `transfer_checked`.
+    /// This instruction moves all 4 buckets in one call, and `update_hub_pot_mint` can move any
+    /// single bucket to a mint on a different token program without touching the other three, so
+    /// each bucket gets its own `token_program` account rather than one shared account.
+    pub otc_token_program: UncheckedAccount<'info>,
+    /// CHECK: CRCLx's token program — asserted the same way against `hub_pot.crclx_mint`.
+    pub crclx_token_program: UncheckedAccount<'info>,
+    /// CHECK: NVDAx's token program — asserted the same way against `hub_pot.nvdax_mint`.
+    pub nvdax_token_program: UncheckedAccount<'info>,
+    /// CHECK: SPCXx's token program — asserted the same way against `hub_pot.spcxx_mint`.
+    pub spcxx_token_program: UncheckedAccount<'info>,
 }
 
 /// Treasury deposits the four already-converted basket amounts (swapped off-chain by the
@@ -150,11 +306,11 @@ pub fn fund_hub_pot(
     ctx: Context<FundHubPot>,
     otc_amount: u64,
     crclx_amount: u64,
-    openai_amount: u64,
-    anthropic_amount: u64,
+    nvdax_amount: u64,
+    spcxx_amount: u64,
 ) -> Result<()> {
     require!(
-        otc_amount > 0 || crclx_amount > 0 || openai_amount > 0 || anthropic_amount > 0,
+        otc_amount > 0 || crclx_amount > 0 || nvdax_amount > 0 || spcxx_amount > 0,
         HubError::ZeroAmount
     );
     let fee_bp = ctx.accounts.config.protocol_fee_bp;
@@ -169,23 +325,31 @@ pub fn fund_hub_pot(
         &ctx.accounts.config.ops_wallet,
     )?;
     require_token_account(
-        &ctx.accounts.ops_openai,
-        &ctx.accounts.hub_pot.openai_mint,
+        &ctx.accounts.ops_nvdax,
+        &ctx.accounts.hub_pot.nvdax_mint,
         &ctx.accounts.config.ops_wallet,
     )?;
     require_token_account(
-        &ctx.accounts.ops_anthropic,
-        &ctx.accounts.hub_pot.anthropic_mint,
+        &ctx.accounts.ops_spcxx,
+        &ctx.accounts.hub_pot.spcxx_mint,
         &ctx.accounts.config.ops_wallet,
     )?;
 
-    let legs: [(u64, &UncheckedAccount, &UncheckedAccount, &UncheckedAccount, &UncheckedAccount); 4] = [
+    let legs: [(
+        u64,
+        &UncheckedAccount,
+        &UncheckedAccount,
+        &UncheckedAccount,
+        &UncheckedAccount,
+        &UncheckedAccount,
+    ); 4] = [
         (
             otc_amount,
             &ctx.accounts.treasury_otc,
             &ctx.accounts.otc_mint,
             &ctx.accounts.otc_vault,
             &ctx.accounts.ops_otc,
+            &ctx.accounts.otc_token_program,
         ),
         (
             crclx_amount,
@@ -193,25 +357,28 @@ pub fn fund_hub_pot(
             &ctx.accounts.crclx_mint,
             &ctx.accounts.crclx_vault,
             &ctx.accounts.ops_crclx,
+            &ctx.accounts.crclx_token_program,
         ),
         (
-            openai_amount,
-            &ctx.accounts.treasury_openai,
-            &ctx.accounts.openai_mint,
-            &ctx.accounts.openai_vault,
-            &ctx.accounts.ops_openai,
+            nvdax_amount,
+            &ctx.accounts.treasury_nvdax,
+            &ctx.accounts.nvdax_mint,
+            &ctx.accounts.nvdax_vault,
+            &ctx.accounts.ops_nvdax,
+            &ctx.accounts.nvdax_token_program,
         ),
         (
-            anthropic_amount,
-            &ctx.accounts.treasury_anthropic,
-            &ctx.accounts.anthropic_mint,
-            &ctx.accounts.anthropic_vault,
-            &ctx.accounts.ops_anthropic,
+            spcxx_amount,
+            &ctx.accounts.treasury_spcxx,
+            &ctx.accounts.spcxx_mint,
+            &ctx.accounts.spcxx_vault,
+            &ctx.accounts.ops_spcxx,
+            &ctx.accounts.spcxx_token_program,
         ),
     ];
     let mut net = [0u64; 4];
     let mut to_ops_amounts = [0u64; 4];
-    for (i, (amount, from, mint, to, ops_to)) in legs.into_iter().enumerate() {
+    for (i, (amount, from, mint, to, ops_to, token_program)) in legs.into_iter().enumerate() {
         if amount == 0 {
             continue;
         }
@@ -219,7 +386,7 @@ pub fn fund_hub_pot(
         let to_pool = sub(amount, to_ops)?;
         if to_ops > 0 {
             transfer_checked(
-                &ctx.accounts.token_program,
+                token_program,
                 from,
                 mint,
                 ops_to,
@@ -230,7 +397,7 @@ pub fn fund_hub_pot(
         }
         if to_pool > 0 {
             transfer_checked(
-                &ctx.accounts.token_program,
+                token_program,
                 from,
                 mint,
                 to,
@@ -242,7 +409,7 @@ pub fn fund_hub_pot(
         net[i] = to_pool;
         to_ops_amounts[i] = to_ops;
     }
-    let (otc_net, crclx_net, openai_net, anthropic_net) = (net[0], net[1], net[2], net[3]);
+    let (otc_net, crclx_net, nvdax_net, spcxx_net) = (net[0], net[1], net[2], net[3]);
 
     let p = &mut ctx.accounts.hub_pot;
     p.otc_pending_units = p
@@ -253,13 +420,13 @@ pub fn fund_hub_pot(
         .crclx_pending_units
         .checked_add(crclx_net)
         .ok_or_else(|| error!(HubError::MathOverflow))?;
-    p.openai_pending_units = p
-        .openai_pending_units
-        .checked_add(openai_net)
+    p.nvdax_pending_units = p
+        .nvdax_pending_units
+        .checked_add(nvdax_net)
         .ok_or_else(|| error!(HubError::MathOverflow))?;
-    p.anthropic_pending_units = p
-        .anthropic_pending_units
-        .checked_add(anthropic_net)
+    p.spcxx_pending_units = p
+        .spcxx_pending_units
+        .checked_add(spcxx_net)
         .ok_or_else(|| error!(HubError::MathOverflow))?;
     p.otc_deposited_units = p
         .otc_deposited_units
@@ -269,30 +436,30 @@ pub fn fund_hub_pot(
         .crclx_deposited_units
         .checked_add(crclx_net)
         .ok_or_else(|| error!(HubError::MathOverflow))?;
-    p.openai_deposited_units = p
-        .openai_deposited_units
-        .checked_add(openai_net)
+    p.nvdax_deposited_units = p
+        .nvdax_deposited_units
+        .checked_add(nvdax_net)
         .ok_or_else(|| error!(HubError::MathOverflow))?;
-    p.anthropic_deposited_units = p
-        .anthropic_deposited_units
-        .checked_add(anthropic_net)
+    p.spcxx_deposited_units = p
+        .spcxx_deposited_units
+        .checked_add(spcxx_net)
         .ok_or_else(|| error!(HubError::MathOverflow))?;
 
     emit!(HubPotFunded {
         otc_amount: otc_net,
         crclx_amount: crclx_net,
-        openai_amount: openai_net,
-        anthropic_amount: anthropic_net,
+        nvdax_amount: nvdax_net,
+        spcxx_amount: spcxx_net,
         otc_pending_after: p.otc_pending_units,
         crclx_pending_after: p.crclx_pending_units,
-        openai_pending_after: p.openai_pending_units,
-        anthropic_pending_after: p.anthropic_pending_units,
+        nvdax_pending_after: p.nvdax_pending_units,
+        spcxx_pending_after: p.spcxx_pending_units,
     });
     emit!(HubPotProtocolFeeSkimmed {
         otc_to_ops: to_ops_amounts[0],
         crclx_to_ops: to_ops_amounts[1],
-        openai_to_ops: to_ops_amounts[2],
-        anthropic_to_ops: to_ops_amounts[3],
+        nvdax_to_ops: to_ops_amounts[2],
+        spcxx_to_ops: to_ops_amounts[3],
     });
     Ok(())
 }
@@ -324,34 +491,34 @@ pub fn open_hub_pot_round(ctx: Context<OpenHubPotRound>) -> Result<()> {
     require!(
         p.otc_pending_units > 0
             || p.crclx_pending_units > 0
-            || p.openai_pending_units > 0
-            || p.anthropic_pending_units > 0,
+            || p.nvdax_pending_units > 0
+            || p.spcxx_pending_units > 0,
         HubError::NoHubPotPending
     );
 
-    let (otc_units, crclx_units, openai_units, anthropic_units) = (
+    let (otc_units, crclx_units, nvdax_units, spcxx_units) = (
         p.otc_pending_units,
         p.crclx_pending_units,
-        p.openai_pending_units,
-        p.anthropic_pending_units,
+        p.nvdax_pending_units,
+        p.spcxx_pending_units,
     );
     p.otc_pending_units = 0;
     p.crclx_pending_units = 0;
-    p.openai_pending_units = 0;
-    p.anthropic_pending_units = 0;
+    p.nvdax_pending_units = 0;
+    p.spcxx_pending_units = 0;
 
     let now = Clock::get()?.unix_timestamp;
     let r = &mut ctx.accounts.round;
     r.index = p.round_count;
     r.otc_units = otc_units;
     r.crclx_units = crclx_units;
-    r.openai_units = openai_units;
-    r.anthropic_units = anthropic_units;
+    r.nvdax_units = nvdax_units;
+    r.spcxx_units = spcxx_units;
     r.total_weight_bp = config.total_weight_bp;
     r.otc_distributed_units = 0;
     r.crclx_distributed_units = 0;
-    r.openai_distributed_units = 0;
-    r.anthropic_distributed_units = 0;
+    r.nvdax_distributed_units = 0;
+    r.spcxx_distributed_units = 0;
     r.claims = 0;
     r.opened_ts = now;
     r.bump = ctx.bumps.round;
@@ -364,8 +531,8 @@ pub fn open_hub_pot_round(ctx: Context<OpenHubPotRound>) -> Result<()> {
         round: r.index,
         otc_units,
         crclx_units,
-        openai_units,
-        anthropic_units,
+        nvdax_units,
+        spcxx_units,
         total_weight_bp: r.total_weight_bp,
         ts: now,
     });
@@ -402,12 +569,12 @@ pub struct DistributeHubPotReward<'info> {
     /// CHECK: matched against hub_pot.crclx_mint; decimals read for TransferChecked.
     #[account(address = hub_pot.crclx_mint @ HubError::InvalidTokenAccount)]
     pub crclx_mint: UncheckedAccount<'info>,
-    /// CHECK: matched against hub_pot.openai_mint; decimals read for TransferChecked.
-    #[account(address = hub_pot.openai_mint @ HubError::InvalidTokenAccount)]
-    pub openai_mint: UncheckedAccount<'info>,
-    /// CHECK: matched against hub_pot.anthropic_mint; decimals read for TransferChecked.
-    #[account(address = hub_pot.anthropic_mint @ HubError::InvalidTokenAccount)]
-    pub anthropic_mint: UncheckedAccount<'info>,
+    /// CHECK: matched against hub_pot.nvdax_mint; decimals read for TransferChecked.
+    #[account(address = hub_pot.nvdax_mint @ HubError::InvalidTokenAccount)]
+    pub nvdax_mint: UncheckedAccount<'info>,
+    /// CHECK: matched against hub_pot.spcxx_mint; decimals read for TransferChecked.
+    #[account(address = hub_pot.spcxx_mint @ HubError::InvalidTokenAccount)]
+    pub spcxx_mint: UncheckedAccount<'info>,
     /// CHECK: recorded on HubPotConfig at init.
     #[account(mut, address = hub_pot.otc_vault @ HubError::InvalidTokenAccount)]
     pub otc_vault: UncheckedAccount<'info>,
@@ -415,11 +582,11 @@ pub struct DistributeHubPotReward<'info> {
     #[account(mut, address = hub_pot.crclx_vault @ HubError::InvalidTokenAccount)]
     pub crclx_vault: UncheckedAccount<'info>,
     /// CHECK: recorded on HubPotConfig at init.
-    #[account(mut, address = hub_pot.openai_vault @ HubError::InvalidTokenAccount)]
-    pub openai_vault: UncheckedAccount<'info>,
+    #[account(mut, address = hub_pot.nvdax_vault @ HubError::InvalidTokenAccount)]
+    pub nvdax_vault: UncheckedAccount<'info>,
     /// CHECK: recorded on HubPotConfig at init.
-    #[account(mut, address = hub_pot.anthropic_vault @ HubError::InvalidTokenAccount)]
-    pub anthropic_vault: UncheckedAccount<'info>,
+    #[account(mut, address = hub_pot.spcxx_vault @ HubError::InvalidTokenAccount)]
+    pub spcxx_vault: UncheckedAccount<'info>,
     /// CHECK: the desk owner's $OTC ATA — mint/owner verified against `desk_asset`'s actual
     /// on-chain owner in the handler, not against a signer.
     #[account(mut)]
@@ -427,14 +594,23 @@ pub struct DistributeHubPotReward<'info> {
     /// CHECK: the desk owner's CRCLx ATA — verified as above.
     #[account(mut)]
     pub owner_crclx: UncheckedAccount<'info>,
-    /// CHECK: the desk owner's OpenAI-stock ATA — verified as above.
+    /// CHECK: the desk owner's NVDAx ATA — verified as above.
     #[account(mut)]
-    pub owner_openai: UncheckedAccount<'info>,
-    /// CHECK: the desk owner's Anthropic-stock ATA — verified as above.
+    pub owner_nvdax: UncheckedAccount<'info>,
+    /// CHECK: the desk owner's SPCXx ATA — verified as above.
     #[account(mut)]
-    pub owner_anthropic: UncheckedAccount<'info>,
-    /// CHECK: classic SPL Token program, asserted in `transfer_checked`.
-    pub token_program: UncheckedAccount<'info>,
+    pub owner_spcxx: UncheckedAccount<'info>,
+    /// CHECK: $OTC's token program — asserted in `transfer_checked` against `hub_pot.otc_mint`'s
+    /// actual owner. One `token_program` account per bucket (see `FundHubPot`'s doc comment for
+    /// why a single shared account isn't safe once `update_hub_pot_mint` can move a bucket to a
+    /// mint on a different token program).
+    pub otc_token_program: UncheckedAccount<'info>,
+    /// CHECK: CRCLx's token program — asserted the same way against `hub_pot.crclx_mint`.
+    pub crclx_token_program: UncheckedAccount<'info>,
+    /// CHECK: NVDAx's token program — asserted the same way against `hub_pot.nvdax_mint`.
+    pub nvdax_token_program: UncheckedAccount<'info>,
+    /// CHECK: SPCXx's token program — asserted the same way against `hub_pot.spcxx_mint`.
+    pub spcxx_token_program: UncheckedAccount<'info>,
     /// One payout per desk asset per round.
     #[account(
         init, payer = authority, space = 8 + HubPotClaim::INIT_SPACE,
@@ -475,13 +651,13 @@ pub fn distribute_hub_pot_reward(
         &asset.owner,
     )?;
     require_token_account(
-        &ctx.accounts.owner_openai,
-        &ctx.accounts.hub_pot.openai_mint,
+        &ctx.accounts.owner_nvdax,
+        &ctx.accounts.hub_pot.nvdax_mint,
         &asset.owner,
     )?;
     require_token_account(
-        &ctx.accounts.owner_anthropic,
-        &ctx.accounts.hub_pot.anthropic_mint,
+        &ctx.accounts.owner_spcxx,
+        &ctx.accounts.hub_pot.spcxx_mint,
         &asset.owner,
     )?;
 
@@ -490,10 +666,10 @@ pub fn distribute_hub_pot_reward(
     let total_w = round.total_weight_bp;
     let otc_amount = reward_share(round.otc_units, w, total_w)?;
     let crclx_amount = reward_share(round.crclx_units, w, total_w)?;
-    let openai_amount = reward_share(round.openai_units, w, total_w)?;
-    let anthropic_amount = reward_share(round.anthropic_units, w, total_w)?;
+    let nvdax_amount = reward_share(round.nvdax_units, w, total_w)?;
+    let spcxx_amount = reward_share(round.spcxx_units, w, total_w)?;
     require!(
-        otc_amount > 0 || crclx_amount > 0 || openai_amount > 0 || anthropic_amount > 0,
+        otc_amount > 0 || crclx_amount > 0 || nvdax_amount > 0 || spcxx_amount > 0,
         HubError::ZeroAmount
     );
 
@@ -505,56 +681,66 @@ pub fn distribute_hub_pot_reward(
         .crclx_distributed_units
         .checked_add(crclx_amount)
         .ok_or_else(|| error!(HubError::MathOverflow))?;
-    let openai_distributed_after = round
-        .openai_distributed_units
-        .checked_add(openai_amount)
+    let nvdax_distributed_after = round
+        .nvdax_distributed_units
+        .checked_add(nvdax_amount)
         .ok_or_else(|| error!(HubError::MathOverflow))?;
-    let anthropic_distributed_after = round
-        .anthropic_distributed_units
-        .checked_add(anthropic_amount)
+    let spcxx_distributed_after = round
+        .spcxx_distributed_units
+        .checked_add(spcxx_amount)
         .ok_or_else(|| error!(HubError::MathOverflow))?;
     require!(
         otc_distributed_after <= round.otc_units
             && crclx_distributed_after <= round.crclx_units
-            && openai_distributed_after <= round.openai_units
-            && anthropic_distributed_after <= round.anthropic_units,
+            && nvdax_distributed_after <= round.nvdax_units
+            && spcxx_distributed_after <= round.spcxx_units,
         HubError::HubPotRoundExceeded
     );
 
     let vault_bump = ctx.accounts.treasury_state.vault_bump;
     let seeds: &[&[&[u8]]] = &[&[SEED_VAULT, &[vault_bump]]];
-    let legs: [(u64, &UncheckedAccount, &UncheckedAccount, &UncheckedAccount); 4] = [
+    let legs: [(
+        u64,
+        &UncheckedAccount,
+        &UncheckedAccount,
+        &UncheckedAccount,
+        &UncheckedAccount,
+    ); 4] = [
         (
             otc_amount,
             &ctx.accounts.otc_vault,
             &ctx.accounts.otc_mint,
             &ctx.accounts.owner_otc,
+            &ctx.accounts.otc_token_program,
         ),
         (
             crclx_amount,
             &ctx.accounts.crclx_vault,
             &ctx.accounts.crclx_mint,
             &ctx.accounts.owner_crclx,
+            &ctx.accounts.crclx_token_program,
         ),
         (
-            openai_amount,
-            &ctx.accounts.openai_vault,
-            &ctx.accounts.openai_mint,
-            &ctx.accounts.owner_openai,
+            nvdax_amount,
+            &ctx.accounts.nvdax_vault,
+            &ctx.accounts.nvdax_mint,
+            &ctx.accounts.owner_nvdax,
+            &ctx.accounts.nvdax_token_program,
         ),
         (
-            anthropic_amount,
-            &ctx.accounts.anthropic_vault,
-            &ctx.accounts.anthropic_mint,
-            &ctx.accounts.owner_anthropic,
+            spcxx_amount,
+            &ctx.accounts.spcxx_vault,
+            &ctx.accounts.spcxx_mint,
+            &ctx.accounts.owner_spcxx,
+            &ctx.accounts.spcxx_token_program,
         ),
     ];
-    for (amount, from, mint, to) in legs {
+    for (amount, from, mint, to, token_program) in legs {
         if amount == 0 {
             continue;
         }
         transfer_checked(
-            &ctx.accounts.token_program,
+            token_program,
             from,
             mint,
             to,
@@ -566,8 +752,8 @@ pub fn distribute_hub_pot_reward(
 
     round.otc_distributed_units = otc_distributed_after;
     round.crclx_distributed_units = crclx_distributed_after;
-    round.openai_distributed_units = openai_distributed_after;
-    round.anthropic_distributed_units = anthropic_distributed_after;
+    round.nvdax_distributed_units = nvdax_distributed_after;
+    round.spcxx_distributed_units = spcxx_distributed_after;
     round.claims = round
         .claims
         .checked_add(1)
@@ -581,8 +767,8 @@ pub fn distribute_hub_pot_reward(
     c.owner = asset.owner;
     c.otc_units = otc_amount;
     c.crclx_units = crclx_amount;
-    c.openai_units = openai_amount;
-    c.anthropic_units = anthropic_amount;
+    c.nvdax_units = nvdax_amount;
+    c.spcxx_units = spcxx_amount;
     c.claimed_ts = now;
     c.bump = ctx.bumps.claim;
 
@@ -592,8 +778,8 @@ pub fn distribute_hub_pot_reward(
         owner: c.owner,
         otc_units: otc_amount,
         crclx_units: crclx_amount,
-        openai_units: openai_amount,
-        anthropic_units: anthropic_amount,
+        nvdax_units: nvdax_amount,
+        spcxx_units: spcxx_amount,
         claims,
     });
     Ok(())
@@ -628,12 +814,12 @@ pub struct ClaimHubPotReward<'info> {
     /// CHECK: matched against hub_pot.crclx_mint; decimals read for TransferChecked.
     #[account(address = hub_pot.crclx_mint @ HubError::InvalidTokenAccount)]
     pub crclx_mint: UncheckedAccount<'info>,
-    /// CHECK: matched against hub_pot.openai_mint; decimals read for TransferChecked.
-    #[account(address = hub_pot.openai_mint @ HubError::InvalidTokenAccount)]
-    pub openai_mint: UncheckedAccount<'info>,
-    /// CHECK: matched against hub_pot.anthropic_mint; decimals read for TransferChecked.
-    #[account(address = hub_pot.anthropic_mint @ HubError::InvalidTokenAccount)]
-    pub anthropic_mint: UncheckedAccount<'info>,
+    /// CHECK: matched against hub_pot.nvdax_mint; decimals read for TransferChecked.
+    #[account(address = hub_pot.nvdax_mint @ HubError::InvalidTokenAccount)]
+    pub nvdax_mint: UncheckedAccount<'info>,
+    /// CHECK: matched against hub_pot.spcxx_mint; decimals read for TransferChecked.
+    #[account(address = hub_pot.spcxx_mint @ HubError::InvalidTokenAccount)]
+    pub spcxx_mint: UncheckedAccount<'info>,
     /// CHECK: recorded on HubPotConfig at init.
     #[account(mut, address = hub_pot.otc_vault @ HubError::InvalidTokenAccount)]
     pub otc_vault: UncheckedAccount<'info>,
@@ -641,25 +827,34 @@ pub struct ClaimHubPotReward<'info> {
     #[account(mut, address = hub_pot.crclx_vault @ HubError::InvalidTokenAccount)]
     pub crclx_vault: UncheckedAccount<'info>,
     /// CHECK: recorded on HubPotConfig at init.
-    #[account(mut, address = hub_pot.openai_vault @ HubError::InvalidTokenAccount)]
-    pub openai_vault: UncheckedAccount<'info>,
+    #[account(mut, address = hub_pot.nvdax_vault @ HubError::InvalidTokenAccount)]
+    pub nvdax_vault: UncheckedAccount<'info>,
     /// CHECK: recorded on HubPotConfig at init.
-    #[account(mut, address = hub_pot.anthropic_vault @ HubError::InvalidTokenAccount)]
-    pub anthropic_vault: UncheckedAccount<'info>,
+    #[account(mut, address = hub_pot.spcxx_vault @ HubError::InvalidTokenAccount)]
+    pub spcxx_vault: UncheckedAccount<'info>,
     /// CHECK: claimant's $OTC ATA (mint/owner verified in handler).
     #[account(mut)]
     pub claimant_otc: UncheckedAccount<'info>,
     /// CHECK: claimant's CRCLx ATA — verified as above.
     #[account(mut)]
     pub claimant_crclx: UncheckedAccount<'info>,
-    /// CHECK: claimant's OpenAI-stock ATA — verified as above.
+    /// CHECK: claimant's NVDAx ATA — verified as above.
     #[account(mut)]
-    pub claimant_openai: UncheckedAccount<'info>,
-    /// CHECK: claimant's Anthropic-stock ATA — verified as above.
+    pub claimant_nvdax: UncheckedAccount<'info>,
+    /// CHECK: claimant's SPCXx ATA — verified as above.
     #[account(mut)]
-    pub claimant_anthropic: UncheckedAccount<'info>,
-    /// CHECK: classic SPL Token program, asserted in `transfer_checked`.
-    pub token_program: UncheckedAccount<'info>,
+    pub claimant_spcxx: UncheckedAccount<'info>,
+    /// CHECK: $OTC's token program — asserted in `transfer_checked` against `hub_pot.otc_mint`'s
+    /// actual owner. One `token_program` account per bucket (see `FundHubPot`'s doc comment for
+    /// why a single shared account isn't safe once `update_hub_pot_mint` can move a bucket to a
+    /// mint on a different token program).
+    pub otc_token_program: UncheckedAccount<'info>,
+    /// CHECK: CRCLx's token program — asserted the same way against `hub_pot.crclx_mint`.
+    pub crclx_token_program: UncheckedAccount<'info>,
+    /// CHECK: NVDAx's token program — asserted the same way against `hub_pot.nvdax_mint`.
+    pub nvdax_token_program: UncheckedAccount<'info>,
+    /// CHECK: SPCXx's token program — asserted the same way against `hub_pot.spcxx_mint`.
+    pub spcxx_token_program: UncheckedAccount<'info>,
     /// Same seeds as `DistributeHubPotReward::claim` — pull and push share one PDA per
     /// (round, desk asset), so a desk can only ever be paid once regardless of which path is used.
     #[account(
@@ -674,7 +869,7 @@ pub struct ClaimHubPotReward<'info> {
 // comment.
 
 /// User-initiated pull: a desk's current owner claims its own tier-weighted share of all 4
-/// M.I.M ETF (Magic Internet Money — $OTC/CRCLx/OpenAI/Anthropic) buckets for an open round,
+/// M.I.M ETF (Magic Internet Money — $OTC/CRCLx/NVDAx/SPCXx) buckets for an open round,
 /// self-signed, paying the tx fee and the `HubPotClaim` rent themselves. Identical math and
 /// per-bucket over-draw guard to `distribute_hub_pot_reward`; the two share the same
 /// `HubPotClaim` PDA so a desk can only ever be paid once per round regardless of path (mirrors
@@ -702,13 +897,13 @@ pub fn claim_hub_pot_reward(ctx: Context<ClaimHubPotReward>, round_index: u32) -
         ctx.accounts.claimant.key,
     )?;
     require_token_account(
-        &ctx.accounts.claimant_openai,
-        &ctx.accounts.hub_pot.openai_mint,
+        &ctx.accounts.claimant_nvdax,
+        &ctx.accounts.hub_pot.nvdax_mint,
         ctx.accounts.claimant.key,
     )?;
     require_token_account(
-        &ctx.accounts.claimant_anthropic,
-        &ctx.accounts.hub_pot.anthropic_mint,
+        &ctx.accounts.claimant_spcxx,
+        &ctx.accounts.hub_pot.spcxx_mint,
         ctx.accounts.claimant.key,
     )?;
 
@@ -717,10 +912,10 @@ pub fn claim_hub_pot_reward(ctx: Context<ClaimHubPotReward>, round_index: u32) -
     let total_w = round.total_weight_bp;
     let otc_amount = reward_share(round.otc_units, w, total_w)?;
     let crclx_amount = reward_share(round.crclx_units, w, total_w)?;
-    let openai_amount = reward_share(round.openai_units, w, total_w)?;
-    let anthropic_amount = reward_share(round.anthropic_units, w, total_w)?;
+    let nvdax_amount = reward_share(round.nvdax_units, w, total_w)?;
+    let spcxx_amount = reward_share(round.spcxx_units, w, total_w)?;
     require!(
-        otc_amount > 0 || crclx_amount > 0 || openai_amount > 0 || anthropic_amount > 0,
+        otc_amount > 0 || crclx_amount > 0 || nvdax_amount > 0 || spcxx_amount > 0,
         HubError::ZeroAmount
     );
 
@@ -732,56 +927,66 @@ pub fn claim_hub_pot_reward(ctx: Context<ClaimHubPotReward>, round_index: u32) -
         .crclx_distributed_units
         .checked_add(crclx_amount)
         .ok_or_else(|| error!(HubError::MathOverflow))?;
-    let openai_distributed_after = round
-        .openai_distributed_units
-        .checked_add(openai_amount)
+    let nvdax_distributed_after = round
+        .nvdax_distributed_units
+        .checked_add(nvdax_amount)
         .ok_or_else(|| error!(HubError::MathOverflow))?;
-    let anthropic_distributed_after = round
-        .anthropic_distributed_units
-        .checked_add(anthropic_amount)
+    let spcxx_distributed_after = round
+        .spcxx_distributed_units
+        .checked_add(spcxx_amount)
         .ok_or_else(|| error!(HubError::MathOverflow))?;
     require!(
         otc_distributed_after <= round.otc_units
             && crclx_distributed_after <= round.crclx_units
-            && openai_distributed_after <= round.openai_units
-            && anthropic_distributed_after <= round.anthropic_units,
+            && nvdax_distributed_after <= round.nvdax_units
+            && spcxx_distributed_after <= round.spcxx_units,
         HubError::HubPotRoundExceeded
     );
 
     let vault_bump = ctx.accounts.treasury_state.vault_bump;
     let seeds: &[&[&[u8]]] = &[&[SEED_VAULT, &[vault_bump]]];
-    let legs: [(u64, &UncheckedAccount, &UncheckedAccount, &UncheckedAccount); 4] = [
+    let legs: [(
+        u64,
+        &UncheckedAccount,
+        &UncheckedAccount,
+        &UncheckedAccount,
+        &UncheckedAccount,
+    ); 4] = [
         (
             otc_amount,
             &ctx.accounts.otc_vault,
             &ctx.accounts.otc_mint,
             &ctx.accounts.claimant_otc,
+            &ctx.accounts.otc_token_program,
         ),
         (
             crclx_amount,
             &ctx.accounts.crclx_vault,
             &ctx.accounts.crclx_mint,
             &ctx.accounts.claimant_crclx,
+            &ctx.accounts.crclx_token_program,
         ),
         (
-            openai_amount,
-            &ctx.accounts.openai_vault,
-            &ctx.accounts.openai_mint,
-            &ctx.accounts.claimant_openai,
+            nvdax_amount,
+            &ctx.accounts.nvdax_vault,
+            &ctx.accounts.nvdax_mint,
+            &ctx.accounts.claimant_nvdax,
+            &ctx.accounts.nvdax_token_program,
         ),
         (
-            anthropic_amount,
-            &ctx.accounts.anthropic_vault,
-            &ctx.accounts.anthropic_mint,
-            &ctx.accounts.claimant_anthropic,
+            spcxx_amount,
+            &ctx.accounts.spcxx_vault,
+            &ctx.accounts.spcxx_mint,
+            &ctx.accounts.claimant_spcxx,
+            &ctx.accounts.spcxx_token_program,
         ),
     ];
-    for (amount, from, mint, to) in legs {
+    for (amount, from, mint, to, token_program) in legs {
         if amount == 0 {
             continue;
         }
         transfer_checked(
-            &ctx.accounts.token_program,
+            token_program,
             from,
             mint,
             to,
@@ -793,8 +998,8 @@ pub fn claim_hub_pot_reward(ctx: Context<ClaimHubPotReward>, round_index: u32) -
 
     round.otc_distributed_units = otc_distributed_after;
     round.crclx_distributed_units = crclx_distributed_after;
-    round.openai_distributed_units = openai_distributed_after;
-    round.anthropic_distributed_units = anthropic_distributed_after;
+    round.nvdax_distributed_units = nvdax_distributed_after;
+    round.spcxx_distributed_units = spcxx_distributed_after;
     round.claims = round
         .claims
         .checked_add(1)
@@ -808,8 +1013,8 @@ pub fn claim_hub_pot_reward(ctx: Context<ClaimHubPotReward>, round_index: u32) -
     c.owner = asset.owner;
     c.otc_units = otc_amount;
     c.crclx_units = crclx_amount;
-    c.openai_units = openai_amount;
-    c.anthropic_units = anthropic_amount;
+    c.nvdax_units = nvdax_amount;
+    c.spcxx_units = spcxx_amount;
     c.claimed_ts = now;
     c.bump = ctx.bumps.claim;
 
@@ -819,8 +1024,8 @@ pub fn claim_hub_pot_reward(ctx: Context<ClaimHubPotReward>, round_index: u32) -
         claimant: c.owner,
         otc_units: otc_amount,
         crclx_units: crclx_amount,
-        openai_units: openai_amount,
-        anthropic_units: anthropic_amount,
+        nvdax_units: nvdax_amount,
+        spcxx_units: spcxx_amount,
         claims,
     });
     Ok(())

@@ -47,17 +47,29 @@ use crate::instructions::tiers::{
 };
 use crate::state::*;
 
-/// spl-token `Account` prefix: mint 32 · owner 32 · amount u64.
+/// True for either token program this contract knows how to CPI into — classic Token-v1
+/// ($HUB/WSOL/USDC) or Token-2022 ($OTC and the whole MemeStock basket: CRCLx/NVDAx/SPCXx are
+/// all Token-2022 mints). Every helper below dispatches to *whichever one the account is
+/// actually owned by* rather than assuming classic — never a third-party or spoofed program id.
+pub fn is_supported_token_program(pid: &Pubkey) -> bool {
+    *pid == TOKEN_PROGRAM_ID || *pid == TOKEN_2022_PROGRAM_ID
+}
+
+/// spl-token `Account` prefix: mint 32 · owner 32 · amount u64. Identical layout under either
+/// token program.
 pub struct TokenAccountView {
     pub mint: Pubkey,
     pub owner: Pubkey,
 }
 
 pub fn read_token_account(ai: &AccountInfo) -> Result<TokenAccountView> {
-    require_keys_eq!(*ai.owner, TOKEN_PROGRAM_ID, HubError::InvalidTokenAccount);
+    require!(
+        is_supported_token_program(ai.owner),
+        HubError::InvalidTokenAccount
+    );
     let data = ai.try_borrow_data()?;
     require!(
-        data.len() == TOKEN_ACCOUNT_LEN,
+        data.len() >= TOKEN_ACCOUNT_LEN,
         HubError::InvalidTokenAccount
     );
     Ok(TokenAccountView {
@@ -76,8 +88,30 @@ pub fn require_token_account(ai: &AccountInfo, mint: &Pubkey, owner: &Pubkey) ->
     Ok(())
 }
 
+/// Reads the raw spl-token `Account.amount` field (offset 64, u64 LE) — for instructions that
+/// need a token account's live balance rather than moving it (e.g. `update_hub_pot_mint`'s
+/// pre-swap drain check). Works for either token program.
+pub fn token_account_amount(ai: &AccountInfo) -> Result<u64> {
+    require!(
+        is_supported_token_program(ai.owner),
+        HubError::InvalidTokenAccount
+    );
+    let data = ai.try_borrow_data()?;
+    require!(
+        data.len() >= TOKEN_ACCOUNT_LEN,
+        HubError::InvalidTokenAccount
+    );
+    Ok(u64::from_le_bytes(data[64..72].try_into().unwrap()))
+}
+
+/// Reads `Mint.decimals` (offset 44, both programs) after confirming the mint account is
+/// actually owned by whichever token program its holder claims — never trusts the caller's
+/// `token_program` account in isolation, since that's checked against *this* independently.
 fn mint_decimals(mint: &AccountInfo) -> Result<u8> {
-    require_keys_eq!(*mint.owner, TOKEN_PROGRAM_ID, HubError::WrongTokenProgram);
+    require!(
+        is_supported_token_program(mint.owner),
+        HubError::WrongTokenProgram
+    );
     let data = mint.try_borrow_data()?;
     require!(
         data.len() > MINT_DECIMALS_OFFSET,
@@ -86,8 +120,11 @@ fn mint_decimals(mint: &AccountInfo) -> Result<u8> {
     Ok(data[MINT_DECIMALS_OFFSET])
 }
 
-/// spl-token `TransferChecked { amount, decimals }`. `authority` is either a tx signer
-/// (`signer_seeds = &[]`) or a program PDA whose seeds are supplied.
+/// spl-token / Token-2022 `TransferChecked { amount, decimals }`. `authority` is either a tx
+/// signer (`signer_seeds = &[]`) or a program PDA whose seeds are supplied. `token_program` must
+/// be a supported program (classic or Token-2022) *and* must match `mint`'s actual owner — the
+/// CPI always dispatches to `token_program.key` itself, never a hardcoded constant, so this
+/// works unchanged whether `mint` is $HUB (classic) or $OTC/a basket mint (Token-2022).
 pub fn transfer_checked<'info>(
     token_program: &AccountInfo<'info>,
     from: &AccountInfo<'info>,
@@ -97,18 +134,18 @@ pub fn transfer_checked<'info>(
     amount: u64,
     signer_seeds: &[&[&[u8]]],
 ) -> Result<()> {
-    require_keys_eq!(
-        *token_program.key,
-        TOKEN_PROGRAM_ID,
+    require!(
+        is_supported_token_program(token_program.key),
         HubError::WrongTokenProgram
     );
+    require_keys_eq!(*token_program.key, *mint.owner, HubError::WrongTokenProgram);
     let decimals = mint_decimals(mint)?;
     let mut data = Vec::with_capacity(10);
     data.push(TOKEN_IX_TRANSFER_CHECKED);
     data.extend_from_slice(&amount.to_le_bytes());
     data.push(decimals);
     let ix = Instruction {
-        program_id: TOKEN_PROGRAM_ID,
+        program_id: *token_program.key,
         accounts: vec![
             AccountMeta::new(*from.key, false),
             AccountMeta::new_readonly(*mint.key, false),
@@ -137,18 +174,18 @@ pub fn burn_checked<'info>(
     amount: u64,
     signer_seeds: &[&[&[u8]]],
 ) -> Result<()> {
-    require_keys_eq!(
-        *token_program.key,
-        TOKEN_PROGRAM_ID,
+    require!(
+        is_supported_token_program(token_program.key),
         HubError::WrongTokenProgram
     );
+    require_keys_eq!(*token_program.key, *mint.owner, HubError::WrongTokenProgram);
     let decimals = mint_decimals(mint)?;
     let mut data = Vec::with_capacity(10);
     data.push(TOKEN_IX_BURN_CHECKED);
     data.extend_from_slice(&amount.to_le_bytes());
     data.push(decimals);
     let ix = Instruction {
-        program_id: TOKEN_PROGRAM_ID,
+        program_id: *token_program.key,
         accounts: vec![
             AccountMeta::new(*account.key, false),
             AccountMeta::new(*mint.key, false),
@@ -267,8 +304,13 @@ pub struct ActivateTierOtc<'info> {
     /// destination; split burned/reward immediately after (see `tier_cost_burn_bp`).
     #[account(mut)]
     pub payer_hub: UncheckedAccount<'info>,
-    /// CHECK: classic SPL Token program, asserted in the token-program helpers.
-    pub token_program: UncheckedAccount<'info>,
+    /// CHECK: $OTC's token program — Token-2022, asserted in `transfer_checked` against
+    /// `otc_mint`'s actual owner. $OTC and $HUB sit on *different* token programs ($OTC is
+    /// Token-2022, $HUB is classic Token), so this instruction needs two distinct
+    /// `token_program` accounts — see `hub_token_program` below — never one shared account.
+    pub otc_token_program: UncheckedAccount<'info>,
+    /// CHECK: $HUB's token program — classic Token, asserted the same way against `hub_mint`.
+    pub hub_token_program: UncheckedAccount<'info>,
     /// CHECK: pinned to `JUPITER_PROGRAM_ID` in `jupiter_swap::swap_exact_in`.
     pub jupiter_program: UncheckedAccount<'info>,
     #[account(
@@ -344,7 +386,7 @@ pub fn activate_tier_otc<'info>(
 
     let (otc_paid_total, to_otc_pot) = otc_pot_leg(otc_swap_amount)?;
     transfer_checked(
-        &ctx.accounts.token_program,
+        &ctx.accounts.otc_token_program,
         &ctx.accounts.payer_otc,
         &ctx.accounts.otc_mint,
         &ctx.accounts.otc_vault,
@@ -368,7 +410,7 @@ pub fn activate_tier_otc<'info>(
     let hub_burn = bps_of(hub_received, config.tier_cost_burn_bp)?;
     let hub_reward = sub(hub_received, hub_burn)?;
     burn_checked(
-        &ctx.accounts.token_program,
+        &ctx.accounts.hub_token_program,
         &ctx.accounts.payer_hub,
         &ctx.accounts.hub_mint,
         &ctx.accounts.payer,
@@ -377,7 +419,7 @@ pub fn activate_tier_otc<'info>(
     )?;
     if hub_reward > 0 {
         transfer_checked(
-            &ctx.accounts.token_program,
+            &ctx.accounts.hub_token_program,
             &ctx.accounts.payer_hub,
             &ctx.accounts.hub_mint,
             &ctx.accounts.treasury_lock_vault,
@@ -455,8 +497,12 @@ pub struct UpgradeTierOtc<'info> {
     /// destination; split burned/reward immediately after (see `tier_cost_burn_bp`).
     #[account(mut)]
     pub payer_hub: UncheckedAccount<'info>,
-    /// CHECK: classic SPL Token program, asserted in the token-program helpers.
-    pub token_program: UncheckedAccount<'info>,
+    /// CHECK: $OTC's token program — Token-2022, asserted in `transfer_checked` against
+    /// `otc_mint`'s actual owner. See `ActivateTierOtc`'s doc comment on why $OTC and $HUB need
+    /// two distinct `token_program` accounts here.
+    pub otc_token_program: UncheckedAccount<'info>,
+    /// CHECK: $HUB's token program — classic Token, asserted the same way against `hub_mint`.
+    pub hub_token_program: UncheckedAccount<'info>,
     /// CHECK: pinned to `JUPITER_PROGRAM_ID` in `jupiter_swap::swap_exact_in`.
     pub jupiter_program: UncheckedAccount<'info>,
     #[account(
@@ -532,7 +578,7 @@ pub fn upgrade_tier_otc<'info>(
 
     let (otc_paid_total, to_otc_pot) = otc_pot_leg(otc_swap_amount)?;
     transfer_checked(
-        &ctx.accounts.token_program,
+        &ctx.accounts.otc_token_program,
         &ctx.accounts.payer_otc,
         &ctx.accounts.otc_mint,
         &ctx.accounts.otc_vault,
@@ -556,7 +602,7 @@ pub fn upgrade_tier_otc<'info>(
     let hub_burn = bps_of(hub_received, config.tier_cost_burn_bp)?;
     let hub_reward = sub(hub_received, hub_burn)?;
     burn_checked(
-        &ctx.accounts.token_program,
+        &ctx.accounts.hub_token_program,
         &ctx.accounts.payer_hub,
         &ctx.accounts.hub_mint,
         &ctx.accounts.payer,
@@ -565,7 +611,7 @@ pub fn upgrade_tier_otc<'info>(
     )?;
     if hub_reward > 0 {
         transfer_checked(
-            &ctx.accounts.token_program,
+            &ctx.accounts.hub_token_program,
             &ctx.accounts.payer_hub,
             &ctx.accounts.hub_mint,
             &ctx.accounts.treasury_lock_vault,

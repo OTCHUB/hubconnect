@@ -6,6 +6,9 @@ import {
   TOKEN_PROGRAM_ID,
 } from "./constants";
 
+/** Public key type accepted for a token-program argument (string or `PublicKey`). */
+type TokenProgramId = PublicKey | string;
+
 export const SEEDS = {
   config: Buffer.from("config"),
   epoch: Buffer.from("epoch"),
@@ -79,7 +82,7 @@ export function rewardClaimPda(
     programId,
   );
 }
-/** §A5.1 MemeStock basket ($OTC, CRCLx, OpenAI, Anthropic) bookkeeping. */
+/** §A5.1 MemeStock basket ($OTC, CRCLx, NVDAx, SPCXx) bookkeeping. */
 export function hubPotPda(programId: PublicKey) {
   return PublicKey.findProgramAddressSync([SEEDS.hubPot], programId);
 }
@@ -105,10 +108,16 @@ export function tierPda(programId: PublicKey, asset: PublicKey) {
   return PublicKey.findProgramAddressSync([SEEDS.tier, asset.toBuffer()], programId);
 }
 
-/** SPL associated token account (classic Token program). */
-export function ataPda(owner: PublicKey, mint: PublicKey) {
+/**
+ * SPL associated token account. `tokenProgramId` must be whichever token program actually owns
+ * `mint` — defaults to classic `TOKEN_PROGRAM_ID` for backwards compatibility (correct for $HUB/
+ * WSOL/USDC), but callers must pass `TOKEN_2022_PROGRAM_ID` for $OTC or any M.I.M ETF basket
+ * mint (CRCLx/NVDAx/SPCXx), all of which are Token-2022. Getting this wrong derives the wrong
+ * address entirely (the ATA seeds include the token program), not merely a validation failure.
+ */
+export function ataPda(owner: PublicKey, mint: PublicKey, tokenProgramId: TokenProgramId = TOKEN_PROGRAM_ID) {
   return PublicKey.findProgramAddressSync(
-    [owner.toBuffer(), new PublicKey(TOKEN_PROGRAM_ID).toBuffer(), mint.toBuffer()],
+    [owner.toBuffer(), new PublicKey(tokenProgramId).toBuffer(), mint.toBuffer()],
     new PublicKey(ASSOCIATED_TOKEN_PROGRAM_ID),
   );
 }

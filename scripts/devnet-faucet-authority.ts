@@ -1,10 +1,10 @@
 // Re-points devnet mint authorities + the Core desk collection's UpdateDelegate to the faucet
-// Worker's own keypair, so devnet.otchub.dev/drip can mint $HUB/$OTC/CRCLx/OpenAI/Anthropic and
+// Worker's own keypair, so devnet.otchub.dev/drip can mint $HUB/$OTC/CRCLx/NVDAx/SPCXx and
 // mint Mock OTC Desk NFTs into Config.desk_collection without ever holding the deployer's key.
 //   npx ts-node -T scripts/devnet-faucet-authority.ts <faucetPubkey> --yes [--sol 2]
 //
 // 1. SPL mint authority: `SetAuthority(MintTokens, faucet)` on $HUB/$OTC (from Config) and
-//    CRCLx/OpenAI/Anthropic (from HubPotConfig) — idempotent, skips any mint already pointed at
+//    CRCLx/NVDAx/SPCXx (from HubPotConfig) — idempotent, skips any mint already pointed at
 //    the faucet, and refuses to touch one whose current authority isn't this deployer.
 // 2. Core UpdateDelegate: adds the faucet as an `additionalDelegate` on Config.desk_collection so
 //    its `CreateV1` calls (authority = faucet) are accepted by the mainnet-cloned collection —
@@ -101,8 +101,8 @@ async function main() {
     ["$HUB", cfg.hubMint],
     ["$OTC", cfg.otcMint],
     ["CRCLx", new PublicKey(hubPot.crclxMint)],
-    ["OpenAI", new PublicKey(hubPot.openaiMint)],
-    ["Anthropic", new PublicKey(hubPot.anthropicMint)],
+    ["NVDAx", new PublicKey(hubPot.nvdaxMint)],
+    ["SPCXx", new PublicKey(hubPot.spcxxMint)],
   ];
   const ixs = (
     await Promise.all(mints.map(([label, mint]) => repointMint(ctx, label, mint, faucet)))

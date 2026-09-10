@@ -15,8 +15,8 @@ import { TxLogView } from "./ui/TxLogView";
 const BUCKET_LABELS = {
   otc: "$OTC",
   crclx: "CRCLX",
-  openai: "OPENAI",
-  anthropic: "ANTHROPIC",
+  nvdax: "NVDAX",
+  spcxx: "SPCXX",
 } as const;
 type BucketKey = keyof typeof BUCKET_LABELS;
 const BUCKET_KEYS = Object.keys(BUCKET_LABELS) as BucketKey[];
@@ -27,14 +27,14 @@ const GHOST_BTN = `${RETRO_BTN} border-green-500/30 text-green-500/70`;
 /** Sums an active desk's `hubPotShareUnits` estimate across every bucket, for every desk owned
  *  by the wallet — mirrors the on-chain per-desk `reward_share` floor-division exactly. */
 function estimateWalletShare(round: HubPotRoundView, desks: OwnedDesk[]) {
-  const total: Record<BucketKey, bigint> = { otc: 0n, crclx: 0n, openai: 0n, anthropic: 0n };
+  const total: Record<BucketKey, bigint> = { otc: 0n, crclx: 0n, nvdax: 0n, spcxx: 0n };
   for (const d of desks) {
     if (!d.tier || d.tier.voided) continue;
     const share = hubPotShareUnits(round, d.tier.tier);
     total.otc += share.otc;
     total.crclx += share.crclx;
-    total.openai += share.openai;
-    total.anthropic += share.anthropic;
+    total.nvdax += share.nvdax;
+    total.spcxx += share.spcxx;
   }
   return total;
 }
@@ -42,7 +42,7 @@ function estimateWalletShare(round: HubPotRoundView, desks: OwnedDesk[]) {
 type Props = { desks?: OwnedDesk[]; address?: string | null };
 
 /** §A5.1 — the "M.I.M ETF" (Magic Internet Money ETF): the 4-bucket MemeStock basket ($OTC /
- *  CRCLx / OpenAI / Anthropic) an activated desk owner can claim — one desk at a time or in bulk
+ *  CRCLx / NVDAx / SPCXx) an activated desk owner can claim — one desk at a time or in bulk
  *  across every desk they own (client-batched `claim_hub_pot_reward` ixs, pro-rata to each desk's
  *  tier weight), the same self-serve pull `claim_airdrop` uses. `distribute_hub_pot_reward`
  *  remains as an authority-run fallback push for desks whose owners don't self-claim — both share
@@ -104,8 +104,7 @@ export function HubPotPanel({ desks, address }: Props) {
     .filter((d) => !claimedAssets.has(d.asset))
     .map((d) => ({ ...d, share: hubPotShareUnits(round!, d.tier!.tier) }))
     .filter(
-      (d) =>
-        d.share.otc > 0n || d.share.crclx > 0n || d.share.openai > 0n || d.share.anthropic > 0n,
+      (d) => d.share.otc > 0n || d.share.crclx > 0n || d.share.nvdax > 0n || d.share.spcxx > 0n,
     );
   const signer = address ? resolveSigner(address) : null;
 
@@ -163,7 +162,7 @@ export function HubPotPanel({ desks, address }: Props) {
         Magic Internet Money Basket
       </p>
       <p className="mt-1.5 text-xs leading-relaxed text-green-400/90">
-        A tier-weighted basket of $OTC, CRCLx, OPENAI, and ANTHROPIC. Funded by treasury yield
+        A tier-weighted basket of $OTC, CRCLx, NVDAx, and SPCXx. Funded by treasury yield
         rebalancing: 13 stocks consolidated into 4 native tickers. Pure yield, zero cost.
       </p>
 
@@ -293,8 +292,8 @@ export function HubPotPanel({ desks, address }: Props) {
       <div className={disclaimerCls}>
         <span aria-hidden>ⓘ</span>
         <span>
-          OPENAI and ANTHROPIC are Pre-IPO tickers native to the OTC Desks ecosystem — not equity,
-          shares, or any claim on the real companies OpenAI or Anthropic.
+          NVDAx and SPCXx are tokenized xStock tickers native to the OTC Desks ecosystem — not
+          equity, shares, or any claim on the real companies NVIDIA or SpaceX.
         </span>
       </div>
     </Panel>

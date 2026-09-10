@@ -321,10 +321,10 @@ export function MechanicsPanel({ state }: { state: ProtocolState }) {
             other holders.
           </li>
           <li className={li}>
-            It pays out a fixed 4-token basket — $OTC, CRCLx, and two on-chain "MemeStock" tickers
-            branded OPENAI and ANTHROPIC — tokenized tickers native to the OTC Desks ecosystem,{" "}
+            It pays out a fixed 4-token basket — $OTC, CRCLx, and two on-chain xStock tickers
+            branded NVDAx and SPCXx — tokenized tickers native to the OTC Desks ecosystem,{" "}
             <span className="text-amber-300">not</span> shares, equity, or any claim on the real
-            companies OpenAI or Anthropic.
+            companies NVIDIA or SpaceX.
           </li>
           <li className={li}>
             The boost comes from consolidating the treasury's desk stack (section 3) into one

@@ -22,6 +22,7 @@ import BN from "bn.js";
 import {
   BPS,
   JUPITER_PROGRAM_ID,
+  TOKEN_2022_PROGRAM_ID,
   TOKEN_PROGRAM_ID,
   ataPda,
   configPda,
@@ -237,7 +238,10 @@ export async function buildTierChangeIxs(opts: {
         "pending yield must be claimed before upgrading, but the $OTC yield vault isn't funded yet",
       );
     // Idempotent — a no-op if the payer already has the ATA; the settle-claim below pays into it.
-    ixs.push(createAtaIdempotentIx(payer, payer, new PublicKey(config.otcMint)));
+    // $OTC is Token-2022 — the ATA (and its owner-program derivation) must match.
+    ixs.push(
+      createAtaIdempotentIx(payer, payer, new PublicKey(config.otcMint), TOKEN_2022_PROGRAM_ID),
+    );
     ixs.push(await buildClaimYieldIx(program, payer, deskAsset, config, otcPot));
   }
   const hubMint = new PublicKey(config.hubMint);
@@ -251,13 +255,16 @@ export async function buildTierChangeIxs(opts: {
     deskTier: tierPda(id, deskAsset)[0],
     hubMint,
     payerHub: ataPda(payer, hubMint)[0],
-    tokenProgram: new PublicKey(TOKEN_PROGRAM_ID),
     tokenomics: tokenomicsPda(id)[0],
     treasuryLockVault: new PublicKey(opts.tokenomics.treasuryLockVault),
   };
 
   if (method === "sol") {
-    const accs = { ...common, systemProgram: SYSTEM_PROGRAM };
+    const accs = {
+      ...common,
+      systemProgram: SYSTEM_PROGRAM,
+      tokenProgram: new PublicKey(TOKEN_PROGRAM_ID),
+    };
     if (fromTier === 0)
       ixs.push(await program.methods.activateTier(toTier).accountsStrict(accs).instruction());
     else ixs.push(await program.methods.upgradeTier(toTier).accountsStrict(accs).instruction());
@@ -276,9 +283,12 @@ export async function buildTierChangeIxs(opts: {
     systemProgram: SYSTEM_PROGRAM,
     otcPay: otcPayPda(id)[0],
     otcMint,
-    payerOtc: ataPda(payer, otcMint)[0],
+    payerOtc: ataPda(payer, otcMint, TOKEN_2022_PROGRAM_ID)[0],
     otcPot: otcPotPda(id)[0],
     otcVault: new PublicKey(otcPot.otcVault),
+    // $OTC and $HUB sit on different token programs — see `activateTierOtc`'s IDL docs.
+    otcTokenProgram: new PublicKey(TOKEN_2022_PROGRAM_ID),
+    hubTokenProgram: new PublicKey(TOKEN_PROGRAM_ID),
     jupiterProgram: new PublicKey(JUPITER_PROGRAM_ID),
   };
   const swapAmountBn = new BN(otcSwapAmount.toString());

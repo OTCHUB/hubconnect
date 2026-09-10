@@ -277,20 +277,20 @@ export type RewardClaimView = {
 export type HubPotView = {
   otcMint: string;
   crclxMint: string;
-  openaiMint: string;
-  anthropicMint: string;
+  nvdaxMint: string;
+  spcxxMint: string;
   otcVault: string;
   crclxVault: string;
-  openaiVault: string;
-  anthropicVault: string;
+  nvdaxVault: string;
+  spcxxVault: string;
   otcPendingUnits: bigint;
   crclxPendingUnits: bigint;
-  openaiPendingUnits: bigint;
-  anthropicPendingUnits: bigint;
+  nvdaxPendingUnits: bigint;
+  spcxxPendingUnits: bigint;
   otcDepositedUnits: bigint;
   crclxDepositedUnits: bigint;
-  openaiDepositedUnits: bigint;
-  anthropicDepositedUnits: bigint;
+  nvdaxDepositedUnits: bigint;
+  spcxxDepositedUnits: bigint;
   roundCount: number;
 };
 
@@ -299,13 +299,13 @@ export type HubPotRoundView = {
   index: number;
   otcUnits: bigint;
   crclxUnits: bigint;
-  openaiUnits: bigint;
-  anthropicUnits: bigint;
+  nvdaxUnits: bigint;
+  spcxxUnits: bigint;
   totalWeightBp: bigint;
   otcDistributedUnits: bigint;
   crclxDistributedUnits: bigint;
-  openaiDistributedUnits: bigint;
-  anthropicDistributedUnits: bigint;
+  nvdaxDistributedUnits: bigint;
+  spcxxDistributedUnits: bigint;
   claims: number;
   openedTs: number;
 };
@@ -317,8 +317,8 @@ export type HubPotClaimView = {
   owner: string;
   otcUnits: bigint;
   crclxUnits: bigint;
-  openaiUnits: bigint;
-  anthropicUnits: bigint;
+  nvdaxUnits: bigint;
+  spcxxUnits: bigint;
   claimedTs: number;
 };
 
@@ -728,20 +728,20 @@ export function toHubPotView(
   return {
     otcMint: p.otcMint.toBase58(),
     crclxMint: p.crclxMint.toBase58(),
-    openaiMint: p.openaiMint.toBase58(),
-    anthropicMint: p.anthropicMint.toBase58(),
+    nvdaxMint: p.nvdaxMint.toBase58(),
+    spcxxMint: p.spcxxMint.toBase58(),
     otcVault: p.otcVault.toBase58(),
     crclxVault: p.crclxVault.toBase58(),
-    openaiVault: p.openaiVault.toBase58(),
-    anthropicVault: p.anthropicVault.toBase58(),
+    nvdaxVault: p.nvdaxVault.toBase58(),
+    spcxxVault: p.spcxxVault.toBase58(),
     otcPendingUnits: big(p.otcPendingUnits),
     crclxPendingUnits: big(p.crclxPendingUnits),
-    openaiPendingUnits: big(p.openaiPendingUnits),
-    anthropicPendingUnits: big(p.anthropicPendingUnits),
+    nvdaxPendingUnits: big(p.nvdaxPendingUnits),
+    spcxxPendingUnits: big(p.spcxxPendingUnits),
     otcDepositedUnits: big(p.otcDepositedUnits),
     crclxDepositedUnits: big(p.crclxDepositedUnits),
-    openaiDepositedUnits: big(p.openaiDepositedUnits),
-    anthropicDepositedUnits: big(p.anthropicDepositedUnits),
+    nvdaxDepositedUnits: big(p.nvdaxDepositedUnits),
+    spcxxDepositedUnits: big(p.spcxxDepositedUnits),
     roundCount: p.roundCount,
   };
 }
@@ -760,13 +760,13 @@ export function toHubPotRoundView(
     index: r.index,
     otcUnits: big(r.otcUnits),
     crclxUnits: big(r.crclxUnits),
-    openaiUnits: big(r.openaiUnits),
-    anthropicUnits: big(r.anthropicUnits),
+    nvdaxUnits: big(r.nvdaxUnits),
+    spcxxUnits: big(r.spcxxUnits),
     totalWeightBp: big(r.totalWeightBp),
     otcDistributedUnits: big(r.otcDistributedUnits),
     crclxDistributedUnits: big(r.crclxDistributedUnits),
-    openaiDistributedUnits: big(r.openaiDistributedUnits),
-    anthropicDistributedUnits: big(r.anthropicDistributedUnits),
+    nvdaxDistributedUnits: big(r.nvdaxDistributedUnits),
+    spcxxDistributedUnits: big(r.spcxxDistributedUnits),
     claims: r.claims,
     openedTs: n(r.openedTs),
   };
@@ -797,8 +797,8 @@ export async function fetchHubPotClaim(
         owner: c.owner.toBase58(),
         otcUnits: big(c.otcUnits),
         crclxUnits: big(c.crclxUnits),
-        openaiUnits: big(c.openaiUnits),
-        anthropicUnits: big(c.anthropicUnits),
+        nvdaxUnits: big(c.nvdaxUnits),
+        spcxxUnits: big(c.spcxxUnits),
         claimedTs: n(c.claimedTs),
       }
     : null;
@@ -809,15 +809,15 @@ export async function fetchHubPotClaim(
 export function hubPotShareUnits(
   round: HubPotRoundView,
   tier: number,
-): { otc: bigint; crclx: bigint; openai: bigint; anthropic: bigint } {
+): { otc: bigint; crclx: bigint; nvdax: bigint; spcxx: bigint } {
   const w = TIER_WEIGHTS_BP[tier - 1] ?? 0;
-  if (!w || round.totalWeightBp <= 0n) return { otc: 0n, crclx: 0n, openai: 0n, anthropic: 0n };
+  if (!w || round.totalWeightBp <= 0n) return { otc: 0n, crclx: 0n, nvdax: 0n, spcxx: 0n };
   const wBig = BigInt(w);
   return {
     otc: (round.otcUnits * wBig) / round.totalWeightBp,
     crclx: (round.crclxUnits * wBig) / round.totalWeightBp,
-    openai: (round.openaiUnits * wBig) / round.totalWeightBp,
-    anthropic: (round.anthropicUnits * wBig) / round.totalWeightBp,
+    nvdax: (round.nvdaxUnits * wBig) / round.totalWeightBp,
+    spcxx: (round.spcxxUnits * wBig) / round.totalWeightBp,
   };
 }
 

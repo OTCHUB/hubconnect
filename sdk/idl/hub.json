@@ -328,7 +328,15 @@
           "writable": true
         },
         {
-          "name": "token_program"
+          "name": "otc_token_program",
+          "docs": [
+            "`otc_mint`'s actual owner. $OTC and $HUB sit on *different* token programs ($OTC is",
+            "Token-2022, $HUB is classic Token), so this instruction needs two distinct",
+            "`token_program` accounts — see `hub_token_program` below — never one shared account."
+          ]
+        },
+        {
+          "name": "hub_token_program"
         },
         {
           "name": "jupiter_program"
@@ -508,7 +516,7 @@
       "name": "build_lp_basket_locked",
       "docs": [
         "§A5.1 basket extension of `build_lp_otc_locked` — treasury-signed, seeds (or tops up)",
-        "one of the three MemeStock basket pairs' (HUB/CRCLx, HUB/OpenAI, HUB/Anthropic) locked",
+        "one of the three MemeStock basket pairs' (HUB/CRCLx, HUB/NVDAx, HUB/SPCXx) locked",
         "Raydium CP-Swap position."
       ],
       "discriminator": [
@@ -897,7 +905,7 @@
       "name": "claim_hub_pot_reward",
       "docs": [
         "§A5.1 #37 — a desk's current owner pulls its own tier-weighted share of all 4 open",
-        "`HubPotRound` buckets (\"M.I.M ETF\" — $OTC/CRCLx/OpenAI/Anthropic), self-signed; shares the",
+        "`HubPotRound` buckets (\"M.I.M ETF\" — $OTC/CRCLx/NVDAx/SPCXx), self-signed; shares the",
         "same `HubPotClaim` PDA as `distribute_hub_pot_reward` so a desk can only ever be paid once",
         "per round regardless of which path is used (mirrors `claim_airdrop`/`distribute_airdrop`)."
       ],
@@ -1052,10 +1060,10 @@
           "name": "crclx_mint"
         },
         {
-          "name": "openai_mint"
+          "name": "nvdax_mint"
         },
         {
-          "name": "anthropic_mint"
+          "name": "spcxx_mint"
         },
         {
           "name": "otc_vault",
@@ -1066,11 +1074,11 @@
           "writable": true
         },
         {
-          "name": "openai_vault",
+          "name": "nvdax_vault",
           "writable": true
         },
         {
-          "name": "anthropic_vault",
+          "name": "spcxx_vault",
           "writable": true
         },
         {
@@ -1082,15 +1090,29 @@
           "writable": true
         },
         {
-          "name": "claimant_openai",
+          "name": "claimant_nvdax",
           "writable": true
         },
         {
-          "name": "claimant_anthropic",
+          "name": "claimant_spcxx",
           "writable": true
         },
         {
-          "name": "token_program"
+          "name": "otc_token_program",
+          "docs": [
+            "actual owner. One `token_program` account per bucket (see `FundHubPot`'s doc comment for",
+            "why a single shared account isn't safe once `update_hub_pot_mint` can move a bucket to a",
+            "mint on a different token program)."
+          ]
+        },
+        {
+          "name": "crclx_token_program"
+        },
+        {
+          "name": "nvdax_token_program"
+        },
+        {
+          "name": "spcxx_token_program"
         },
         {
           "name": "claim",
@@ -1253,7 +1275,10 @@
           "writable": true
         },
         {
-          "name": "token_program"
+          "name": "token_program",
+          "docs": [
+            "`otc_mint`'s actual owner."
+          ]
         },
         {
           "name": "system_program",
@@ -1374,7 +1399,10 @@
           }
         },
         {
-          "name": "token_program"
+          "name": "token_program",
+          "docs": [
+            "`transfer_checked`."
+          ]
         }
       ],
       "args": []
@@ -1626,190 +1654,6 @@
         {
           "name": "with_metadata",
           "type": "bool"
-        }
-      ]
-    },
-    {
-      "name": "devnet_close_epoch",
-      "docs": [
-        "Devnet-only: closes a single stale `epoch(epoch_index)` PDA left over from an earlier",
-        "test session, without touching `config`/`burn`/`treasury_state`. Compiled only under the",
-        "`mock-jupiter` feature — absent from every mainnet build."
-      ],
-      "discriminator": [
-        125,
-        60,
-        128,
-        235,
-        134,
-        153,
-        174,
-        54
-      ],
-      "accounts": [
-        {
-          "name": "authority",
-          "writable": true,
-          "signer": true,
-          "relations": [
-            "config"
-          ]
-        },
-        {
-          "name": "config",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  99,
-                  111,
-                  110,
-                  102,
-                  105,
-                  103
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "epoch",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  101,
-                  112,
-                  111,
-                  99,
-                  104
-                ]
-              },
-              {
-                "kind": "arg",
-                "path": "epoch_index"
-              }
-            ]
-          }
-        }
-      ],
-      "args": [
-        {
-          "name": "epoch_index",
-          "type": "u64"
-        }
-      ]
-    },
-    {
-      "name": "devnet_reset",
-      "docs": [
-        "Devnet-only: closes `config`/`burn`/`treasury_state`/`epoch(epoch_index)` so",
-        "`initialize_config` can re-`init` the same PDAs after a layout change. Compiled only",
-        "under the `mock-jupiter` feature — absent from every mainnet build."
-      ],
-      "discriminator": [
-        52,
-        226,
-        240,
-        25,
-        105,
-        131,
-        41,
-        28
-      ],
-      "accounts": [
-        {
-          "name": "authority",
-          "writable": true,
-          "signer": true
-        },
-        {
-          "name": "config",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  99,
-                  111,
-                  110,
-                  102,
-                  105,
-                  103
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "burn",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  98,
-                  117,
-                  114,
-                  110
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "treasury_state",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  116,
-                  114,
-                  101,
-                  97,
-                  115,
-                  117,
-                  114,
-                  121
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "epoch",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  101,
-                  112,
-                  111,
-                  99,
-                  104
-                ]
-              },
-              {
-                "kind": "arg",
-                "path": "epoch_index"
-              }
-            ]
-          }
-        }
-      ],
-      "args": [
-        {
-          "name": "epoch_index",
-          "type": "u64"
         }
       ]
     },
@@ -2157,10 +2001,10 @@
           "name": "crclx_mint"
         },
         {
-          "name": "openai_mint"
+          "name": "nvdax_mint"
         },
         {
-          "name": "anthropic_mint"
+          "name": "spcxx_mint"
         },
         {
           "name": "otc_vault",
@@ -2171,11 +2015,11 @@
           "writable": true
         },
         {
-          "name": "openai_vault",
+          "name": "nvdax_vault",
           "writable": true
         },
         {
-          "name": "anthropic_vault",
+          "name": "spcxx_vault",
           "writable": true
         },
         {
@@ -2190,15 +2034,29 @@
           "writable": true
         },
         {
-          "name": "owner_openai",
+          "name": "owner_nvdax",
           "writable": true
         },
         {
-          "name": "owner_anthropic",
+          "name": "owner_spcxx",
           "writable": true
         },
         {
-          "name": "token_program"
+          "name": "otc_token_program",
+          "docs": [
+            "actual owner. One `token_program` account per bucket (see `FundHubPot`'s doc comment for",
+            "why a single shared account isn't safe once `update_hub_pot_mint` can move a bucket to a",
+            "mint on a different token program)."
+          ]
+        },
+        {
+          "name": "crclx_token_program"
+        },
+        {
+          "name": "nvdax_token_program"
+        },
+        {
+          "name": "spcxx_token_program"
         },
         {
           "name": "claim",
@@ -2562,7 +2420,10 @@
           }
         },
         {
-          "name": "token_program"
+          "name": "token_program",
+          "docs": [
+            "`transfer_checked`."
+          ]
         }
       ],
       "args": [
@@ -2883,10 +2744,10 @@
           "name": "crclx_mint"
         },
         {
-          "name": "openai_mint"
+          "name": "nvdax_mint"
         },
         {
-          "name": "anthropic_mint"
+          "name": "spcxx_mint"
         },
         {
           "name": "treasury_otc",
@@ -2897,11 +2758,11 @@
           "writable": true
         },
         {
-          "name": "treasury_openai",
+          "name": "treasury_nvdax",
           "writable": true
         },
         {
-          "name": "treasury_anthropic",
+          "name": "treasury_spcxx",
           "writable": true
         },
         {
@@ -2913,11 +2774,11 @@
           "writable": true
         },
         {
-          "name": "openai_vault",
+          "name": "nvdax_vault",
           "writable": true
         },
         {
-          "name": "anthropic_vault",
+          "name": "spcxx_vault",
           "writable": true
         },
         {
@@ -2932,15 +2793,30 @@
           "writable": true
         },
         {
-          "name": "ops_openai",
+          "name": "ops_nvdax",
           "writable": true
         },
         {
-          "name": "ops_anthropic",
+          "name": "ops_spcxx",
           "writable": true
         },
         {
-          "name": "token_program"
+          "name": "otc_token_program",
+          "docs": [
+            "actually owned by after a future `update_hub_pot_mint`), asserted in `transfer_checked`.",
+            "This instruction moves all 4 buckets in one call, and `update_hub_pot_mint` can move any",
+            "single bucket to a mint on a different token program without touching the other three, so",
+            "each bucket gets its own `token_program` account rather than one shared account."
+          ]
+        },
+        {
+          "name": "crclx_token_program"
+        },
+        {
+          "name": "nvdax_token_program"
+        },
+        {
+          "name": "spcxx_token_program"
         }
       ],
       "args": [
@@ -2953,11 +2829,11 @@
           "type": "u64"
         },
         {
-          "name": "openai_amount",
+          "name": "nvdax_amount",
           "type": "u64"
         },
         {
-          "name": "anthropic_amount",
+          "name": "spcxx_amount",
           "type": "u64"
         }
       ]
@@ -3056,7 +2932,7 @@
       "docs": [
         "§A5.1/§A6.2 yield leg — permissionless harvest of a locked position's accrued Raydium",
         "CP-Swap trading fees. The HUB-side leg feeds back into `pair`'s own pending compounding",
-        "earmark; the quote-side leg (OTC/CRCLx/OpenAI-stock/Anthropic-stock) is credited straight",
+        "earmark; the quote-side leg (OTC/CRCLx/NVDAx/SPCXx) is credited straight",
         "into `HubPotConfig`'s matching bucket, routing real yield back to desk-holders."
       ],
       "discriminator": [
@@ -3358,10 +3234,10 @@
           "name": "crclx_vault"
         },
         {
-          "name": "openai_vault"
+          "name": "nvdax_vault"
         },
         {
-          "name": "anthropic_vault"
+          "name": "spcxx_vault"
         },
         {
           "name": "hub_pot",
@@ -3398,11 +3274,11 @@
           "type": "pubkey"
         },
         {
-          "name": "openai_mint",
+          "name": "nvdax_mint",
           "type": "pubkey"
         },
         {
-          "name": "anthropic_mint",
+          "name": "spcxx_mint",
           "type": "pubkey"
         }
       ]
@@ -4295,7 +4171,10 @@
           "writable": true
         },
         {
-          "name": "token_program"
+          "name": "token_program",
+          "docs": [
+            "program actually owns `otc_mint`), asserted in `transfer_checked`."
+          ]
         }
       ],
       "args": [
@@ -4627,7 +4506,10 @@
           }
         },
         {
-          "name": "token_program"
+          "name": "token_program",
+          "docs": [
+            "actually owned by — $OTC is Token-2022), asserted in `transfer_checked`."
+          ]
         },
         {
           "name": "system_program",
@@ -5119,6 +5001,162 @@
       ]
     },
     {
+      "name": "update_hub_pot_mint",
+      "docs": [
+        "§A5.1 — authority-only: swaps one HUB Pot bucket's backing mint + vault (e.g. rotating a",
+        "synthetic pre-IPO token out for a directly-backed xStock RWA once its post-listing",
+        "deviation risk is reassessed). Requires the bucket's pending balance to be zero first;",
+        "any dust already sitting in the old vault is swept to `ops_wallet` rather than blocking."
+      ],
+      "discriminator": [
+        139,
+        74,
+        201,
+        188,
+        93,
+        136,
+        20,
+        169
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury_state",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "docs": [
+            "the handler), and signs the dust-sweep transfer below."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "hub_pot",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  104,
+                  117,
+                  98,
+                  95,
+                  112,
+                  111,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "old_mint",
+          "docs": [
+            "read only for `TransferChecked` decimals on the dust sweep below."
+          ]
+        },
+        {
+          "name": "old_vault",
+          "docs": [
+            "any residual balance is swept to `sweep_dest` before the swap is recorded, so nothing is",
+            "stranded once `hub_pot` stops pointing at it."
+          ],
+          "writable": true
+        },
+        {
+          "name": "sweep_dest",
+          "docs": [
+            "any leftover `old_vault` balance; only touched when that balance is non-zero."
+          ],
+          "writable": true
+        },
+        {
+          "name": "new_vault",
+          "docs": [
+            "created off-chain ahead of time, same pattern as `init_hub_pot`'s bucket vaults."
+          ]
+        },
+        {
+          "name": "token_program",
+          "docs": [
+            "one `old_mint` is actually owned by — asserted in `transfer_checked`. Only ever touches",
+            "one bucket's mint per call, so a single dynamically-validated account suffices here",
+            "(unlike `FundHubPot`/`DistributeHubPotReward`/`ClaimHubPotReward`, which move all 4",
+            "buckets in one instruction and so need one `token_program` account per bucket)."
+          ]
+        }
+      ],
+      "args": [
+        {
+          "name": "bucket",
+          "type": {
+            "defined": {
+              "name": "HubPotBucket"
+            }
+          }
+        },
+        {
+          "name": "new_mint",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
       "name": "upgrade_tier",
       "docs": [
         "§B3 #3 — flat `step_fee` SOL (never scales with the step size) + the $HUB cost",
@@ -5437,7 +5475,14 @@
           "writable": true
         },
         {
-          "name": "token_program"
+          "name": "otc_token_program",
+          "docs": [
+            "`otc_mint`'s actual owner. See `ActivateTierOtc`'s doc comment on why $OTC and $HUB need",
+            "two distinct `token_program` accounts here."
+          ]
+        },
+        {
+          "name": "hub_token_program"
         },
         {
           "name": "jupiter_program"
@@ -5866,6 +5911,19 @@
         139,
         160,
         0
+      ]
+    },
+    {
+      "name": "HubPotMintUpdated",
+      "discriminator": [
+        191,
+        7,
+        125,
+        27,
+        248,
+        149,
+        9,
+        203
       ]
     },
     {
@@ -6395,41 +6453,46 @@
     },
     {
       "code": 6050,
+      "name": "HubPotBucketNotDrained",
+      "msg": "HUB Pot bucket still has a pending balance; open/settle a round before swapping its mint"
+    },
+    {
+      "code": 6051,
       "name": "SlippageExceeded",
       "msg": "Jupiter swap returned less than the required minimum output"
     },
     {
-      "code": 6051,
+      "code": 6052,
       "name": "WrongJupiterProgram",
       "msg": "CPI target does not match the configured Jupiter program id"
     },
     {
-      "code": 6052,
+      "code": 6053,
       "name": "SwapAccountsMissing",
       "msg": "Jupiter route requires accounts in remaining_accounts"
     },
     {
-      "code": 6053,
+      "code": 6054,
       "name": "TreasuryFloatNotInitialized",
       "msg": "Treasury float vault has not been initialized"
     },
     {
-      "code": 6054,
+      "code": 6055,
       "name": "LpCompoundBelowThreshold",
       "msg": "lp_pending_hub_units is below the compounding dust floor"
     },
     {
-      "code": 6055,
+      "code": 6056,
       "name": "InvalidLpPair",
       "msg": "LpPair does not apply to this instruction (e.g. HubSol has no locked position)"
     },
     {
-      "code": 6056,
+      "code": 6057,
       "name": "HarvestBalanceUnderflow",
       "msg": "Fee-harvest CPI reported a lower balance than before the call"
     },
     {
-      "code": 6057,
+      "code": 6058,
       "name": "HopAccountSplitOutOfRange",
       "msg": "hop1_account_count exceeds the number of accounts supplied in remaining_accounts"
     }
@@ -7513,6 +7576,36 @@
       }
     },
     {
+      "name": "HubPotBucket",
+      "docs": [
+        "Bucket selector for `update_hub_pot_mint` — lets governance rotate a basket asset (e.g. a",
+        "synthetic pre-IPO token judged too exposed to post-listing deviation risk, as with the",
+        "original OpenAI/Anthropic pre-IPO legs before genesis swapped them for the live, directly",
+        "custodied NVDAx/SPCXx xStock RWAs) for a different mint without a program upgrade/migration.",
+        "Mirrors `CreatorFeeLeg`'s enum-selects-a-field pattern; field *names* on `HubPotConfig`",
+        "(otc/crclx/nvdax/spcxx) are fixed identifiers from genesis and don't necessarily track which",
+        "real-world asset currently backs a bucket — e.g. the \"nvdax\" bucket may later be kept as a",
+        "label while its mint points at a different asset entirely."
+      ],
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Otc"
+          },
+          {
+            "name": "Crclx"
+          },
+          {
+            "name": "Nvdax"
+          },
+          {
+            "name": "Spcxx"
+          }
+        ]
+      }
+    },
+    {
       "name": "HubPotClaim",
       "docs": [
         "`[\"hub_pot_claim\", round_index, asset]` — one payout per desk asset per HUB Pot round;",
@@ -7542,11 +7635,11 @@
             "type": "u64"
           },
           {
-            "name": "openai_units",
+            "name": "nvdax_units",
             "type": "u64"
           },
           {
-            "name": "anthropic_units",
+            "name": "spcxx_units",
             "type": "u64"
           },
           {
@@ -7563,7 +7656,7 @@
     {
       "name": "HubPotConfig",
       "docs": [
-        "§A5.1 `[\"hub_pot\"]` — MemeStock basket ($OTC, CRCLx, OpenAI, Anthropic) bookkeeping.",
+        "§A5.1 `[\"hub_pot\"]` — MemeStock basket ($OTC, CRCLx, NVDAx, SPCXx) bookkeeping.",
         "Created once via `init_hub_pot`. Funded by the treasury's converted source-B (13-stock",
         "treasury-desk) yield via `fund_hub_pot`; independent of `TokenomicsConfig`'s single-asset",
         "$HUB reward path (§A6.3/§A7.1 bridge) — different funding source, different vaults."
@@ -7580,11 +7673,11 @@
             "type": "pubkey"
           },
           {
-            "name": "openai_mint",
+            "name": "nvdax_mint",
             "type": "pubkey"
           },
           {
-            "name": "anthropic_mint",
+            "name": "spcxx_mint",
             "type": "pubkey"
           },
           {
@@ -7599,11 +7692,11 @@
             "type": "pubkey"
           },
           {
-            "name": "openai_vault",
+            "name": "nvdax_vault",
             "type": "pubkey"
           },
           {
-            "name": "anthropic_vault",
+            "name": "spcxx_vault",
             "type": "pubkey"
           },
           {
@@ -7618,11 +7711,11 @@
             "type": "u64"
           },
           {
-            "name": "openai_pending_units",
+            "name": "nvdax_pending_units",
             "type": "u64"
           },
           {
-            "name": "anthropic_pending_units",
+            "name": "spcxx_pending_units",
             "type": "u64"
           },
           {
@@ -7637,11 +7730,11 @@
             "type": "u64"
           },
           {
-            "name": "openai_deposited_units",
+            "name": "nvdax_deposited_units",
             "type": "u64"
           },
           {
-            "name": "anthropic_deposited_units",
+            "name": "spcxx_deposited_units",
             "type": "u64"
           },
           {
@@ -7672,11 +7765,11 @@
             "type": "u64"
           },
           {
-            "name": "openai_amount",
+            "name": "nvdax_amount",
             "type": "u64"
           },
           {
-            "name": "anthropic_amount",
+            "name": "spcxx_amount",
             "type": "u64"
           },
           {
@@ -7688,11 +7781,49 @@
             "type": "u64"
           },
           {
-            "name": "openai_pending_after",
+            "name": "nvdax_pending_after",
             "type": "u64"
           },
           {
-            "name": "anthropic_pending_after",
+            "name": "spcxx_pending_after",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "HubPotMintUpdated",
+      "docs": [
+        "Governance-only bucket mint swap (`update_hub_pot_mint`) — e.g. rotating a synthetic",
+        "pre-IPO token out for a directly-backed xStock RWA once its deviation risk is reassessed.",
+        "`swept_to_ops` is any dust the old vault held at swap time, sent to `Config.ops_wallet`'s ATA",
+        "for `old_mint` so nothing is stranded once `hub_pot` stops pointing at `old_vault`."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "bucket",
+            "type": "u8"
+          },
+          {
+            "name": "old_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "new_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "old_vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "new_vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "swept_to_ops",
             "type": "u64"
           }
         ]
@@ -7717,11 +7848,11 @@
             "type": "u64"
           },
           {
-            "name": "openai_to_ops",
+            "name": "nvdax_to_ops",
             "type": "u64"
           },
           {
-            "name": "anthropic_to_ops",
+            "name": "spcxx_to_ops",
             "type": "u64"
           }
         ]
@@ -7757,11 +7888,11 @@
             "type": "u64"
           },
           {
-            "name": "openai_units",
+            "name": "nvdax_units",
             "type": "u64"
           },
           {
-            "name": "anthropic_units",
+            "name": "spcxx_units",
             "type": "u64"
           },
           {
@@ -7800,11 +7931,11 @@
             "type": "u64"
           },
           {
-            "name": "openai_units",
+            "name": "nvdax_units",
             "type": "u64"
           },
           {
-            "name": "anthropic_units",
+            "name": "spcxx_units",
             "type": "u64"
           },
           {
@@ -7837,11 +7968,11 @@
             "type": "u64"
           },
           {
-            "name": "openai_units",
+            "name": "nvdax_units",
             "type": "u64"
           },
           {
-            "name": "anthropic_units",
+            "name": "spcxx_units",
             "type": "u64"
           },
           {
@@ -7857,11 +7988,11 @@
             "type": "u64"
           },
           {
-            "name": "openai_distributed_units",
+            "name": "nvdax_distributed_units",
             "type": "u64"
           },
           {
-            "name": "anthropic_distributed_units",
+            "name": "spcxx_distributed_units",
             "type": "u64"
           },
           {
@@ -7900,11 +8031,11 @@
             "type": "u64"
           },
           {
-            "name": "openai_units",
+            "name": "nvdax_units",
             "type": "u64"
           },
           {
-            "name": "anthropic_units",
+            "name": "spcxx_units",
             "type": "u64"
           },
           {
@@ -8135,10 +8266,10 @@
             "name": "HubCrclx"
           },
           {
-            "name": "HubOpenai"
+            "name": "HubNvdax"
           },
           {
-            "name": "HubAnthropic"
+            "name": "HubSpcxx"
           }
         ]
       }
@@ -9004,7 +9135,7 @@
             "name": "lp_basket_active",
             "docs": [
               "§A5.1 extension — MemeStock basket LP beyond HUB/OTC, indexed by",
-              "`LpPair::basket_index()` (Crclx=0, Openai=1, Anthropic=2). Mirrors the 4 fields above",
+              "`LpPair::basket_index()` (Crclx=0, Nvdax=1, Spcxx=2 — i.e. CRCLx/NVDAx/SPCXx). Mirrors the 4 fields above",
               "exactly, generalized to an array so one compounder ix (`compound_lp_basket`) threshold-gates",
               "and deposits all three pairs. `lp_basket_pending_hub_units` is fed by `harvest_lp_fees`'",
               "HUB-side yield leg (there is no `finalize_epoch` earmark for these pairs — unlike HUB/OTC,",

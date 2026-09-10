@@ -15,13 +15,13 @@ use crate::state::*;
 pub enum LpPair {
     HubSol,
     HubOtc,
-    /// §A5.1 MemeStock basket extension — HUB paired with CRCLx / OpenAI-stock / Anthropic-stock.
+    /// §A5.1 MemeStock basket extension — HUB paired with CRCLx / NVDAx / SPCXx.
     /// Seeded once via `build_lp_basket_locked`, compounded via `compound_lp_basket`, harvested
     /// via `harvest_lp_fees`. See `basket_index` for the `TreasuryState.lp_basket_*` array slot
     /// each maps to.
     HubCrclx,
-    HubOpenai,
-    HubAnthropic,
+    HubNvdax,
+    HubSpcxx,
 }
 
 impl LpPair {
@@ -30,8 +30,8 @@ impl LpPair {
     pub fn basket_index(self) -> Option<usize> {
         match self {
             LpPair::HubCrclx => Some(0),
-            LpPair::HubOpenai => Some(1),
-            LpPair::HubAnthropic => Some(2),
+            LpPair::HubNvdax => Some(1),
+            LpPair::HubSpcxx => Some(2),
             LpPair::HubSol | LpPair::HubOtc => None,
         }
     }
@@ -78,7 +78,7 @@ pub fn build_lp(
         }
         // The basket pairs have their own dedicated, locked-only entry point
         // (`build_lp_basket_locked`) — this bookkeeping-only path never applies to them.
-        LpPair::HubCrclx | LpPair::HubOpenai | LpPair::HubAnthropic => {
+        LpPair::HubCrclx | LpPair::HubNvdax | LpPair::HubSpcxx => {
             return Err(error!(HubError::InvalidLpPair));
         }
     }
@@ -90,7 +90,7 @@ pub fn build_lp(
     match pair {
         LpPair::HubSol => ts.lp_hub_sol_active = true,
         LpPair::HubOtc => ts.lp_hub_otc_active = true,
-        LpPair::HubCrclx | LpPair::HubOpenai | LpPair::HubAnthropic => {
+        LpPair::HubCrclx | LpPair::HubNvdax | LpPair::HubSpcxx => {
             return Err(error!(HubError::InvalidLpPair));
         }
     }
@@ -266,7 +266,13 @@ pub fn compound_lp_otc(
     let vault_bump = ctx.accounts.treasury_state.vault_bump;
     let seeds: &[&[u8]] = &[SEED_VAULT, &[vault_bump]];
 
-    raydium_cpswap::deposit(pool_accounts, lp_token_amount, pending, otc_amount, &[seeds])?;
+    raydium_cpswap::deposit(
+        pool_accounts,
+        lp_token_amount,
+        pending,
+        otc_amount,
+        &[seeds],
+    )?;
     raydium_cpswap::lock_cp_liquidity(lock_accounts, lp_token_amount, with_metadata, &[seeds])?;
 
     let ts = &mut ctx.accounts.treasury_state;
@@ -329,7 +335,9 @@ pub fn build_lp_basket_locked(
     deposit_account_count: u8,
     with_metadata: bool,
 ) -> Result<()> {
-    let idx = pair.basket_index().ok_or_else(|| error!(HubError::InvalidLpPair))?;
+    let idx = pair
+        .basket_index()
+        .ok_or_else(|| error!(HubError::InvalidLpPair))?;
     require!(
         hub_amount > 0 && quote_amount > 0 && lp_token_amount > 0,
         HubError::ZeroAmount
@@ -409,7 +417,9 @@ pub fn compound_lp_basket(
     deposit_account_count: u8,
     with_metadata: bool,
 ) -> Result<()> {
-    let idx = pair.basket_index().ok_or_else(|| error!(HubError::InvalidLpPair))?;
+    let idx = pair
+        .basket_index()
+        .ok_or_else(|| error!(HubError::InvalidLpPair))?;
     require!(
         ctx.accounts.treasury_state.lp_basket_active[idx],
         HubError::InvalidLpPair
@@ -425,7 +435,10 @@ pub fn compound_lp_basket(
         pending >= LP_COMPOUND_MIN_HUB_UNITS,
         HubError::LpCompoundBelowThreshold
     );
-    require!(quote_amount > 0 && lp_token_amount > 0, HubError::ZeroAmount);
+    require!(
+        quote_amount > 0 && lp_token_amount > 0,
+        HubError::ZeroAmount
+    );
 
     let n = deposit_account_count as usize;
     require!(
@@ -437,7 +450,13 @@ pub fn compound_lp_basket(
     let vault_bump = ctx.accounts.treasury_state.vault_bump;
     let seeds: &[&[u8]] = &[SEED_VAULT, &[vault_bump]];
 
-    raydium_cpswap::deposit(pool_accounts, lp_token_amount, pending, quote_amount, &[seeds])?;
+    raydium_cpswap::deposit(
+        pool_accounts,
+        lp_token_amount,
+        pending,
+        quote_amount,
+        &[seeds],
+    )?;
     raydium_cpswap::lock_cp_liquidity(lock_accounts, lp_token_amount, with_metadata, &[seeds])?;
 
     let ts = &mut ctx.accounts.treasury_state;
@@ -476,7 +495,7 @@ pub fn compound_lp_basket(
 /// HUB-side harvest feeds straight back into *this pair's own* pending compounding earmark
 /// (`lp_pending_hub_units` for `HubOtc`, `lp_basket_pending_hub_units[idx]` for a basket pair) —
 /// thicker LP over time, no treasury signature needed. The quote-side harvest is credited
-/// directly to `HubPotConfig`'s matching bucket (`otc`/`crclx`/`openai`/`anthropic`
+/// directly to `HubPotConfig`'s matching bucket (`otc`/`crclx`/`nvdax`/`spcxx`
 /// pending+deposited units) — real yield flowing back to desk-holders — *provided* `quote_vault`
 /// is that bucket's own vault-owned ATA (verified against `hub_pot` in the handler), so the
 /// harvested tokens are already sitting where `open_hub_pot_round`/`distribute_hub_pot_reward`
@@ -516,8 +535,8 @@ pub fn harvest_lp_fees(ctx: Context<HarvestLpFees>, pair: LpPair) -> Result<()> 
     let expected_quote_vault = match pair {
         LpPair::HubOtc => hp.otc_vault,
         LpPair::HubCrclx => hp.crclx_vault,
-        LpPair::HubOpenai => hp.openai_vault,
-        LpPair::HubAnthropic => hp.anthropic_vault,
+        LpPair::HubNvdax => hp.nvdax_vault,
+        LpPair::HubSpcxx => hp.spcxx_vault,
         LpPair::HubSol => unreachable!(),
     };
     require_keys_eq!(
@@ -580,13 +599,13 @@ pub fn harvest_lp_fees(ctx: Context<HarvestLpFees>, pair: LpPair) -> Result<()> 
                 hp.crclx_pending_units = add(hp.crclx_pending_units, quote_harvested)?;
                 hp.crclx_deposited_units = add(hp.crclx_deposited_units, quote_harvested)?;
             }
-            LpPair::HubOpenai => {
-                hp.openai_pending_units = add(hp.openai_pending_units, quote_harvested)?;
-                hp.openai_deposited_units = add(hp.openai_deposited_units, quote_harvested)?;
+            LpPair::HubNvdax => {
+                hp.nvdax_pending_units = add(hp.nvdax_pending_units, quote_harvested)?;
+                hp.nvdax_deposited_units = add(hp.nvdax_deposited_units, quote_harvested)?;
             }
-            LpPair::HubAnthropic => {
-                hp.anthropic_pending_units = add(hp.anthropic_pending_units, quote_harvested)?;
-                hp.anthropic_deposited_units = add(hp.anthropic_deposited_units, quote_harvested)?;
+            LpPair::HubSpcxx => {
+                hp.spcxx_pending_units = add(hp.spcxx_pending_units, quote_harvested)?;
+                hp.spcxx_deposited_units = add(hp.spcxx_deposited_units, quote_harvested)?;
             }
             LpPair::HubSol => unreachable!(),
         }

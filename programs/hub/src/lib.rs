@@ -250,7 +250,7 @@ pub mod hub {
     }
 
     /// §A5.1 basket extension of `build_lp_otc_locked` — treasury-signed, seeds (or tops up)
-    /// one of the three MemeStock basket pairs' (HUB/CRCLx, HUB/OpenAI, HUB/Anthropic) locked
+    /// one of the three MemeStock basket pairs' (HUB/CRCLx, HUB/NVDAx, HUB/SPCXx) locked
     /// Raydium CP-Swap position.
     pub fn build_lp_basket_locked(
         ctx: Context<BuildLpBasketLocked>,
@@ -295,7 +295,7 @@ pub mod hub {
 
     /// §A5.1/§A6.2 yield leg — permissionless harvest of a locked position's accrued Raydium
     /// CP-Swap trading fees. The HUB-side leg feeds back into `pair`'s own pending compounding
-    /// earmark; the quote-side leg (OTC/CRCLx/OpenAI-stock/Anthropic-stock) is credited straight
+    /// earmark; the quote-side leg (OTC/CRCLx/NVDAx/SPCXx) is credited straight
     /// into `HubPotConfig`'s matching bucket, routing real yield back to desk-holders.
     pub fn harvest_lp_fees(ctx: Context<HarvestLpFees>, pair: LpPair) -> Result<()> {
         instructions::treasury::harvest_lp_fees(ctx, pair)
@@ -407,10 +407,22 @@ pub mod hub {
         ctx: Context<InitHubPot>,
         otc_mint: Pubkey,
         crclx_mint: Pubkey,
-        openai_mint: Pubkey,
-        anthropic_mint: Pubkey,
+        nvdax_mint: Pubkey,
+        spcxx_mint: Pubkey,
     ) -> Result<()> {
-        instructions::hub_pot::init_hub_pot(ctx, otc_mint, crclx_mint, openai_mint, anthropic_mint)
+        instructions::hub_pot::init_hub_pot(ctx, otc_mint, crclx_mint, nvdax_mint, spcxx_mint)
+    }
+
+    /// §A5.1 — authority-only: swaps one HUB Pot bucket's backing mint + vault (e.g. rotating a
+    /// synthetic pre-IPO token out for a directly-backed xStock RWA once its post-listing
+    /// deviation risk is reassessed). Requires the bucket's pending balance to be zero first;
+    /// any dust already sitting in the old vault is swept to `ops_wallet` rather than blocking.
+    pub fn update_hub_pot_mint(
+        ctx: Context<UpdateHubPotMint>,
+        bucket: HubPotBucket,
+        new_mint: Pubkey,
+    ) -> Result<()> {
+        instructions::hub_pot::update_hub_pot_mint(ctx, bucket, new_mint)
     }
 
     /// §A5.1 #34 — treasury deposits the 4 already-converted basket amounts (swapped off-chain
@@ -420,15 +432,15 @@ pub mod hub {
         ctx: Context<FundHubPot>,
         otc_amount: u64,
         crclx_amount: u64,
-        openai_amount: u64,
-        anthropic_amount: u64,
+        nvdax_amount: u64,
+        spcxx_amount: u64,
     ) -> Result<()> {
         instructions::hub_pot::fund_hub_pot(
             ctx,
             otc_amount,
             crclx_amount,
-            openai_amount,
-            anthropic_amount,
+            nvdax_amount,
+            spcxx_amount,
         )
     }
 
@@ -450,7 +462,7 @@ pub mod hub {
     }
 
     /// §A5.1 #37 — a desk's current owner pulls its own tier-weighted share of all 4 open
-    /// `HubPotRound` buckets ("M.I.M ETF" — $OTC/CRCLx/OpenAI/Anthropic), self-signed; shares the
+    /// `HubPotRound` buckets ("M.I.M ETF" — $OTC/CRCLx/NVDAx/SPCXx), self-signed; shares the
     /// same `HubPotClaim` PDA as `distribute_hub_pot_reward` so a desk can only ever be paid once
     /// per round regardless of which path is used (mirrors `claim_airdrop`/`distribute_airdrop`).
     pub fn claim_hub_pot_reward(ctx: Context<ClaimHubPotReward>, round_index: u32) -> Result<()> {

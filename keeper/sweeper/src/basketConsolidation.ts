@@ -1,17 +1,17 @@
 // §A5.1 — HUB Pot MemeStock basket consolidation. Converts the treasury's per-round 13-stock
-// desk-pot claim (source B) into the 4-token basket ($OTC, CRCLx, OpenAI, Anthropic) that funds
+// desk-pot claim (source B) into the 4-token basket ($OTC, CRCLx, NVDAx, SPCXx) that funds
 // `fund_hub_pot`. Pure decision/math logic only — no RPC/API calls, no signing, no Jupiter
 // quoting. The M4/M5 sweeper service wires this to live claim balances + a real Jupiter router
 // once it lands, mirroring how `arbitrage.ts`'s `decideAcquisition` is wired to live ME listings.
 //
 // Mirrors the spec flow exactly (docs/hubconnect-spec.md §A5.1):
-//   OTC, CRCLx, ANTHROPIC, OPENAI (4 native basket stocks) → pass straight through, NO SWAP
-//   the other 9 stocks → swap each to SOL → sum proceeds → split evenly 25/25/25/25 → swap
-//   each 25% share SOL → its bucket token
+//   OTC, CRCLx, NVDAx, SPCXx (4 native basket stocks) → pass straight through, NO SWAP
+//   the other 9 stocks (including ANTHROPIC, OPENAI) → swap each to SOL → sum proceeds →
+//   split evenly 25/25/25/25 → swap each 25% share SOL → its bucket token
 
 /** The 4 MemeStock basket buckets `fund_hub_pot` accepts, in on-chain arg order. */
-export type Bucket = "otc" | "crclx" | "openai" | "anthropic";
-export const BUCKETS: readonly Bucket[] = ["otc", "crclx", "openai", "anthropic"];
+export type Bucket = "otc" | "crclx" | "nvdax" | "spcxx";
+export const BUCKETS: readonly Bucket[] = ["otc", "crclx", "nvdax", "spcxx"];
 
 /** The 13-stock desk-pot rotation (verified layout, spec §A2): slots 0–9 in `Config`, slots
  *  10–12 (OTC, ANDURIL, OPENAI) in `ConfigExt`. */
@@ -37,8 +37,8 @@ export type RotationStock = (typeof ROTATION_STOCKS)[number];
 export const NATIVE_BUCKET_STOCK: Record<Bucket, RotationStock> = {
   otc: "OTC",
   crclx: "CRCLx",
-  openai: "OPENAI",
-  anthropic: "ANTHROPIC",
+  nvdax: "NVDAx",
+  spcxx: "SPCXx",
 };
 const NATIVE_STOCKS = new Set<RotationStock>(Object.values(NATIVE_BUCKET_STOCK));
 
@@ -74,7 +74,7 @@ export type ConsolidationPlan = {
 export function planBasketConsolidation(
   balances: Partial<Record<RotationStock, StockBalance>>,
 ): ConsolidationPlan {
-  const passThrough = { otc: 0n, crclx: 0n, openai: 0n, anthropic: 0n } as Record<Bucket, bigint>;
+  const passThrough = { otc: 0n, crclx: 0n, nvdax: 0n, spcxx: 0n } as Record<Bucket, bigint>;
   for (const bucket of BUCKETS) {
     const stock = NATIVE_BUCKET_STOCK[bucket];
     passThrough[bucket] = balances[stock]?.units ?? 0n;
@@ -95,8 +95,8 @@ export function planBasketConsolidation(
   const bucketSolLamports = {
     otc: perBucket,
     crclx: perBucket,
-    openai: perBucket,
-    anthropic: perBucket,
+    nvdax: perBucket,
+    spcxx: perBucket,
   };
 
   return { passThrough, stockToSolSwaps, totalSolLamports, bucketSolLamports };

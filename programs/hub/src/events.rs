@@ -335,12 +335,12 @@ pub struct TreasuryRewardDistributed {
 pub struct HubPotFunded {
     pub otc_amount: u64,
     pub crclx_amount: u64,
-    pub openai_amount: u64,
-    pub anthropic_amount: u64,
+    pub nvdax_amount: u64,
+    pub spcxx_amount: u64,
     pub otc_pending_after: u64,
     pub crclx_pending_after: u64,
-    pub openai_pending_after: u64,
-    pub anthropic_pending_after: u64,
+    pub nvdax_pending_after: u64,
+    pub spcxx_pending_after: u64,
 }
 
 /// §A5 revenue-model extension — `Config.protocol_fee_bp` skimmed per-mint into `ops_wallet`'s
@@ -350,8 +350,8 @@ pub struct HubPotFunded {
 pub struct HubPotProtocolFeeSkimmed {
     pub otc_to_ops: u64,
     pub crclx_to_ops: u64,
-    pub openai_to_ops: u64,
-    pub anthropic_to_ops: u64,
+    pub nvdax_to_ops: u64,
+    pub spcxx_to_ops: u64,
 }
 
 /// Permissionless snapshot: each bucket's pending balance split across the active desks' Σw.
@@ -360,8 +360,8 @@ pub struct HubPotRoundOpened {
     pub round: u32,
     pub otc_units: u64,
     pub crclx_units: u64,
-    pub openai_units: u64,
-    pub anthropic_units: u64,
+    pub nvdax_units: u64,
+    pub spcxx_units: u64,
     pub total_weight_bp: u64,
     pub ts: i64,
 }
@@ -374,8 +374,8 @@ pub struct HubPotRewardDistributed {
     pub owner: Pubkey,
     pub otc_units: u64,
     pub crclx_units: u64,
-    pub openai_units: u64,
-    pub anthropic_units: u64,
+    pub nvdax_units: u64,
+    pub spcxx_units: u64,
     pub claims: u32,
 }
 
@@ -388,7 +388,21 @@ pub struct HubPotRewardClaimed {
     pub claimant: Pubkey,
     pub otc_units: u64,
     pub crclx_units: u64,
-    pub openai_units: u64,
-    pub anthropic_units: u64,
+    pub nvdax_units: u64,
+    pub spcxx_units: u64,
     pub claims: u32,
+}
+
+/// Governance-only bucket mint swap (`update_hub_pot_mint`) — e.g. rotating a synthetic
+/// pre-IPO token out for a directly-backed xStock RWA once its deviation risk is reassessed.
+/// `swept_to_ops` is any dust the old vault held at swap time, sent to `Config.ops_wallet`'s ATA
+/// for `old_mint` so nothing is stranded once `hub_pot` stops pointing at `old_vault`.
+#[event]
+pub struct HubPotMintUpdated {
+    pub bucket: u8,
+    pub old_mint: Pubkey,
+    pub new_mint: Pubkey,
+    pub old_vault: Pubkey,
+    pub new_vault: Pubkey,
+    pub swept_to_ops: u64,
 }

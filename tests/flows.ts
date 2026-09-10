@@ -130,7 +130,13 @@ export function setOtcPaymentsEnabled(h: Harness, f: Fixture, enabled: boolean) 
 /** Accounts shared by both $OTC payment instructions: the $OTC-side pieces (pay config, mint,
  * yield-vault bookkeeping) plus the Jupiter program pinned for the swap-burn CPI. The flat SOL
  * fee (pot/ops/epoch) and $HUB-burn pieces are wired by the caller, exactly like the SOL path —
- * there is no more `opsOtcAccount`: the ops leg is paid in SOL now, not $OTC. */
+ * there is no more `opsOtcAccount`: the ops leg is paid in SOL now, not $OTC.
+ *
+ * On real mainnet accounts $OTC/basket mints are Token-2022 and $HUB is classic Token, hence the
+ * two distinct `otcTokenProgram`/`hubTokenProgram` accounts on `ActivateTierOtc`/`UpgradeTierOtc`
+ * (see `otc_pay.rs`). This harness's mock `otcMint`/`hubMint` (`ensureInitialized`) are both
+ * plain classic-SPL test mints, so both accounts point at the same classic `TOKEN_PROGRAM_ID`
+ * here — only the real basket needs Token-2022. */
 async function otcPayAccounts(h: Harness, f: Fixture) {
   const [otcPay] = otcPayPda(h.program.programId);
   const c = await h.program.account.config.fetch(f.config);
@@ -140,7 +146,8 @@ async function otcPayAccounts(h: Harness, f: Fixture) {
     otcPot: f.otcPot,
     otcVault: f.otcVault,
     hubMint: c.hubMint,
-    tokenProgram: TOKEN_PROGRAM_ID,
+    otcTokenProgram: TOKEN_PROGRAM_ID,
+    hubTokenProgram: TOKEN_PROGRAM_ID,
     jupiterProgram: new PublicKey(K.JUPITER_PROGRAM_ID),
     tokenomics: f.tokenomics,
     treasuryLockVault: f.treasuryLockVault,

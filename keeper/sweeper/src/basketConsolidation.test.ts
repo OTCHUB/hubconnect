@@ -21,15 +21,15 @@ describe("keeper/sweeper basketConsolidation — §A5.1 HUB Pot basket planning"
     const balances: Partial<Record<RotationStock, StockBalance>> = {
       OTC: { units: 1_000n, lamportsPerUnit: 50 },
       CRCLx: { units: 2_000n, lamportsPerUnit: 10 },
-      OPENAI: { units: 300n, lamportsPerUnit: 100 },
-      ANTHROPIC: { units: 40n, lamportsPerUnit: 900 },
+      NVDAx: { units: 300n, lamportsPerUnit: 100 },
+      SPCXx: { units: 40n, lamportsPerUnit: 900 },
     };
     const plan = planBasketConsolidation(balances);
     expect(plan.passThrough).to.deep.equal({
       otc: 1_000n,
       crclx: 2_000n,
-      openai: 300n,
-      anthropic: 40n,
+      nvdax: 300n,
+      spcxx: 40n,
     });
     expect(plan.stockToSolSwaps).to.have.length(0);
     expect(plan.totalSolLamports).to.equal(0);
@@ -39,12 +39,12 @@ describe("keeper/sweeper basketConsolidation — §A5.1 HUB Pot basket planning"
     const balances: Partial<Record<RotationStock, StockBalance>> = {
       AAPLx: { units: 10n, lamportsPerUnit: 1_000_000 },
       MSFTx: { units: 0n, lamportsPerUnit: 1_000_000 }, // zero — skipped
-      NVDAx: { units: 5n, lamportsPerUnit: 2_000_000 },
-      // AMZNx, SPCXx, POLYMARKET, KALSHI, NEURALINK, ANDURIL omitted entirely — skipped
+      ANTHROPIC: { units: 5n, lamportsPerUnit: 2_000_000 },
+      // AMZNx, OPENAI, POLYMARKET, KALSHI, NEURALINK, ANDURIL omitted entirely — skipped
     };
     const plan = planBasketConsolidation(balances);
     expect(plan.stockToSolSwaps).to.have.length(2);
-    expect(plan.stockToSolSwaps.map((s) => s.stock)).to.deep.equal(["AAPLx", "NVDAx"]);
+    expect(plan.stockToSolSwaps.map((s) => s.stock)).to.deep.equal(["AAPLx", "ANTHROPIC"]);
     const expectedTotal = 10 * 1_000_000 + 5 * 2_000_000;
     expect(plan.totalSolLamports).to.equal(expectedTotal);
   });
