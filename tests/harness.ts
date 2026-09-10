@@ -273,7 +273,11 @@ function initializeAccount3(account: PublicKey, mint: PublicKey, owner: PublicKe
 /** Fresh plain (non-ATA) spl-token account — needed whenever an owner needs two-or-more
  * accounts of the same mint (an ATA can only ever represent one); mirrors
  * `scripts/devnet-treasury-float.ts`, which tests must not import (env side effects). */
-async function createTokenAccount(h: Harness, mint: PublicKey, owner: PublicKey): Promise<PublicKey> {
+async function createTokenAccount(
+  h: Harness,
+  mint: PublicKey,
+  owner: PublicKey,
+): Promise<PublicKey> {
   const account = Keypair.generate();
   const rent = await h.provider.connection.getMinimumBalanceForRentExemption(TOKEN_ACCOUNT_SIZE);
   const tx = new Transaction().add(
@@ -304,6 +308,11 @@ export type Fixture = {
   hubMint: PublicKey;
   /** Real SPL mint backing `config.otc_mint` — the §A5 yield leg is paid out in this. */
   otcMint: PublicKey;
+  /** Real SPL mint backing `config.usdc_mint` — the two-hop `finalize_epoch` swap's
+   * intermediate leg (hop1's WSOL→USDC destination, hop2's USDC→$HUB source). */
+  usdcMint: PublicKey;
+  /** Vault-owned USDC scratch ATA on `TreasuryState.vault_usdc` (`init_treasury_float`). */
+  vaultUsdc: PublicKey;
   /** `["otc_pot"]` — §A5 lifetime-average-buy-rate bookkeeping for `claim_yield`. */
   otcPot: PublicKey;
   /** Pot-owned $OTC token account `record_otc_buy` deposits into / `claim_yield` pays from. */
@@ -312,6 +321,11 @@ export type Fixture = {
   opsOtc: PublicKey;
   /** Payer's own $OTC account, funded once, used as the `record_otc_buy` source in tests. */
   keeperOtc: PublicKey;
+  /** `["tokenomics"]` — Appendix supply plan + airdrop root + reward-pool bookkeeping. */
+  tokenomics: PublicKey;
+  /** Vault-owned $HUB scratch account recorded on `TokenomicsConfig` at `init_tokenomics` — the
+   * 50%-of-cost "reward" leg of `activate_tier`/`upgrade_tier`'s burn split lands here. */
+  treasuryLockVault: PublicKey;
 };
 
 let fixture: Fixture | null = null;
@@ -322,7 +336,7 @@ let fixture: Fixture | null = null;
  */
 export async function ensureInitialized(h: Harness): Promise<Fixture> {
   if (fixture) return fixture;
-  const { configPda, potPda, burnPda, treasuryPda, vaultPda, epochPda, otcPotPda } =
+  const { configPda, potPda, burnPda, treasuryPda, vaultPda, epochPda, otcPotPda, tokenomicsPda } =
     await import("../sdk/src/pda");
   const id = h.program.programId;
   const [config] = configPda(id);
@@ -332,12 +346,25 @@ export async function ensureInitialized(h: Harness): Promise<Fixture> {
   const [vault] = vaultPda(id);
   const [epoch0] = epochPda(id, 0);
   const [otcPot] = otcPotPda(id);
+  const [tokenomics] = tokenomicsPda(id);
 
   const existing = await h.program.account.config.fetchNullable(config);
   if (existing) {
     const otcVault = ata(pot, existing.otcMint);
     const opsOtc = ata(existing.opsWallet, existing.otcMint);
     const keeperOtc = ata(h.payer.publicKey, existing.otcMint);
+    const existingTreasury = await h.program.account.treasuryState.fetch(treasuryState);
+    // §A7.1 tokenomics singleton — required by activate_tier/upgrade_tier's 50/50 burn-split
+    // (Config.tier_cost_burn_bp) since it owns treasury_lock_vault, the reward-pool destination.
+    // Devnet re-runs may predate this requirement, so create it lazily if still missing.
+    const treasuryLockVault = await initTokenomicsIfMissing(
+      h,
+      config,
+      treasuryState,
+      vault,
+      existing.hubMint,
+      tokenomics,
+    );
     fixture = {
       config,
       pot,
@@ -349,10 +376,14 @@ export async function ensureInitialized(h: Harness): Promise<Fixture> {
       treasury: h.payer,
       hubMint: existing.hubMint,
       otcMint: existing.otcMint,
+      usdcMint: existing.usdcMint,
+      vaultUsdc: existingTreasury.vaultUsdc,
       otcPot,
       otcVault,
       opsOtc,
       keeperOtc,
+      tokenomics,
+      treasuryLockVault,
     };
     return fixture;
   }
@@ -363,6 +394,10 @@ export async function ensureInitialized(h: Harness): Promise<Fixture> {
   // claim_yield / record_otc_buy move real balances through otcMint's pot-owned vault.
   const hubMint = await createSplMint(h, 6);
   const otcMint = await createSplMint(h, 6);
+  // Two-hop `finalize_epoch`'s intermediate USDC leg — a plain test SPL mint, same as
+  // hubMint/otcMint above; the real USDC mint has no meaning on a forked-mainnet test
+  // validator without a matching pool for this run's freshly-minted $HUB.
+  const usdcMint = await createSplMint(h, 6);
   const otcVault = ata(pot, otcMint);
   const opsOtc = ata(opsWallet, otcMint);
   const keeperOtc = ata(h.payer.publicKey, otcMint);
@@ -376,6 +411,7 @@ export async function ensureInitialized(h: Harness): Promise<Fixture> {
       deskCollection,
       hubMint,
       otcMint,
+      usdcMint,
       minPotThresholdLamports: new anchor.BN(h.thresholdLamports),
     })
     .accountsPartial({ payer: h.payer.publicKey, config, pot, burn, treasuryState, vault, epoch0 })
@@ -408,6 +444,7 @@ export async function ensureInitialized(h: Harness): Promise<Fixture> {
   // (owner, mint), which an ATA can't represent twice, so both are plain spl-token accounts.
   const wsolMint = new PublicKey(K.WSOL_MINT);
   const vaultWsol = await createTokenAccount(h, wsolMint, vault);
+  const vaultUsdc = await createTokenAccount(h, usdcMint, vault);
   const vaultHub = await createTokenAccount(h, hubMint, vault);
   const treasuryFloatVault = await createTokenAccount(h, hubMint, vault);
   await h.program.methods
@@ -418,10 +455,22 @@ export async function ensureInitialized(h: Harness): Promise<Fixture> {
       treasuryState,
       vault,
       vaultWsol,
+      vaultUsdc,
       vaultHub,
       treasuryFloatVault,
     })
     .rpc();
+
+  // §A7.1 tokenomics singleton — activate_tier/upgrade_tier's 50/50 burn-split
+  // (Config.tier_cost_burn_bp) needs treasury_lock_vault as its reward-pool destination.
+  const treasuryLockVault = await initTokenomicsIfMissing(
+    h,
+    config,
+    treasuryState,
+    vault,
+    hubMint,
+    tokenomics,
+  );
 
   fixture = {
     config,
@@ -434,12 +483,46 @@ export async function ensureInitialized(h: Harness): Promise<Fixture> {
     treasury: h.payer,
     hubMint,
     otcMint,
+    usdcMint,
+    vaultUsdc,
     otcPot,
     otcVault,
     opsOtc,
     keeperOtc,
+    tokenomics,
+    treasuryLockVault,
   };
   return fixture;
+}
+
+/** Create `airdrop_vault` + `treasury_lock_vault` (plain spl-token, owned by the vault PDA,
+ * mint = hubMint) and call `init_tokenomics` if the singleton doesn't already exist. Returns
+ * the resulting `treasury_lock_vault` address either way. */
+async function initTokenomicsIfMissing(
+  h: Harness,
+  config: PublicKey,
+  treasuryState: PublicKey,
+  vault: PublicKey,
+  hubMint: PublicKey,
+  tokenomics: PublicKey,
+): Promise<PublicKey> {
+  const existing = await h.program.account.tokenomicsConfig.fetchNullable(tokenomics);
+  if (existing) return existing.treasuryLockVault;
+  const airdropVault = await createTokenAccount(h, hubMint, vault);
+  const treasuryLockVault = await createTokenAccount(h, hubMint, vault);
+  await h.program.methods
+    .initTokenomics()
+    .accountsPartial({
+      authority: h.payer.publicKey,
+      config,
+      treasuryState,
+      vault,
+      airdropVault,
+      treasuryLockVault,
+      tokenomics,
+    })
+    .rpc();
+  return treasuryLockVault;
 }
 
 export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));

@@ -1,6 +1,6 @@
 // One full treasury → pot → stakers → burn cycle on devnet, with every invariant asserted.
 //   npx ts-node -T scripts/devnet-yield-cycle.ts [--sweep-price 0.05] [--desk-round 0.144]
-//        [--inflow-c 0] [--hub-per-sol 1000000] [--no-sweep] [--quick]
+//        [--inflow-c 0] [--usdc-per-sol 150] [--hub-per-usdc 6666] [--no-sweep] [--quick]
 //
 // Mainnet model (§A5): OTC creator fees feed the OTC desk pot; every desk claims a desk-pot
 // round (≈0.144 SOL/desk/day). Rounds claimed by TREASURY-OWNED desks are pot inflow source B;
@@ -37,12 +37,7 @@
 //
 // --quick is the streamlined path (no sweep/mint): inflow → finalize → claim → burn on whatever
 // treasury-owned desks already exist.
-import {
-  Keypair,
-  LAMPORTS_PER_SOL,
-  PublicKey,
-  SystemProgram,
-} from "@solana/web3.js";
+import { Keypair, LAMPORTS_PER_SOL, PublicKey, SystemProgram } from "@solana/web3.js";
 import { BN } from "@anchor-lang/core";
 import {
   createSignerFromKeypair,
@@ -114,13 +109,15 @@ const check = (label: string, ok: boolean, detail = "") => {
 const failures: string[] = [];
 
 /**
- * §A5 swap-leg builder for `finalize_epoch` — devnet has no real Jupiter liquidity for $HUB, so
- * this sizes a `mock_jupiter` route instead: `amountIn` is the exact `swap_total` (burn + lp +
- * treasury-float bps of the round's effective inflow, floored leg-by-leg to match the program's
- * own `bps_of` calls) and `amountOut` simulates a fill at `hubPerSol` $HUB per SOL. `minHubOut`
- * is set to that same amount since the mock always delivers exactly `amountOut`.
+ * §A5 two-hop swap-leg builder for `finalize_epoch` — devnet has no real Jupiter liquidity for
+ * $HUB, so this sizes two `mock_jupiter` routes instead: `amountIn` for hop1 (WSOL→USDC) is the
+ * exact `swap_total` (burn + lp + treasury-float bps of the round's effective inflow, floored
+ * leg-by-leg to match the program's own `bps_of` calls); hop1's simulated USDC output (at
+ * `usdcPerSol` USDC per SOL) becomes hop2's (USDC→$HUB) `amountIn`, which fills at `hubPerUsdc`
+ * $HUB per USDC. `minUsdcOut`/`minHubOut` are set to those same amounts since the mock always
+ * delivers exactly `amountOut`.
  */
-function buildFinalizeSwap(ctx: Ctx, hubPerSol: number): FinalizeSwapBuilder {
+function buildFinalizeSwap(ctx: Ctx, usdcPerSol: number, hubPerUsdc: number): FinalizeSwapBuilder {
   return async (effectiveLamports, cfg) => {
     const [vault] = vaultPda(ctx.program.programId);
     const [treasuryStateKey] = treasuryPda(ctx.program.programId);
@@ -128,21 +125,37 @@ function buildFinalizeSwap(ctx: Ctx, hubPerSol: number): FinalizeSwapBuilder {
     const bpsOf = (bp: number) => Math.floor((effectiveLamports * bp) / 10_000);
     const swapTotal = bpsOf(cfg.burnPctBp) + bpsOf(cfg.lpPctBp) + bpsOf(cfg.treasuryFloatPctBp);
     if (swapTotal === 0) return {};
-    const amountOut = (BigInt(swapTotal) * BigInt(hubPerSol) * 1_000_000n) / BigInt(LAMPORTS_PER_SOL);
-    const { jupiterData, remainingAccounts } = mockRoute({
+    const wsolMint = new PublicKey(WSOL_MINT);
+    const usdcOut =
+      (BigInt(swapTotal) * BigInt(usdcPerSol) * 1_000_000n) / BigInt(LAMPORTS_PER_SOL);
+    const hop1 = mockRoute({
       sourceAuthority: vault,
       sourceAuthorityIsSigner: false, // vault is a PDA — hub itself re-signs via invoke_signed
       sourceTokenAccount: treasury.vaultWsol,
-      sourceMint: new PublicKey(WSOL_MINT),
+      sourceMint: wsolMint,
+      destinationTokenAccount: treasury.vaultUsdc,
+      destinationMint: cfg.usdcMint,
+      amountIn: swapTotal,
+      amountOut: usdcOut,
+    });
+    const hubOut = (usdcOut * BigInt(hubPerUsdc) * 1_000_000n) / 1_000_000n;
+    const hop2 = mockRoute({
+      sourceAuthority: vault,
+      sourceAuthorityIsSigner: false,
+      sourceTokenAccount: treasury.vaultUsdc,
+      sourceMint: cfg.usdcMint,
       destinationTokenAccount: treasury.vaultHub,
       destinationMint: cfg.hubMint,
-      amountIn: swapTotal,
-      amountOut,
+      amountIn: usdcOut,
+      amountOut: hubOut,
     });
     return {
-      minHubOut: amountOut,
-      jupiterData,
-      remainingAccounts,
+      minUsdcOut: usdcOut,
+      minHubOut: hubOut,
+      hop1Data: hop1.jupiterData,
+      hop2Data: hop2.jupiterData,
+      hop1Accounts: hop1.remainingAccounts,
+      hop2Accounts: hop2.remainingAccounts,
       jupiterProgram: MOCK_JUPITER_PROGRAM,
     };
   };
@@ -299,6 +312,8 @@ async function main() {
     throw new Error("Config.hub_mint unset — devnet:mint");
   if (cfg0.otcMint.equals(PublicKey.default))
     throw new Error("Config.otc_mint unset — devnet:otc-mint");
+  if (cfg0.usdcMint.equals(PublicKey.default))
+    throw new Error("Config.usdc_mint unset — mock-jupiter-setup.ts");
   const [otcPotKey] = otcPotPda(ctx.program.programId);
   const otcPot0Raw = await ctx.program.account.otcPotState.fetchNullable(otcPotKey);
   if (!otcPot0Raw) throw new Error("OtcPotState not initialized — run devnet:otc-mint first");
@@ -307,11 +322,14 @@ async function main() {
   const price = lam(argNum("--sweep-price", 0.05));
   const deskRound = lam(argNum("--desk-round", MAINNET_DESK_ROUND_SOL));
   const inflowC = lam(argNum("--inflow-c", 0));
-  const hubPerSol = argNum("--hub-per-sol", 1_000_000);
+  // Two-hop mock fill rates (see buildFinalizeSwap): hop1 WSOL→USDC at usdcPerSol USDC/SOL
+  // (≈ current SOL price), hop2 USDC→$HUB at hubPerUsdc $HUB/USDC.
+  const usdcPerSol = argNum("--usdc-per-sol", 150);
+  const hubPerUsdc = argNum("--hub-per-usdc", 6_667);
   const otcPerSol = argNum("--otc-per-sol", 5_000_000);
   const collection = cfg0.deskCollection;
   const claimerOtc = ata(ctx.payer.publicKey, cfg0.otcMint);
-  const finalizeSwap = buildFinalizeSwap(ctx, hubPerSol);
+  const finalizeSwap = buildFinalizeSwap(ctx, usdcPerSol, hubPerUsdc);
 
   console.log("\n[0] BRING CURRENT");
   // A leftover round already at threshold would make the negative gate check meaningless:
@@ -394,7 +412,9 @@ async function main() {
       `  rounds booked ${sol(pre.effective)} < threshold ${sol(pre.threshold)} — topping up ${sol(pre.shortfall)} (C)`,
     );
   }
-  const burnedBeforeFinalize = big((await ctx.program.account.burnState.fetch(burnKey)).totalHubBurned);
+  const burnedBeforeFinalize = big(
+    (await ctx.program.account.burnState.fetch(burnKey)).totalHubBurned,
+  );
   const [treasuryStateKey] = treasuryPda(ctx.program.programId);
   // §A5: the LP-build leg is now swapped SOL→$HUB inside finalize_epoch, so this is $HUB base
   // units post-swap (TreasuryState.lp_pending_hub_units), not a lamports figure anymore.
@@ -451,7 +471,9 @@ async function main() {
     `${acc0} → ${cfg3.accPerWeight}`,
   );
   check("Σw snapshot == Config.total_weight_bp", epoch.totalWeightBp.eq(e1.cfg.totalWeightBp));
-  const burnedAfterFinalize = big((await ctx.program.account.burnState.fetch(burnKey)).totalHubBurned);
+  const burnedAfterFinalize = big(
+    (await ctx.program.account.burnState.fetch(burnKey)).totalHubBurned,
+  );
   // Exact $HUB amount depends on the Jupiter route's fill price (same caveat as LP/float below);
   // only assert the synchronous burn CPI actually landed when there was a burn leg to swap.
   check(

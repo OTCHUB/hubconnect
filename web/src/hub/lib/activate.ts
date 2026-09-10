@@ -33,10 +33,12 @@ import {
   otcPotPda,
   potPda,
   tierPda,
+  tokenomicsPda,
   type ConfigView,
   type HubProgram,
   type OtcPayView,
   type OtcPotView,
+  type TokenomicsView,
 } from "@hub-sdk";
 import { buildClaimYieldIx } from "./claim";
 import type { TxLog } from "./swap";
@@ -215,6 +217,9 @@ export async function buildTierChangeIxs(opts: {
   /** §A5 90% leg state — required to settle pending yield before an upgrade (see below), and to
    *  fund the $OTC path's desk-pot vault. */
   otcPot: OtcPotView | null;
+  /** Required — the 50%-of-cost "reward" leg of the burn split lands in
+   *  `tokenomics.treasuryLockVault` (see `Config.tier_cost_burn_bp`). */
+  tokenomics: TokenomicsView | null;
   pendingLamports: number;
   /** Required for `method: "otc"` — a live route from `fetchOtcToHubRoute`, sized to clear this
    *  call's `hubCostDeltaUnits`. Unused on the SOL path. */
@@ -222,6 +227,8 @@ export async function buildTierChangeIxs(opts: {
 }): Promise<TransactionInstruction[]> {
   const { program, payer, deskAsset, fromTier, toTier, method, config, otcPay, otcPot } = opts;
   assertTierRange(fromTier, toTier);
+  if (!opts.tokenomics)
+    throw new Error("TokenomicsConfig isn't initialized on this cluster (init_tokenomics)");
   const id = program.programId;
   const ixs: TransactionInstruction[] = [];
   if (fromTier > 0 && opts.pendingLamports > 0) {
@@ -245,6 +252,8 @@ export async function buildTierChangeIxs(opts: {
     hubMint,
     payerHub: ataPda(payer, hubMint)[0],
     tokenProgram: new PublicKey(TOKEN_PROGRAM_ID),
+    tokenomics: tokenomicsPda(id)[0],
+    treasuryLockVault: new PublicKey(opts.tokenomics.treasuryLockVault),
   };
 
   if (method === "sol") {
@@ -309,6 +318,8 @@ export async function executeTierChange(opts: {
   /** §A5 90% leg state — only needed when `pendingLamports > 0` on an upgrade, or on the $OTC
    *  path (desk-pot vault destination). */
   otcPot: OtcPotView | null;
+  /** Required — see `buildTierChangeIxs`. */
+  tokenomics: TokenomicsView | null;
   pendingLamports: number;
   /** Required for `method: "otc"` — see `buildTierChangeIxs`. */
   otcRoute?: OtcSwapRoute;
@@ -330,6 +341,7 @@ export async function executeTierChange(opts: {
       config: opts.config,
       otcPay: opts.otcPay,
       otcPot: opts.otcPot,
+      tokenomics: opts.tokenomics,
       pendingLamports: opts.pendingLamports,
       otcRoute: opts.otcRoute,
     });

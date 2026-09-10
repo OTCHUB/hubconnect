@@ -66,10 +66,22 @@ export type ConfigView = {
   deskCollection: string;
   hubMint: string;
   otcMint: string;
+  /** USDC mint used by `finalize_epoch`'s two-hop price-discovery swap (WSOL→USDC→$HUB). */
+  usdcMint: string;
   tierWeightsBp: number[];
   stepFeeLamports: number;
-  /** $HUB base units required to reach each tier from scratch (cumulative table). */
-  tierHubCostUnits: number[];
+  /** Fixed USD target per tier, in micro-USDC (6 decimals) — never changes at runtime. */
+  tierUsdCostMicros: number[];
+  /** $HUB base units currently equal to `tierUsdCostMicros`, refreshed by `finalize_epoch`'s
+   * two-hop Jupiter price observation. Raw cache value — ignores staleness; most callers want
+   * `hubCost`/`hubCostDelta` instead, which apply the same `PRICE_STALENESS_SECS` fallback to
+   * the ceiling table (`TIER_HUB_COST_UNITS`) the on-chain `Config::hub_cost` uses. */
+  tierHubCostUnitsCached: number[];
+  /** Unix timestamp of the last eligible price update; 0 = never updated (treated as stale). */
+  lastPriceUpdateTs: number;
+  /** bp of every tier activation/upgrade's $HUB cost that is burned outright — the remainder
+   * funds the active-desk reward pool. */
+  tierCostBurnBp: number;
   minPotThresholdLamports: number;
   burnPctBp: number;
   /** §A5 2.5% — swapped SOL→$HUB at finalize and earmarked into `TreasuryView.lpPendingHubUnits`
@@ -340,6 +352,9 @@ export type ProtocolState = {
   otcPot: OtcPotView | null;
   /** `null` until the authority calls `init_creator_fee_state` (§A6.3 flywheel not provisioned). */
   creatorFee: CreatorFeeView | null;
+  /** `null` until the authority calls `init_tokenomics` — required by `activate_tier`/
+   * `upgrade_tier`'s 50/50 burn-split, which needs `treasuryLockVault` as its reward-pool leg. */
+  tokenomics: TokenomicsView | null;
   token: HubTokenState;
   supply: SupplyView;
 };
@@ -381,9 +396,15 @@ export function toConfigView(
     deskCollection: c.deskCollection.toBase58(),
     hubMint: c.hubMint.toBase58(),
     otcMint: c.otcMint.toBase58(),
+    usdcMint: c.usdcMint.toBase58(),
     tierWeightsBp: [...c.tierWeightsBp],
     stepFeeLamports: n(c.stepFeeLamports),
-    tierHubCostUnits: c.tierHubCostUnits.map((v) => n(v)),
+    tierUsdCostMicros: c.tierUsdCostMicros.map((v: { toNumber(): number } | number) => n(v)),
+    tierHubCostUnitsCached: c.tierHubCostUnitsCached.map((v: { toNumber(): number } | number) =>
+      n(v),
+    ),
+    lastPriceUpdateTs: n(c.lastPriceUpdateTs),
+    tierCostBurnBp: c.tierCostBurnBp,
     minPotThresholdLamports: n(c.minPotThresholdLamports),
     burnPctBp: c.burnPctBp,
     lpPctBp: c.lpPctBp,
@@ -447,21 +468,27 @@ export async function fetchProtocolState(program: HubProgram): Promise<ProtocolS
   const [creatorFeeKey] = creatorFeePda(id);
   const [tresKey] = treasuryPda(id);
   const [vaultKey] = vaultPda(id);
+  const [tokenomicsKey] = tokenomicsPda(id);
   const connection = program.provider.connection;
 
-  const [cur, prev, potInfo, burn, otcPot, creatorFee, tres, token] = await Promise.all([
-    program.account.epoch.fetch(curKey),
-    config.currentEpoch > 0 ? program.account.epoch.fetchNullable(prevKey) : Promise.resolve(null),
-    connection.getAccountInfo(potKey),
-    program.account.burnState.fetch(burnKey),
-    program.account.otcPotState.fetchNullable(otcPotKey),
-    program.account.creatorFeeState.fetchNullable(creatorFeeKey),
-    program.account.treasuryState.fetch(tresKey),
-    fetchHubTokenState(connection, new PublicKey(config.hubMint), [
-      new PublicKey(config.treasury),
-      vaultKey,
-    ]),
-  ]);
+  const [cur, prev, potInfo, burn, otcPot, creatorFee, tres, token, tokenomics] = await Promise.all(
+    [
+      program.account.epoch.fetch(curKey),
+      config.currentEpoch > 0
+        ? program.account.epoch.fetchNullable(prevKey)
+        : Promise.resolve(null),
+      connection.getAccountInfo(potKey),
+      program.account.burnState.fetch(burnKey),
+      program.account.otcPotState.fetchNullable(otcPotKey),
+      program.account.creatorFeeState.fetchNullable(creatorFeeKey),
+      program.account.treasuryState.fetch(tresKey),
+      fetchHubTokenState(connection, new PublicKey(config.hubMint), [
+        new PublicKey(config.treasury),
+        vaultKey,
+      ]),
+      program.account.tokenomicsConfig.fetchNullable(tokenomicsKey),
+    ],
+  );
 
   const ledgerBurned = big(burn.totalHubBurned);
   const lpHubDepositedUnits = big(tres.lpHubDeposited);
@@ -476,6 +503,7 @@ export async function fetchProtocolState(program: HubProgram): Promise<ProtocolS
     },
     otcPot: otcPot ? toOtcPotView(otcPot) : null,
     creatorFee: creatorFee ? toCreatorFeeView(creatorFee) : null,
+    tokenomics: tokenomics ? toTokenomicsView(tokenomics) : null,
     treasury: {
       desksOwned: tres.desksOwned,
       totalExits: tres.totalExits,

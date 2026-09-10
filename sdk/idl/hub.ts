@@ -133,6 +133,37 @@ export type Hub = {
           }
         },
         {
+          "name": "tokenomics",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  111,
+                  107,
+                  101,
+                  110,
+                  111,
+                  109,
+                  105,
+                  99,
+                  115
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasuryLockVault",
+          "docs": [
+            "the 50%-of-cost \"reward\" leg of the tier-activation burn split lands here (see",
+            "`Config.tier_cost_burn_bp`), same destination `fund_treasury_reward` uses."
+          ],
+          "writable": true
+        },
+        {
           "name": "systemProgram",
           "address": "11111111111111111111111111111111"
         }
@@ -298,7 +329,7 @@ export type Hub = {
         {
           "name": "payerHub",
           "docs": [
-            "destination; burned in full immediately after (this *is* the tier's $HUB cost burn)."
+            "destination; split burned/reward immediately after (see `tier_cost_burn_bp`)."
           ],
           "writable": true
         },
@@ -328,6 +359,37 @@ export type Hub = {
               }
             ]
           }
+        },
+        {
+          "name": "tokenomics",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  111,
+                  107,
+                  101,
+                  110,
+                  111,
+                  109,
+                  105,
+                  99,
+                  115
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasuryLockVault",
+          "docs": [
+            "the burn split lands here (mirrors `tiers.rs`'s SOL path, so paying in $OTC isn't",
+            "structurally cheaper or more punitive)."
+          ],
+          "writable": true
         },
         {
           "name": "systemProgram",
@@ -445,6 +507,122 @@ export type Hub = {
         {
           "name": "quoteAmount",
           "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "buildLpBasketLocked",
+      "docs": [
+        "§A5.1 basket extension of `build_lp_otc_locked` — treasury-signed, seeds (or tops up)",
+        "one of the three MemeStock basket pairs' (HUB/CRCLx, HUB/OpenAI, HUB/Anthropic) locked",
+        "Raydium CP-Swap position."
+      ],
+      "discriminator": [
+        60,
+        84,
+        55,
+        236,
+        15,
+        172,
+        54,
+        117
+      ],
+      "accounts": [
+        {
+          "name": "treasury",
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasuryState",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "docs": [
+            "deposit/lock authority — `invoke_signed` below elevates it to a signer via its seeds."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "pair",
+          "type": {
+            "defined": {
+              "name": "lpPair"
+            }
+          }
+        },
+        {
+          "name": "hubAmount",
+          "type": "u64"
+        },
+        {
+          "name": "quoteAmount",
+          "type": "u64"
+        },
+        {
+          "name": "lpTokenAmount",
+          "type": "u64"
+        },
+        {
+          "name": "depositAccountCount",
+          "type": "u8"
+        },
+        {
+          "name": "withMetadata",
+          "type": "bool"
         }
       ]
     },
@@ -1206,6 +1384,256 @@ export type Hub = {
         }
       ],
       "args": []
+    },
+    {
+      "name": "compoundLpBasket",
+      "docs": [
+        "§A5.1 basket sibling of `compound_lp_otc` — permissionless, uncapped, deposits the",
+        "entire `TreasuryState.lp_basket_pending_hub_units[pair]` earmark (fed by",
+        "`harvest_lp_fees`, not `finalize_epoch`) once it clears `LP_COMPOUND_MIN_HUB_UNITS`."
+      ],
+      "discriminator": [
+        226,
+        106,
+        155,
+        126,
+        166,
+        68,
+        62,
+        96
+      ],
+      "accounts": [
+        {
+          "name": "keeper",
+          "docs": [
+            "Permissionless — no `has_one` check, mirrors `compound_lp_otc`."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasuryState",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "pair",
+          "type": {
+            "defined": {
+              "name": "lpPair"
+            }
+          }
+        },
+        {
+          "name": "quoteAmount",
+          "type": "u64"
+        },
+        {
+          "name": "lpTokenAmount",
+          "type": "u64"
+        },
+        {
+          "name": "depositAccountCount",
+          "type": "u8"
+        },
+        {
+          "name": "withMetadata",
+          "type": "bool"
+        }
+      ]
+    },
+    {
+      "name": "compoundLpOtc",
+      "docs": [
+        "§A6.2 phase-2 auto-compounder — permissionless: deposits the *entire*",
+        "`TreasuryState.lp_pending_hub_units` earmark every call (uncapped — locked forever, only",
+        "ever grows). Any keeper may call it once the pending earmark clears",
+        "`LP_COMPOUND_MIN_HUB_UNITS`."
+      ],
+      "discriminator": [
+        180,
+        153,
+        192,
+        78,
+        101,
+        111,
+        250,
+        161
+      ],
+      "accounts": [
+        {
+          "name": "keeper",
+          "docs": [
+            "Permissionless — no `has_one` check, mirrors `FinalizeEpoch { keeper: Signer }`."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasuryState",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "hubMint",
+          "docs": [
+            "stability, see doc comment above)."
+          ],
+          "writable": true
+        },
+        {
+          "name": "vaultHub",
+          "docs": [
+            "deposit source below."
+          ],
+          "writable": true
+        },
+        {
+          "name": "burn",
+          "docs": [
+            "Unused (no burn leg) — kept for account-list stability, see doc comment above."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  114,
+                  110
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "tokenProgram"
+        }
+      ],
+      "args": [
+        {
+          "name": "otcAmount",
+          "type": "u64"
+        },
+        {
+          "name": "lpTokenAmount",
+          "type": "u64"
+        },
+        {
+          "name": "depositAccountCount",
+          "type": "u8"
+        },
+        {
+          "name": "withMetadata",
+          "type": "bool"
+        }
+      ]
     },
     {
       "name": "devnetReset",
@@ -2088,10 +2516,13 @@ export type Hub = {
       "name": "finalizeEpoch",
       "docs": [
         "§B3 #4 / §A5 4-way split — 90% distributed to desks (unchanged mechanic); the other 10%",
-        "(5% burn / 2.5% LP / 2.5% treasury float) is swapped SOL→$HUB via a synchronous Jupiter",
-        "CPI executed inside this instruction. `jupiter_data`/`ctx.remaining_accounts` are the",
-        "caller-assembled Jupiter route (see `jupiter_swap::swap_exact_in`); `min_hub_out` floors",
-        "the swap's received $HUB."
+        "(5% burn / 2.5% LP / 2.5% treasury float) is swapped SOL→$HUB via a two-hop synchronous",
+        "Jupiter CPI executed inside this instruction: hop1 WSOL→USDC, hop2 USDC→$HUB. `ctx",
+        ".remaining_accounts[..hop1_account_count]`/`hop1_data` are hop1's caller-assembled route;",
+        "the remainder of `remaining_accounts`/`hop2_data` are hop2's (see",
+        "`jupiter_swap::swap_exact_in`). `min_usdc_out`/`min_hub_out` floor each hop's output. The",
+        "realized USDC/HUB rate this observes also refreshes `Config.tier_hub_cost_units_cached`",
+        "when `sol_swapped_lamports` clears `PRICE_UPDATE_MIN_SOL_LAMPORTS` (see `epochs.rs`)."
       ],
       "discriminator": [
         159,
@@ -2258,6 +2689,13 @@ export type Hub = {
           "writable": true
         },
         {
+          "name": "vaultUsdc",
+          "docs": [
+            "(USDC→$HUB) source; the intermediate leg of the two-hop price-discovery swap."
+          ],
+          "writable": true
+        },
+        {
           "name": "vaultHub",
           "docs": [
             "`lp_pending_hub_units`'s physical custody."
@@ -2285,11 +2723,23 @@ export type Hub = {
           "type": "u64"
         },
         {
+          "name": "minUsdcOut",
+          "type": "u64"
+        },
+        {
           "name": "minHubOut",
           "type": "u64"
         },
         {
-          "name": "jupiterData",
+          "name": "hop1AccountCount",
+          "type": "u16"
+        },
+        {
+          "name": "hop1Data",
+          "type": "bytes"
+        },
+        {
+          "name": "hop2Data",
           "type": "bytes"
         }
       ]
@@ -2403,6 +2853,25 @@ export type Hub = {
           "writable": true
         },
         {
+          "name": "opsOtc",
+          "docs": [
+            "ATA (mint/owner verified in handler), same 10% carve-out as `register_treasury_inflow`."
+          ],
+          "writable": true
+        },
+        {
+          "name": "opsCrclx",
+          "writable": true
+        },
+        {
+          "name": "opsOpenai",
+          "writable": true
+        },
+        {
+          "name": "opsAnthropic",
+          "writable": true
+        },
+        {
           "name": "tokenProgram"
         }
       ],
@@ -2511,6 +2980,140 @@ export type Hub = {
         {
           "name": "hubAmount",
           "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "harvestLpFees",
+      "docs": [
+        "§A5.1/§A6.2 yield leg — permissionless harvest of a locked position's accrued Raydium",
+        "CP-Swap trading fees. The HUB-side leg feeds back into `pair`'s own pending compounding",
+        "earmark; the quote-side leg (OTC/CRCLx/OpenAI-stock/Anthropic-stock) is credited straight",
+        "into `HubPotConfig`'s matching bucket, routing real yield back to desk-holders."
+      ],
+      "discriminator": [
+        153,
+        236,
+        19,
+        193,
+        135,
+        211,
+        138,
+        173
+      ],
+      "accounts": [
+        {
+          "name": "keeper",
+          "docs": [
+            "Permissionless — no `has_one` check, mirrors `compound_lp_otc`."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasuryState",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "hubPot",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  104,
+                  117,
+                  98,
+                  95,
+                  112,
+                  111,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "docs": [
+            "for the harvest CPI below via its seeds."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "vaultHub",
+          "docs": [
+            "read before/after to learn the harvested amount (same account `finalize_epoch` /",
+            "`compound_lp_otc` already use as `lp_pending_hub_units`' physical custody)."
+          ],
+          "writable": true
+        },
+        {
+          "name": "quoteVault",
+          "docs": [
+            "mint this `pair` corresponds to (checked in the handler, since which field depends on",
+            "the `pair` argument, not resolvable in an `#[account(address = ...)]` constraint alone)."
+          ],
+          "writable": true
+        }
+      ],
+      "args": [
+        {
+          "name": "pair",
+          "type": {
+            "defined": {
+              "name": "lpPair"
+            }
+          }
         }
       ]
     },
@@ -3123,6 +3726,9 @@ export type Hub = {
         },
         {
           "name": "vaultWsol"
+        },
+        {
+          "name": "vaultUsdc"
         },
         {
           "name": "vaultHub"
@@ -4084,6 +4690,13 @@ export type Hub = {
           }
         },
         {
+          "name": "opsWallet",
+          "docs": [
+            "address so a caller cannot redirect the skim anywhere else."
+          ],
+          "writable": true
+        },
+        {
           "name": "systemProgram",
           "address": "11111111111111111111111111111111"
         }
@@ -4557,6 +5170,37 @@ export type Hub = {
           }
         },
         {
+          "name": "tokenomics",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  111,
+                  107,
+                  101,
+                  110,
+                  111,
+                  109,
+                  105,
+                  99,
+                  115
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasuryLockVault",
+          "docs": [
+            "the 50%-of-cost \"reward\" leg of the tier-upgrade burn split lands here (see",
+            "`Config.tier_cost_burn_bp`), same destination `fund_treasury_reward` uses."
+          ],
+          "writable": true
+        },
+        {
           "name": "systemProgram",
           "address": "11111111111111111111111111111111"
         }
@@ -4720,7 +5364,7 @@ export type Hub = {
         {
           "name": "payerHub",
           "docs": [
-            "destination; burned in full immediately after (this *is* the tier's $HUB cost burn)."
+            "destination; split burned/reward immediately after (see `tier_cost_burn_bp`)."
           ],
           "writable": true
         },
@@ -4750,6 +5394,36 @@ export type Hub = {
               }
             ]
           }
+        },
+        {
+          "name": "tokenomics",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  111,
+                  107,
+                  101,
+                  110,
+                  111,
+                  109,
+                  105,
+                  99,
+                  115
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasuryLockVault",
+          "docs": [
+            "the burn split lands here (mirrors `tiers.rs`'s SOL path)."
+          ],
+          "writable": true
         },
         {
           "name": "systemProgram",
@@ -5127,6 +5801,19 @@ export type Hub = {
       ]
     },
     {
+      "name": "hubPotProtocolFeeSkimmed",
+      "discriminator": [
+        249,
+        247,
+        21,
+        153,
+        48,
+        124,
+        216,
+        174
+      ]
+    },
+    {
       "name": "hubPotRewardClaimed",
       "discriminator": [
         213,
@@ -5189,6 +5876,32 @@ export type Hub = {
         107,
         97,
         177
+      ]
+    },
+    {
+      "name": "lpCompounded",
+      "discriminator": [
+        253,
+        5,
+        113,
+        109,
+        21,
+        81,
+        9,
+        23
+      ]
+    },
+    {
+      "name": "lpFeesHarvested",
+      "discriminator": [
+        230,
+        156,
+        123,
+        178,
+        68,
+        124,
+        167,
+        67
       ]
     },
     {
@@ -5631,6 +6344,26 @@ export type Hub = {
       "code": 6053,
       "name": "treasuryFloatNotInitialized",
       "msg": "Treasury float vault has not been initialized"
+    },
+    {
+      "code": 6054,
+      "name": "lpCompoundBelowThreshold",
+      "msg": "lp_pending_hub_units is below the compounding dust floor"
+    },
+    {
+      "code": 6055,
+      "name": "invalidLpPair",
+      "msg": "LpPair does not apply to this instruction (e.g. HubSol has no locked position)"
+    },
+    {
+      "code": 6056,
+      "name": "harvestBalanceUnderflow",
+      "msg": "Fee-harvest CPI reported a lower balance than before the call"
+    },
+    {
+      "code": 6057,
+      "name": "hopAccountSplitOutOfRange",
+      "msg": "hop1_account_count exceeds the number of accounts supplied in remaining_accounts"
     }
   ],
   "types": [
@@ -5855,6 +6588,14 @@ export type Hub = {
             "type": "pubkey"
           },
           {
+            "name": "usdcMint",
+            "docs": [
+              "USDC mint used by `finalize_epoch`'s two-hop price-discovery swap (WSOL→USDC→$HUB).",
+              "Admin-updatable (`ConfigField::UsdcMint`)."
+            ],
+            "type": "pubkey"
+          },
+          {
             "name": "tierWeightsBp",
             "type": {
               "array": [
@@ -5868,9 +6609,11 @@ export type Hub = {
             "type": "u64"
           },
           {
-            "name": "tierHubCostUnits",
+            "name": "tierUsdCostMicros",
             "docs": [
-              "$HUB base units required to reach each tier from scratch (cumulative table)."
+              "Fixed USD target per tier, in micro-USDC (6 decimals) — see `TIER_USD_COST_MICROS`. Never",
+              "changes at runtime (no `ConfigField` variant); the token-unit equivalent that moves with",
+              "$HUB's market price is `tier_hub_cost_units_cached` below."
             ],
             "type": {
               "array": [
@@ -5878,6 +6621,38 @@ export type Hub = {
                 4
               ]
             }
+          },
+          {
+            "name": "tierHubCostUnitsCached",
+            "docs": [
+              "$HUB base units currently equal to `tier_usd_cost_micros`, refreshed by `finalize_epoch`'s",
+              "two-hop Jupiter price observation — clamped to ±`PRICE_CLAMP_BP` per eligible round and",
+              "bounded to [`TIER_HUB_COST_FLOOR_BP`, 100%] of the `TIER_HUB_COST_UNITS` ceiling table.",
+              "Never read directly — always through `Config::hub_cost`, which falls back to the ceiling",
+              "table when `last_price_update_ts` is stale (`PRICE_STALENESS_SECS`)."
+            ],
+            "type": {
+              "array": [
+                "u64",
+                4
+              ]
+            }
+          },
+          {
+            "name": "lastPriceUpdateTs",
+            "docs": [
+              "Unix timestamp of the last eligible price update; 0 = never updated (treated as stale)."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "tierCostBurnBp",
+            "docs": [
+              "bp of every tier activation/upgrade's $HUB cost that is burned outright — the remainder",
+              "funds the active-desk reward pool instead (see `TIER_COST_BURN_BP`). Admin-updatable",
+              "(`ConfigField::TierCostBurnBp`)."
+            ],
+            "type": "u16"
           },
           {
             "name": "minPotThresholdLamports",
@@ -5909,6 +6684,15 @@ export type Hub = {
           },
           {
             "name": "opsPctBp",
+            "type": "u16"
+          },
+          {
+            "name": "protocolFeeBp",
+            "docs": [
+              "§A5 revenue-model extension — bp of *treasury-controlled* revenue (not the desk-holder",
+              "activation fee) skimmed to `ops_wallet` at the source, before it becomes staker/desk-holder",
+              "yield. See `constants::PROTOCOL_FEE_BP`'s doc comment for the two call sites."
+            ],
             "type": "u16"
           },
           {
@@ -6010,6 +6794,12 @@ export type Hub = {
             "name": "otcMint"
           },
           {
+            "name": "usdcMint"
+          },
+          {
+            "name": "tierCostBurnBp"
+          },
+          {
             "name": "burnPctBp"
           },
           {
@@ -6020,6 +6810,9 @@ export type Hub = {
           },
           {
             "name": "opsPctBp"
+          },
+          {
+            "name": "protocolFeeBp"
           },
           {
             "name": "lpEnabled"
@@ -6583,10 +7376,14 @@ export type Hub = {
     {
       "name": "epochSolSwapped",
       "docs": [
-        "The synchronous Jupiter SOL→$HUB CPI executed inside `finalize_epoch` for the combined",
-        "burn/LP/treasury-float legs (10% of inflow). `hub_received` splits 50/25/25 into",
+        "The synchronous two-hop Jupiter WSOL→USDC→$HUB CPI executed inside `finalize_epoch` for the",
+        "combined burn/LP/treasury-float legs (10% of inflow). `usdc_received` is hop1's (WSOL→USDC)",
+        "output; `hub_received` is hop2's (USDC→$HUB) output, which splits 50/25/25 into",
         "`hub_burned`/`hub_lp_earmarked`/`hub_float_requested`; `hub_float_deposited` may be less than",
-        "`hub_float_requested` if the cap was hit, with the remainder folded into `hub_burned`."
+        "`hub_float_requested` if the cap was hit, with the remainder folded into `hub_burned`.",
+        "`price_updated` is true when `sol_swapped_lamports` cleared `PRICE_UPDATE_MIN_SOL_LAMPORTS`",
+        "and the realized USDC/HUB rate was used to refresh `tier_hub_cost_units_after` (clamped by",
+        "`clamp_tier_cost`); when false, `tier_hub_cost_units_after` is unchanged from before this call."
       ],
       "type": {
         "kind": "struct",
@@ -6597,6 +7394,10 @@ export type Hub = {
           },
           {
             "name": "solSwappedLamports",
+            "type": "u64"
+          },
+          {
+            "name": "usdcReceived",
             "type": "u64"
           },
           {
@@ -6622,6 +7423,23 @@ export type Hub = {
           {
             "name": "treasuryFloatUnitsAfter",
             "type": "u64"
+          },
+          {
+            "name": "priceUpdated",
+            "type": "bool"
+          },
+          {
+            "name": "tierHubCostUnitsAfter",
+            "type": {
+              "array": [
+                "u64",
+                4
+              ]
+            }
+          },
+          {
+            "name": "lastPriceUpdateTs",
+            "type": "i64"
           }
         ]
       }
@@ -6807,6 +7625,35 @@ export type Hub = {
           },
           {
             "name": "anthropicPendingAfter",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "hubPotProtocolFeeSkimmed",
+      "docs": [
+        "§A5 revenue-model extension — `Config.protocol_fee_bp` skimmed per-mint into `ops_wallet`'s",
+        "ATAs in the same `fund_hub_pot` call the `HubPotFunded` above reports (that event's amounts",
+        "are already net of this skim)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "otcToOps",
+            "type": "u64"
+          },
+          {
+            "name": "crclxToOps",
+            "type": "u64"
+          },
+          {
+            "name": "openaiToOps",
+            "type": "u64"
+          },
+          {
+            "name": "anthropicToOps",
             "type": "u64"
           }
         ]
@@ -7005,6 +7852,11 @@ export type Hub = {
     },
     {
       "name": "inflowRegistered",
+      "docs": [
+        "`lamports` is the gross amount the treasury moved; `to_ops` (the `Config.protocol_fee_bp`",
+        "skim, taken before this became pot inflow) already left for `ops_wallet` — only",
+        "`lamports - to_ops` was booked as epoch inflow."
+      ],
       "type": {
         "kind": "struct",
         "fields": [
@@ -7018,6 +7870,10 @@ export type Hub = {
           },
           {
             "name": "lamports",
+            "type": "u64"
+          },
+          {
+            "name": "toOps",
             "type": "u64"
           }
         ]
@@ -7080,6 +7936,13 @@ export type Hub = {
             "type": "pubkey"
           },
           {
+            "name": "usdcMint",
+            "docs": [
+              "USDC mint for `finalize_epoch`'s two-hop price-discovery swap."
+            ],
+            "type": "pubkey"
+          },
+          {
             "name": "minPotThresholdLamports",
             "docs": [
               "0 → Appendix default (MIN_POT_THRESHOLD_LAMPORTS = 0.1 SOL)."
@@ -7104,6 +7967,61 @@ export type Hub = {
           },
           {
             "name": "quoteAmount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "lpCompounded",
+      "docs": [
+        "`compound_lp_otc` / `compound_lp_basket`'s permissionless call — self-contained summary,",
+        "mirrored by `LpBuilt`/`LpLocked` for the same deposit. Uncapped (§A5 revenue-model",
+        "extension): `hub_deposited` always equals `hub_pending_before` — nothing is ever burned, the",
+        "position only ever grows."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pair",
+            "type": "u8"
+          },
+          {
+            "name": "hubPendingBefore",
+            "type": "u64"
+          },
+          {
+            "name": "hubDeposited",
+            "type": "u64"
+          },
+          {
+            "name": "quoteDeposited",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "lpFeesHarvested",
+      "docs": [
+        "`harvest_lp_fees`'s permissionless call — `hub_harvested` feeds back into `pair`'s own",
+        "pending compounding earmark; `quote_harvested` is credited straight into `HubPotConfig`'s",
+        "matching bucket (yield flowing back to desk-holders)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "pair",
+            "type": "u8"
+          },
+          {
+            "name": "hubHarvested",
+            "type": "u64"
+          },
+          {
+            "name": "quoteHarvested",
             "type": "u64"
           }
         ]
@@ -7144,6 +8062,15 @@ export type Hub = {
           },
           {
             "name": "hubOtc"
+          },
+          {
+            "name": "hubCrclx"
+          },
+          {
+            "name": "hubOpenai"
+          },
+          {
+            "name": "hubAnthropic"
           }
         ]
       }
@@ -7407,7 +8334,15 @@ export type Hub = {
           {
             "name": "hubBurnedUnits",
             "docs": [
-              "$HUB base units burned to reach `tier` (the full tier cost; `from = 0`)."
+              "$HUB base units burned outright — `tier_cost_burn_bp` of the full tier cost (`from = 0`)."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "hubRewardUnits",
+            "docs": [
+              "$HUB base units deposited into the active-desk reward pool — the remainder of the tier",
+              "cost after `hub_burned_units` (see `Config.tier_cost_burn_bp`)."
             ],
             "type": "u64"
           }
@@ -7469,7 +8404,15 @@ export type Hub = {
           {
             "name": "hubBurnedUnits",
             "docs": [
-              "$HUB received from the swap and burned (≥ `hub_cost_delta`)."
+              "$HUB received from the swap (≥ `hub_cost_delta`), `tier_cost_burn_bp` of which is burned."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "hubRewardUnits",
+            "docs": [
+              "Remainder of the received $HUB after `hub_burned_units`, deposited into the active-desk",
+              "reward pool (see `Config.tier_cost_burn_bp`)."
             ],
             "type": "u64"
           },
@@ -7522,7 +8465,16 @@ export type Hub = {
           {
             "name": "hubBurnedUnits",
             "docs": [
-              "$HUB base units burned for `from_tier → to_tier` (the cost difference)."
+              "$HUB base units burned outright — `tier_cost_burn_bp` of the `from_tier → to_tier` cost",
+              "difference."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "hubRewardUnits",
+            "docs": [
+              "$HUB base units deposited into the active-desk reward pool — the remainder of the cost",
+              "difference after `hub_burned_units`."
             ],
             "type": "u64"
           }
@@ -7739,14 +8691,19 @@ export type Hub = {
     {
       "name": "treasuryFloatInitialized",
       "docs": [
-        "Authority/treasury records the vault-owned $HUB scratch, WSOL scratch, and treasury-float",
-        "ATAs used by the synchronous Jupiter legs (one-time, post-init — mirrors `init_otc_pot`)."
+        "Authority/treasury records the vault-owned $HUB scratch, WSOL scratch, USDC scratch, and",
+        "treasury-float ATAs used by the synchronous Jupiter legs (one-time, post-init — mirrors",
+        "`init_otc_pot`)."
       ],
       "type": {
         "kind": "struct",
         "fields": [
           {
             "name": "vaultWsol",
+            "type": "pubkey"
+          },
+          {
+            "name": "vaultUsdc",
             "type": "pubkey"
           },
           {
@@ -7929,6 +8886,16 @@ export type Hub = {
             "type": "pubkey"
           },
           {
+            "name": "vaultUsdc",
+            "docs": [
+              "Vault-owned (`[\"vault\"]` PDA) USDC scratch ATA — the intermediate hop of `finalize_epoch`'s",
+              "two-hop price-discovery swap (WSOL→USDC destination, USDC→$HUB source; mint =",
+              "`Config.usdc_mint`). Balance must return to (near) zero within one instruction — both hops",
+              "execute synchronously. Set by `init_treasury_float`."
+            ],
+            "type": "pubkey"
+          },
+          {
             "name": "treasuryFloatVault",
             "docs": [
               "Vault-owned (`[\"vault\"]` PDA) $HUB buy-and-hold ATA (§A6.3/§A7.1 \"source C\" float,",
@@ -7964,6 +8931,50 @@ export type Hub = {
           {
             "name": "lpQuoteDeposited",
             "type": "u64"
+          },
+          {
+            "name": "lpBasketActive",
+            "docs": [
+              "§A5.1 extension — MemeStock basket LP beyond HUB/OTC, indexed by",
+              "`LpPair::basket_index()` (Crclx=0, Openai=1, Anthropic=2). Mirrors the 4 fields above",
+              "exactly, generalized to an array so one compounder ix (`compound_lp_basket`) threshold-gates",
+              "and deposits all three pairs. `lp_basket_pending_hub_units` is fed by `harvest_lp_fees`'",
+              "HUB-side yield leg (there is no `finalize_epoch` earmark for these pairs — unlike HUB/OTC,",
+              "they are seeded once via `build_lp_basket_locked` and grow only from their own fee yield)."
+            ],
+            "type": {
+              "array": [
+                "bool",
+                3
+              ]
+            }
+          },
+          {
+            "name": "lpBasketPendingHubUnits",
+            "type": {
+              "array": [
+                "u64",
+                3
+              ]
+            }
+          },
+          {
+            "name": "lpBasketHubDeposited",
+            "type": {
+              "array": [
+                "u64",
+                3
+              ]
+            }
+          },
+          {
+            "name": "lpBasketQuoteDeposited",
+            "type": {
+              "array": [
+                "u64",
+                3
+              ]
+            }
           },
           {
             "name": "bump",

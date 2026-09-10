@@ -1,25 +1,28 @@
-// Jupiter "Build" (Metis on-chain router) client for the SOL→$HUB leg `finalize_epoch` executes
-// synchronously via `jupiter_swap::swap_exact_in` (§ programs/hub/src/instructions/jupiter_swap.rs).
-// Uses `/swap/v2/build`, not `/swap` or `/swap-instructions` — the docs call it out as the
-// CPI-oriented path (raw `swapInstruction`, no assembled/signed transaction, no ALT dependency,
-// which CPI can't use anyway) and it charges no Jupiter platform fee.
+// Jupiter "Build" (Metis on-chain router) client for the two-hop WSOL→USDC→$HUB leg
+// `finalize_epoch` executes synchronously via two `jupiter_swap::swap_exact_in` CPIs (§
+// programs/hub/src/instructions/epochs.rs / jupiter_swap.rs). Uses `/swap/v2/build`, not `/swap`
+// or `/swap-instructions` — the docs call it out as the CPI-oriented path (raw `swapInstruction`,
+// no assembled/signed transaction, no ALT dependency, which CPI can't use anyway) and it charges
+// no Jupiter platform fee.
 //
-// `wrapAndUnwrapSol=false` + explicit `destinationTokenAccount` because the vault's WSOL/$HUB
-// scratch ATAs are pre-provisioned (`init_treasury_float`) and the WSOL leg is wrapped by the
-// program itself (System transfer of the swap amount + `SyncNative`) immediately before this CPI
-// — Jupiter must not try to insert its own wrap/close-native instructions (there is no top-level
-// transaction context for them to run in; this is an inner CPI). There is no explicit "source
-// token account" parameter in the API: Jupiter always derives it as the ATA of (`taker`,
-// `inputMint`), which only resolves to the right account because `vault_wsol` *is* that ATA.
+// `wrapAndUnwrapSol=false` + explicit `destinationTokenAccount` for both hops because the vault's
+// WSOL/USDC/$HUB scratch ATAs are pre-provisioned (`init_treasury_float`) and the WSOL leg is
+// wrapped by the program itself (System transfer of the swap amount + `SyncNative`) immediately
+// before hop1's CPI — Jupiter must not try to insert its own wrap/close-native instructions
+// (there is no top-level transaction context for them to run in; these are inner CPIs). There is
+// no explicit "source token account" parameter in the API: Jupiter always derives it as the ATA
+// of (`taker`, `inputMint`), which only resolves to the right account because `vault_wsol`/
+// `vault_usdc` *are* those ATAs.
 import { AccountMeta, PublicKey } from "@solana/web3.js";
-import { JUPITER_PROGRAM_ID, WSOL_MINT } from "../../../sdk/src/constants";
+import { JUPITER_PROGRAM_ID, USDC_MINT, WSOL_MINT } from "../../../sdk/src/constants";
 
 export type JupiterBuildConfig = {
   apiBase?: string;
   apiKey?: string;
   slippageBps?: number;
-  /** CPI has no ALT support, so the route's account list eats directly into the tx's static
-   * account budget (on top of `finalize_epoch`'s own ~15 accounts) — keep it small. */
+  /** CPI has no ALT support, so each hop's route account list eats directly into the tx's static
+   * account budget (on top of `finalize_epoch`'s own ~16 accounts, split across *two* hops) —
+   * keep it small. */
   maxAccounts?: number;
   fetchImpl?: typeof fetch;
 };
@@ -33,46 +36,56 @@ type BuildResponse = {
   swapInstruction: ApiInstruction;
 };
 
-export type SolToHubRoute = {
-  /** Floors the swap's received $HUB — already net of `slippageBps` (`otherAmountThreshold`). */
-  minHubOut: bigint;
-  /** Raw Jupiter route instruction data, passed verbatim as `finalize_epoch`'s `jupiter_data`. */
-  jupiterData: Buffer;
-  /** The route's account list, passed verbatim as `ctx.remaining_accounts`. */
-  remainingAccounts: AccountMeta[];
-  /** Unrounded expected $HUB out, for logging (`minHubOut` is what's actually enforced). */
+export type JupiterHopRoute = {
+  /** Floors the hop's received output — already net of `slippageBps` (`otherAmountThreshold`). */
+  minOut: bigint;
+  /** Raw Jupiter route instruction data for this hop (`hop1Data`/`hop2Data`). */
+  data: Buffer;
+  /** This hop's account list, concatenated with the other hop's into `ctx.remaining_accounts`. */
+  accounts: AccountMeta[];
+  /** Unrounded expected output, for logging (`minOut` is what's actually enforced on-chain). */
   outAmount: bigint;
   /** DEX labels in the route (e.g. `["Whirlpool"]`), for logging/journaling only. */
   routeLabels: string[];
 };
 
+/** Both hops of `finalize_epoch`'s two-hop swap, pre-assembled for `program.methods.finalizeEpoch`:
+ * `hop1AccountCount = hop1.accounts.length`, `remainingAccounts = [...hop1.accounts,
+ * ...hop2.accounts]`. */
+export type WsolToHubRoute = {
+  hop1: JupiterHopRoute; // WSOL → USDC
+  hop2: JupiterHopRoute; // USDC → $HUB
+};
+
 const DEFAULT_API_BASE = "https://api.jup.ag";
 const DEFAULT_SLIPPAGE_BPS = 100; // 1% — the SOL leg is a small, frequent, non-urgent buyback.
-const DEFAULT_MAX_ACCOUNTS = 32;
+const DEFAULT_MAX_ACCOUNTS = 16; // halved vs. the old single-hop default — two hops now share the budget.
 
 /**
- * Fetches a WSOL→$HUB route sized for `finalize_epoch`'s synchronous CPI leg. `taker` must be
- * the `["vault"]` PDA (the CPI's `invoke_signed` authority) and `destinationTokenAccount` its
- * $HUB scratch ATA (`TreasuryState.vault_hub`). `amountLamports` must exactly equal the SOL
- * amount `finalize_epoch` will itself wrap into `vault_wsol` this call (burn + lp + treasury-float
- * bps of the round's effective inflow) — a mismatch either fails the CPI (insufficient balance)
- * or leaves an unswapped remainder rolling into the next cycle (see `swap_exact_in`'s doc comment).
+ * Fetches one Jupiter route leg via `/swap/v2/build`. `taker` must be the CPI's `invoke_signed`
+ * authority for that leg (the `["vault"]` PDA for both hops here) and `destinationTokenAccount`
+ * the vault-owned scratch ATA the hop deposits into (`vault_usdc` for hop1, `vault_hub` for
+ * hop2). `amountLamports`/`amountUnits` must exactly equal the balance `finalize_epoch` will
+ * itself have moved into the hop's source account by the time this CPI runs — a mismatch either
+ * fails the CPI (insufficient balance) or leaves an unswapped remainder rolling into the next
+ * cycle (see `swap_exact_in`'s doc comment).
  */
-export async function fetchSolToHubRoute(
+async function fetchHopRoute(
   taker: PublicKey,
-  hubMint: PublicKey,
+  inputMint: PublicKey,
+  outputMint: PublicKey,
   destinationTokenAccount: PublicKey,
-  amountLamports: bigint,
-  cfg: JupiterBuildConfig = {},
-): Promise<SolToHubRoute> {
-  if (amountLamports <= 0n) {
-    throw new Error("fetchSolToHubRoute: amountLamports must be > 0");
+  amountIn: bigint,
+  cfg: JupiterBuildConfig,
+): Promise<JupiterHopRoute> {
+  if (amountIn <= 0n) {
+    throw new Error("fetchHopRoute: amountIn must be > 0");
   }
   const doFetch = cfg.fetchImpl ?? fetch;
   const params = new URLSearchParams({
-    inputMint: WSOL_MINT,
-    outputMint: hubMint.toBase58(),
-    amount: amountLamports.toString(),
+    inputMint: inputMint.toBase58(),
+    outputMint: outputMint.toBase58(),
+    amount: amountIn.toString(),
     taker: taker.toBase58(),
     slippageBps: String(cfg.slippageBps ?? DEFAULT_SLIPPAGE_BPS),
     maxAccounts: String(cfg.maxAccounts ?? DEFAULT_MAX_ACCOUNTS),
@@ -95,9 +108,9 @@ export async function fetchSolToHubRoute(
     );
   }
   return {
-    minHubOut: BigInt(json.otherAmountThreshold),
-    jupiterData: Buffer.from(ix.data, "base64"),
-    remainingAccounts: ix.accounts.map((a) => ({
+    minOut: BigInt(json.otherAmountThreshold),
+    data: Buffer.from(ix.data, "base64"),
+    accounts: ix.accounts.map((a) => ({
       pubkey: new PublicKey(a.pubkey),
       isSigner: a.isSigner,
       isWritable: a.isWritable,
@@ -107,4 +120,32 @@ export async function fetchSolToHubRoute(
       .map((p) => p.swapInfo?.label)
       .filter((l): l is string => !!l),
   };
+}
+
+/**
+ * Fetches both legs of `finalize_epoch`'s two-hop WSOL→USDC→$HUB swap. `taker` must be the
+ * `["vault"]` PDA; `vaultUsdc`/`vaultHub` are `TreasuryState.vault_usdc`/`vault_hub`.
+ * `amountLamports` is the round's swap-leg SOL input (burn + lp + treasury-float bps of
+ * effective inflow) — hop2's input amount is hop1's *actual* quoted `outAmount` (not
+ * `minOut`), since that's what hop1 will really deposit into `vault_usdc` for hop2 to consume.
+ */
+export async function fetchWsolToHubRoute(
+  taker: PublicKey,
+  hubMint: PublicKey,
+  vaultUsdc: PublicKey,
+  vaultHub: PublicKey,
+  amountLamports: bigint,
+  cfg: JupiterBuildConfig = {},
+  usdcMint: PublicKey = new PublicKey(USDC_MINT),
+): Promise<WsolToHubRoute> {
+  const hop1 = await fetchHopRoute(
+    taker,
+    new PublicKey(WSOL_MINT),
+    usdcMint,
+    vaultUsdc,
+    amountLamports,
+    cfg,
+  );
+  const hop2 = await fetchHopRoute(taker, usdcMint, hubMint, vaultHub, hop1.outAmount, cfg);
+  return { hop1, hop2 };
 }

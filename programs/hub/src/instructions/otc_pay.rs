@@ -235,9 +235,9 @@ pub struct ActivateTierOtc<'info> {
     /// CHECK: Metaplex Core asset; owner + collection verified in `require_desk`.
     pub desk_asset: UncheckedAccount<'info>,
     #[account(mut, seeds = [SEED_CONFIG], bump = config.bump, constraint = !config.paused @ HubError::Paused)]
-    pub config: Account<'info, Config>,
+    pub config: Box<Account<'info, Config>>,
     #[account(mut, seeds = [SEED_EPOCH, &config.current_epoch.to_le_bytes()], bump = epoch.bump)]
-    pub epoch: Account<'info, Epoch>,
+    pub epoch: Box<Account<'info, Epoch>>,
     /// CHECK: system-owned lamport vault PDA. Destination of the flat 0.5 SOL fee's pot leg.
     #[account(mut, seeds = [SEED_POT], bump = config.pot_bump)]
     pub pot: UncheckedAccount<'info>,
@@ -245,7 +245,7 @@ pub struct ActivateTierOtc<'info> {
     #[account(mut, address = config.ops_wallet @ HubError::Unauthorized)]
     pub ops_wallet: UncheckedAccount<'info>,
     #[account(seeds = [SEED_OTC_PAY], bump = otc_pay.bump)]
-    pub otc_pay: Account<'info, OtcPayConfig>,
+    pub otc_pay: Box<Account<'info, OtcPayConfig>>,
     /// CHECK: matched against config.otc_mint; decimals read for TransferChecked.
     #[account(address = config.otc_mint @ HubError::InvalidTokenAccount)]
     pub otc_mint: UncheckedAccount<'info>,
@@ -255,7 +255,7 @@ pub struct ActivateTierOtc<'info> {
     pub payer_otc: UncheckedAccount<'info>,
     /// §A5 yield-vault bookkeeping; the desk-pot leg's `total_otc_bought_units` is credited here.
     #[account(mut, seeds = [SEED_OTC_POT], bump = otc_pot.bump)]
-    pub otc_pot: Account<'info, OtcPotState>,
+    pub otc_pot: Box<Account<'info, OtcPotState>>,
     /// CHECK: $OTC vault recorded on OtcPotState at init; owner = `["pot"]` PDA. Destination of
     /// the desk-pot leg (no swap — already $OTC).
     #[account(mut, address = otc_pot.otc_vault @ HubError::InvalidTokenAccount)]
@@ -264,7 +264,7 @@ pub struct ActivateTierOtc<'info> {
     #[account(mut, address = config.hub_mint @ HubError::InvalidTokenAccount)]
     pub hub_mint: UncheckedAccount<'info>,
     /// CHECK: payer's $HUB token account (mint/owner verified in handler) — the Jupiter swap's
-    /// destination; burned in full immediately after (this *is* the tier's $HUB cost burn).
+    /// destination; split burned/reward immediately after (see `tier_cost_burn_bp`).
     #[account(mut)]
     pub payer_hub: UncheckedAccount<'info>,
     /// CHECK: classic SPL Token program, asserted in the token-program helpers.
@@ -275,7 +275,14 @@ pub struct ActivateTierOtc<'info> {
         init_if_needed, payer = payer, space = 8 + DeskTier::INIT_SPACE,
         seeds = [SEED_TIER, desk_asset.key().as_ref()], bump
     )]
-    pub desk_tier: Account<'info, DeskTier>,
+    pub desk_tier: Box<Account<'info, DeskTier>>,
+    #[account(mut, seeds = [SEED_TOKENOMICS], bump = tokenomics.bump)]
+    pub tokenomics: Box<Account<'info, TokenomicsConfig>>,
+    /// CHECK: recorded on TokenomicsConfig at init — the 50%-of-received-$HUB "reward" leg of
+    /// the burn split lands here (mirrors `tiers.rs`'s SOL path, so paying in $OTC isn't
+    /// structurally cheaper or more punitive).
+    #[account(mut, address = tokenomics.treasury_lock_vault @ HubError::InvalidTokenAccount)]
+    pub treasury_lock_vault: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
 }
 
@@ -316,8 +323,9 @@ pub fn activate_tier_otc<'info>(
     )?;
 
     let config = &mut ctx.accounts.config;
+    let now = Clock::get()?.unix_timestamp;
     let fee = config.step_fee(0, target_tier)?;
-    let hub_cost = config.hub_cost_delta(0, target_tier)?;
+    let hub_cost = config.hub_cost_delta(0, target_tier, now)?;
     let to_ops = bps_of(fee, config.ops_pct_bp)?;
     let to_pot = sub(fee, to_ops)?;
     transfer_from_signer(
@@ -357,14 +365,30 @@ pub fn activate_tier_otc<'info>(
         hub_cost,
         &[],
     )?;
+    let hub_burn = bps_of(hub_received, config.tier_cost_burn_bp)?;
+    let hub_reward = sub(hub_received, hub_burn)?;
     burn_checked(
         &ctx.accounts.token_program,
         &ctx.accounts.payer_hub,
         &ctx.accounts.hub_mint,
         &ctx.accounts.payer,
-        hub_received,
+        hub_burn,
         &[],
     )?;
+    if hub_reward > 0 {
+        transfer_checked(
+            &ctx.accounts.token_program,
+            &ctx.accounts.payer_hub,
+            &ctx.accounts.hub_mint,
+            &ctx.accounts.treasury_lock_vault,
+            &ctx.accounts.payer,
+            hub_reward,
+            &[],
+        )?;
+        let tk = &mut ctx.accounts.tokenomics;
+        tk.reward_pending_units = add(tk.reward_pending_units, hub_reward)?;
+        tk.reward_deposited_units = add(tk.reward_deposited_units, hub_reward)?;
+    }
 
     let epoch = apply_activation(
         config,
@@ -384,7 +408,8 @@ pub fn activate_tier_otc<'info>(
         to_pot,
         to_ops,
         otc_swap_amount,
-        hub_burned_units: hub_received,
+        hub_burned_units: hub_burn,
+        hub_reward_units: hub_reward,
         to_otc_pot,
         otc_paid_total,
     });
@@ -427,7 +452,7 @@ pub struct UpgradeTierOtc<'info> {
     #[account(mut, address = config.hub_mint @ HubError::InvalidTokenAccount)]
     pub hub_mint: UncheckedAccount<'info>,
     /// CHECK: payer's $HUB token account (mint/owner verified in handler) — the Jupiter swap's
-    /// destination; burned in full immediately after (this *is* the tier's $HUB cost burn).
+    /// destination; split burned/reward immediately after (see `tier_cost_burn_bp`).
     #[account(mut)]
     pub payer_hub: UncheckedAccount<'info>,
     /// CHECK: classic SPL Token program, asserted in the token-program helpers.
@@ -439,6 +464,12 @@ pub struct UpgradeTierOtc<'info> {
         constraint = !desk_tier.voided @ HubError::TierVoided
     )]
     pub desk_tier: Box<Account<'info, DeskTier>>,
+    #[account(mut, seeds = [SEED_TOKENOMICS], bump = tokenomics.bump)]
+    pub tokenomics: Box<Account<'info, TokenomicsConfig>>,
+    /// CHECK: recorded on TokenomicsConfig at init — the 50%-of-received-$HUB "reward" leg of
+    /// the burn split lands here (mirrors `tiers.rs`'s SOL path).
+    #[account(mut, address = tokenomics.treasury_lock_vault @ HubError::InvalidTokenAccount)]
+    pub treasury_lock_vault: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
 }
 
@@ -480,8 +511,9 @@ pub fn upgrade_tier_otc<'info>(
     )?;
     let from = settle_for_upgrade(config, t)?;
 
+    let now = Clock::get()?.unix_timestamp;
     let fee = config.step_fee(from, target_tier)?;
-    let hub_cost = config.hub_cost_delta(from, target_tier)?;
+    let hub_cost = config.hub_cost_delta(from, target_tier, now)?;
     let to_ops = bps_of(fee, config.ops_pct_bp)?;
     let to_pot = sub(fee, to_ops)?;
     transfer_from_signer(
@@ -521,14 +553,30 @@ pub fn upgrade_tier_otc<'info>(
         hub_cost,
         &[],
     )?;
+    let hub_burn = bps_of(hub_received, config.tier_cost_burn_bp)?;
+    let hub_reward = sub(hub_received, hub_burn)?;
     burn_checked(
         &ctx.accounts.token_program,
         &ctx.accounts.payer_hub,
         &ctx.accounts.hub_mint,
         &ctx.accounts.payer,
-        hub_received,
+        hub_burn,
         &[],
     )?;
+    if hub_reward > 0 {
+        transfer_checked(
+            &ctx.accounts.token_program,
+            &ctx.accounts.payer_hub,
+            &ctx.accounts.hub_mint,
+            &ctx.accounts.treasury_lock_vault,
+            &ctx.accounts.payer,
+            hub_reward,
+            &[],
+        )?;
+        let tk = &mut ctx.accounts.tokenomics;
+        tk.reward_pending_units = add(tk.reward_pending_units, hub_reward)?;
+        tk.reward_deposited_units = add(tk.reward_deposited_units, hub_reward)?;
+    }
 
     apply_upgrade(config, t, target_tier)?;
     emit!(TierPaidOtc {
@@ -541,7 +589,8 @@ pub fn upgrade_tier_otc<'info>(
         to_pot,
         to_ops,
         otc_swap_amount,
-        hub_burned_units: hub_received,
+        hub_burned_units: hub_burn,
+        hub_reward_units: hub_reward,
         to_otc_pot,
         otc_paid_total,
     });

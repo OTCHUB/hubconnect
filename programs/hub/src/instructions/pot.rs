@@ -149,6 +149,20 @@ pub fn assert_epoch_balanced(e: &Epoch) -> Result<()> {
     Ok(())
 }
 
+/// Symmetric price-cache update for one tier: moves `previous` toward the freshly-observed
+/// `raw` value by at most `PRICE_CLAMP_BP` (of `previous`) in either direction, then bounds the
+/// result to `[TIER_HUB_COST_FLOOR_BP% of ceiling, ceiling]` regardless of how far the clamp step
+/// would otherwise land — the floor/ceiling bound is absolute and independent of how many rounds
+/// have run. Pure math (no state access), shared by `finalize_epoch` and its tests.
+pub fn clamp_tier_cost(previous: u64, raw: u64, ceiling: u64) -> Result<u64> {
+    let max_step = bps_of(previous, PRICE_CLAMP_BP)?;
+    let upper = previous.saturating_add(max_step);
+    let lower = previous.saturating_sub(max_step);
+    let clamped = raw.clamp(lower, upper);
+    let floor = bps_of(ceiling, TIER_HUB_COST_FLOOR_BP)?;
+    Ok(clamped.clamp(floor, ceiling))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -164,14 +178,19 @@ mod tests {
             desk_collection: Pubkey::default(),
             hub_mint: Pubkey::default(),
             otc_mint: Pubkey::default(),
+            usdc_mint: Pubkey::default(),
             tier_weights_bp: TIER_WEIGHTS_BP,
             step_fee_lamports: STEP_FEE_LAMPORTS,
-            tier_hub_cost_units: TIER_HUB_COST_UNITS,
+            tier_usd_cost_micros: TIER_USD_COST_MICROS,
+            tier_hub_cost_units_cached: TIER_HUB_COST_UNITS,
+            last_price_update_ts: 0,
+            tier_cost_burn_bp: TIER_COST_BURN_BP,
             min_pot_threshold_lamports: MIN_POT_THRESHOLD_LAMPORTS,
             burn_pct_bp: BURN_PCT_BP,
             lp_pct_bp: LP_PCT_BP,
             treasury_float_pct_bp: TREASURY_FLOAT_PCT_BP,
             ops_pct_bp: OPS_PCT_BP,
+            protocol_fee_bp: PROTOCOL_FEE_BP,
             lp_enabled: false,
             lp_target_sol_lamports: 0,
             lp_phase2_open_ts: 0,
@@ -200,20 +219,82 @@ mod tests {
         assert!(c.step_fee(3, 5).is_err());
     }
 
-    /// $HUB tier cost table (§A4): fresh activation burns the full cost of the target tier; an
-    /// upgrade only ever burns the difference from the tier already held.
+    /// $HUB tier cost table (§A4 ceiling / genesis fallback): with `last_price_update_ts == 0`
+    /// (never updated — `cfg()`'s default), `hub_cost` always falls back to the
+    /// `TIER_HUB_COST_UNITS` ceiling table regardless of `now`. Fresh activation burns the full
+    /// cost of the target tier; an upgrade only ever burns the difference from the tier already
+    /// held.
     #[test]
-    fn hub_costs_match_a4_table() {
+    fn hub_costs_fall_back_to_ceiling_when_never_priced() {
         let c = cfg();
-        assert_eq!(c.hub_cost(1).unwrap(), 100_000 * HUB_UNIT);
-        assert_eq!(c.hub_cost(4).unwrap(), 200_000 * HUB_UNIT);
-        assert_eq!(c.hub_cost_delta(0, 1).unwrap(), 100_000 * HUB_UNIT);
-        assert_eq!(c.hub_cost_delta(0, 4).unwrap(), 200_000 * HUB_UNIT);
-        assert_eq!(c.hub_cost_delta(1, 2).unwrap(), 25_000 * HUB_UNIT);
-        assert_eq!(c.hub_cost_delta(1, 4).unwrap(), 100_000 * HUB_UNIT);
-        assert!(c.hub_cost_delta(2, 2).is_err());
-        assert!(c.hub_cost(0).is_err());
-        assert!(c.hub_cost(5).is_err());
+        let now = 1_700_000_000i64;
+        assert_eq!(c.hub_cost(1, now).unwrap(), 100_000 * HUB_UNIT);
+        assert_eq!(c.hub_cost(4, now).unwrap(), 200_000 * HUB_UNIT);
+        assert_eq!(c.hub_cost_delta(0, 1, now).unwrap(), 100_000 * HUB_UNIT);
+        assert_eq!(c.hub_cost_delta(0, 4, now).unwrap(), 200_000 * HUB_UNIT);
+        assert_eq!(c.hub_cost_delta(1, 2, now).unwrap(), 25_000 * HUB_UNIT);
+        assert_eq!(c.hub_cost_delta(1, 4, now).unwrap(), 100_000 * HUB_UNIT);
+        assert!(c.hub_cost_delta(2, 2, now).is_err());
+        assert!(c.hub_cost(0, now).is_err());
+        assert!(c.hub_cost(5, now).is_err());
+    }
+
+    /// Once priced, a fresh (non-stale) cache is read instead of the ceiling table; crossing
+    /// `PRICE_STALENESS_SECS` since the last update reverts to the ceiling regardless of what the
+    /// cache holds — a stale price is never trusted, even if it happens to be a "low" one.
+    #[test]
+    fn hub_cost_uses_cache_until_stale() {
+        let mut c = cfg();
+        c.tier_hub_cost_units_cached[0] = 40_000 * HUB_UNIT; // priced below the 100k ceiling
+        c.last_price_update_ts = 1_000_000;
+        assert_eq!(
+            c.hub_cost(1, 1_000_000 + PRICE_STALENESS_SECS).unwrap(),
+            40_000 * HUB_UNIT
+        );
+        assert_eq!(
+            c.hub_cost(1, 1_000_000 + PRICE_STALENESS_SECS + 1).unwrap(),
+            100_000 * HUB_UNIT
+        );
+    }
+
+    /// `clamp_tier_cost`: normal in-band move passes through untouched; a jump larger than
+    /// ±`PRICE_CLAMP_BP` is capped to exactly that step; the result never leaves
+    /// [floor, ceiling] no matter how extreme the raw observed rate is.
+    #[test]
+    fn clamp_tier_cost_bounds_move_and_range() {
+        let ceiling = 100_000 * HUB_UNIT;
+        let previous = 50_000 * HUB_UNIT;
+
+        // In-band move (< 10%) passes through.
+        let small_move = previous - previous / 100; // -1%
+        assert_eq!(
+            clamp_tier_cost(previous, small_move, ceiling).unwrap(),
+            small_move
+        );
+
+        // Large downward jump clamps to exactly -10% of previous.
+        let huge_drop = 1; // an extreme raw observation
+        let expected_floor_of_step = previous - bps_of(previous, PRICE_CLAMP_BP).unwrap();
+        assert_eq!(
+            clamp_tier_cost(previous, huge_drop, ceiling).unwrap(),
+            expected_floor_of_step
+        );
+
+        // Large upward jump clamps to exactly +10% of previous.
+        let huge_rise = ceiling * 10;
+        let expected_ceiling_of_step = previous + bps_of(previous, PRICE_CLAMP_BP).unwrap();
+        assert_eq!(
+            clamp_tier_cost(previous, huge_rise, ceiling).unwrap(),
+            expected_ceiling_of_step
+        );
+
+        // Absolute floor/ceiling bound holds even from a starting point already at the edge.
+        let floor = bps_of(ceiling, TIER_HUB_COST_FLOOR_BP).unwrap();
+        assert_eq!(clamp_tier_cost(floor, 1, ceiling).unwrap(), floor);
+        assert_eq!(
+            clamp_tier_cost(ceiling, ceiling * 10, ceiling).unwrap(),
+            ceiling
+        );
     }
 
     #[test]

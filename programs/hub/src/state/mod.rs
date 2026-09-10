@@ -18,10 +18,27 @@ pub struct Config {
     pub desk_collection: Pubkey,
     pub hub_mint: Pubkey,
     pub otc_mint: Pubkey,
+    /// USDC mint used by `finalize_epoch`'s two-hop price-discovery swap (WSOL→USDC→$HUB).
+    /// Admin-updatable (`ConfigField::UsdcMint`).
+    pub usdc_mint: Pubkey,
     pub tier_weights_bp: [u16; TIER_COUNT],
     pub step_fee_lamports: u64,
-    /// $HUB base units required to reach each tier from scratch (cumulative table).
-    pub tier_hub_cost_units: [u64; TIER_COUNT],
+    /// Fixed USD target per tier, in micro-USDC (6 decimals) — see `TIER_USD_COST_MICROS`. Never
+    /// changes at runtime (no `ConfigField` variant); the token-unit equivalent that moves with
+    /// $HUB's market price is `tier_hub_cost_units_cached` below.
+    pub tier_usd_cost_micros: [u64; TIER_COUNT],
+    /// $HUB base units currently equal to `tier_usd_cost_micros`, refreshed by `finalize_epoch`'s
+    /// two-hop Jupiter price observation — clamped to ±`PRICE_CLAMP_BP` per eligible round and
+    /// bounded to [`TIER_HUB_COST_FLOOR_BP`, 100%] of the `TIER_HUB_COST_UNITS` ceiling table.
+    /// Never read directly — always through `Config::hub_cost`, which falls back to the ceiling
+    /// table when `last_price_update_ts` is stale (`PRICE_STALENESS_SECS`).
+    pub tier_hub_cost_units_cached: [u64; TIER_COUNT],
+    /// Unix timestamp of the last eligible price update; 0 = never updated (treated as stale).
+    pub last_price_update_ts: i64,
+    /// bp of every tier activation/upgrade's $HUB cost that is burned outright — the remainder
+    /// funds the active-desk reward pool instead (see `TIER_COST_BURN_BP`). Admin-updatable
+    /// (`ConfigField::TierCostBurnBp`).
+    pub tier_cost_burn_bp: u16,
     /// A round closes once the open epoch's inflow reaches this (no clock involved).
     pub min_pot_threshold_lamports: u64,
     pub burn_pct_bp: u16,
@@ -33,6 +50,10 @@ pub struct Config {
     /// burn + lp + treasury_float is the 90% $OTC leg.
     pub treasury_float_pct_bp: u16,
     pub ops_pct_bp: u16,
+    /// §A5 revenue-model extension — bp of *treasury-controlled* revenue (not the desk-holder
+    /// activation fee) skimmed to `ops_wallet` at the source, before it becomes staker/desk-holder
+    /// yield. See `constants::PROTOCOL_FEE_BP`'s doc comment for the two call sites.
+    pub protocol_fee_bp: u16,
     pub lp_enabled: bool,
     pub lp_target_sol_lamports: u64,
     /// §A6.2 phase-2 gate: HUB/OTC LP opens only after this timestamp (0 = closed).
@@ -209,6 +230,11 @@ pub struct TreasuryState {
     /// leg (wrapped via System transfer + `SyncNative` immediately before the Jupiter CPI). Set
     /// by `init_treasury_float`.
     pub vault_wsol: Pubkey,
+    /// Vault-owned (`["vault"]` PDA) USDC scratch ATA — the intermediate hop of `finalize_epoch`'s
+    /// two-hop price-discovery swap (WSOL→USDC destination, USDC→$HUB source; mint =
+    /// `Config.usdc_mint`). Balance must return to (near) zero within one instruction — both hops
+    /// execute synchronously. Set by `init_treasury_float`.
+    pub vault_usdc: Pubkey,
     /// Vault-owned (`["vault"]` PDA) $HUB buy-and-hold ATA (§A6.3/§A7.1 "source C" float,
     /// distinct from `TokenomicsConfig.treasury_lock_vault`'s immutable genesis floor) — the
     /// `finalize_epoch` treasury-float leg's destination, capped at `hub_float_cap_bp` of supply;
@@ -222,6 +248,16 @@ pub struct TreasuryState {
     pub lp_hub_otc_active: bool,
     pub lp_hub_deposited: u64,
     pub lp_quote_deposited: u64,
+    /// §A5.1 extension — MemeStock basket LP beyond HUB/OTC, indexed by
+    /// `LpPair::basket_index()` (Crclx=0, Openai=1, Anthropic=2). Mirrors the 4 fields above
+    /// exactly, generalized to an array so one compounder ix (`compound_lp_basket`) threshold-gates
+    /// and deposits all three pairs. `lp_basket_pending_hub_units` is fed by `harvest_lp_fees`'
+    /// HUB-side yield leg (there is no `finalize_epoch` earmark for these pairs — unlike HUB/OTC,
+    /// they are seeded once via `build_lp_basket_locked` and grow only from their own fee yield).
+    pub lp_basket_active: [bool; 3],
+    pub lp_basket_pending_hub_units: [u64; 3],
+    pub lp_basket_hub_deposited: [u64; 3],
+    pub lp_basket_quote_deposited: [u64; 3],
     pub bump: u8,
     pub vault_bump: u8,
 }
@@ -416,10 +452,13 @@ pub enum ConfigField {
     DeskCollection,
     HubMint,
     OtcMint,
+    UsdcMint,
+    TierCostBurnBp,
     BurnPctBp,
     LpPctBp,
     TreasuryFloatPctBp,
     OpsPctBp,
+    ProtocolFeeBp,
     LpEnabled,
     LpTargetSolLamports,
     LpPhase2OpenTs,
@@ -457,27 +496,39 @@ impl Config {
         Ok(self.step_fee_lamports)
     }
 
-    /// $HUB base units required to reach `tier` from scratch (cumulative table lookup).
-    pub fn hub_cost(&self, tier: u8) -> Result<u64> {
+    /// $HUB base units required to reach `tier` from scratch — the live-priced cache
+    /// (`tier_hub_cost_units_cached`), or the `TIER_HUB_COST_UNITS` ceiling table if the cache
+    /// hasn't been refreshed by an eligible round within `PRICE_STALENESS_SECS` (including the
+    /// "never updated" case, `last_price_update_ts == 0`). Staleness always falls back to the
+    /// ceiling, never lingers on a possibly-stale low price.
+    pub fn hub_cost(&self, tier: u8, now: i64) -> Result<u64> {
         require!(
             (1..=TIER_COUNT as u8).contains(&tier),
             crate::errors::HubError::InvalidTier
         );
-        Ok(self.tier_hub_cost_units[(tier - 1) as usize])
+        let idx = (tier - 1) as usize;
+        let stale = self.last_price_update_ts == 0
+            || now.saturating_sub(self.last_price_update_ts) > crate::constants::PRICE_STALENESS_SECS;
+        if stale {
+            Ok(crate::constants::TIER_HUB_COST_UNITS[idx])
+        } else {
+            Ok(self.tier_hub_cost_units_cached[idx])
+        }
     }
 
     /// $HUB due for `from` → `to` (`from = 0` means fresh activation: the full cost of `to`).
-    /// An upgrade only ever pays the difference — never the same $HUB twice.
-    pub fn hub_cost_delta(&self, from: u8, to: u8) -> Result<u64> {
+    /// An upgrade only ever pays the difference — never the same $HUB twice. Both lookups use the
+    /// same `now`, so a stale cache can't apply to one side and not the other.
+    pub fn hub_cost_delta(&self, from: u8, to: u8, now: i64) -> Result<u64> {
         require!(
             to > from && to as usize <= TIER_COUNT,
             crate::errors::HubError::InvalidTierStep
         );
-        let to_cost = self.hub_cost(to)?;
+        let to_cost = self.hub_cost(to, now)?;
         if from == 0 {
             return Ok(to_cost);
         }
-        let from_cost = self.hub_cost(from)?;
+        let from_cost = self.hub_cost(from, now)?;
         to_cost
             .checked_sub(from_cost)
             .ok_or_else(|| error!(crate::errors::HubError::MathOverflow))

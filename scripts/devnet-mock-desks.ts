@@ -29,6 +29,7 @@ import {
   potPda,
   splitFee,
   tierPda,
+  tokenomicsPda,
 } from "../sdk/src";
 import {
   TOKEN_PROGRAM_ID,
@@ -123,6 +124,12 @@ async function setTier(ctx: Ctx, asset: PublicKey, target: number) {
   const [epoch] = epochPda(ctx.program.programId, cfg.currentEpoch);
   const [pot] = potPda(ctx.program.programId);
   const [deskTier] = tierPda(ctx.program.programId, asset);
+  const [tokenomics] = tokenomicsPda(ctx.program.programId);
+  const tok = await ctx.program.account.tokenomicsConfig.fetchNullable(tokenomics);
+  if (!tok)
+    throw new Error(
+      "TokenomicsConfig not initialized — run `npx ts-node -T scripts/devnet-init-tokenomics.ts` first",
+    );
   const accounts = {
     payer: ctx.payer.publicKey,
     deskAsset: asset,
@@ -134,6 +141,8 @@ async function setTier(ctx: Ctx, asset: PublicKey, target: number) {
     payerHub: ata(ctx.payer.publicKey, cfg.hubMint),
     tokenProgram: TOKEN_PROGRAM_ID,
     deskTier,
+    tokenomics,
+    treasuryLockVault: tok.treasuryLockVault,
   };
   const ixs = [await ctx.program.methods.activateTier(1).accountsPartial(accounts).instruction()];
   for (let t = 2; t <= target; t++) {

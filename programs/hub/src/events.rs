@@ -2,6 +2,8 @@
 
 use anchor_lang::prelude::*;
 
+use crate::constants::TIER_COUNT;
+
 #[event]
 pub struct TierActivated {
     pub asset: Pubkey,
@@ -11,8 +13,11 @@ pub struct TierActivated {
     pub fee_lamports: u64,
     pub to_pot: u64,
     pub to_ops: u64,
-    /// $HUB base units burned to reach `tier` (the full tier cost; `from = 0`).
+    /// $HUB base units burned outright — `tier_cost_burn_bp` of the full tier cost (`from = 0`).
     pub hub_burned_units: u64,
+    /// $HUB base units deposited into the active-desk reward pool — the remainder of the tier
+    /// cost after `hub_burned_units` (see `Config.tier_cost_burn_bp`).
+    pub hub_reward_units: u64,
 }
 
 #[event]
@@ -23,8 +28,12 @@ pub struct TierUpgraded {
     pub to_tier: u8,
     pub epoch: u64,
     pub fee_lamports: u64,
-    /// $HUB base units burned for `from_tier → to_tier` (the cost difference).
+    /// $HUB base units burned outright — `tier_cost_burn_bp` of the `from_tier → to_tier` cost
+    /// difference.
     pub hub_burned_units: u64,
+    /// $HUB base units deposited into the active-desk reward pool — the remainder of the cost
+    /// difference after `hub_burned_units`.
+    pub hub_reward_units: u64,
 }
 
 /// §A4.1 (revised) — step(s) paid in $OTC: the flat 0.5 SOL activation fee (90% pot / 10% ops,
@@ -45,8 +54,11 @@ pub struct TierPaidOtc {
     pub to_ops: u64,
     /// $OTC input to the Jupiter swap-burn leg.
     pub otc_swap_amount: u64,
-    /// $HUB received from the swap and burned (≥ `hub_cost_delta`).
+    /// $HUB received from the swap (≥ `hub_cost_delta`), `tier_cost_burn_bp` of which is burned.
     pub hub_burned_units: u64,
+    /// Remainder of the received $HUB after `hub_burned_units`, deposited into the active-desk
+    /// reward pool (see `Config.tier_cost_burn_bp`).
+    pub hub_reward_units: u64,
     /// Equal to `otc_swap_amount`, injected into `OtcPotState.otc_vault` (no swap).
     pub to_otc_pot: u64,
     /// Total $OTC charged (`otc_swap_amount + to_otc_pot`), i.e. the "2× premium".
@@ -101,27 +113,37 @@ pub struct EpochFinalized {
     pub acc_per_weight: u128,
 }
 
-/// The synchronous Jupiter SOL→$HUB CPI executed inside `finalize_epoch` for the combined
-/// burn/LP/treasury-float legs (10% of inflow). `hub_received` splits 50/25/25 into
+/// The synchronous two-hop Jupiter WSOL→USDC→$HUB CPI executed inside `finalize_epoch` for the
+/// combined burn/LP/treasury-float legs (10% of inflow). `usdc_received` is hop1's (WSOL→USDC)
+/// output; `hub_received` is hop2's (USDC→$HUB) output, which splits 50/25/25 into
 /// `hub_burned`/`hub_lp_earmarked`/`hub_float_requested`; `hub_float_deposited` may be less than
 /// `hub_float_requested` if the cap was hit, with the remainder folded into `hub_burned`.
+/// `price_updated` is true when `sol_swapped_lamports` cleared `PRICE_UPDATE_MIN_SOL_LAMPORTS`
+/// and the realized USDC/HUB rate was used to refresh `tier_hub_cost_units_after` (clamped by
+/// `clamp_tier_cost`); when false, `tier_hub_cost_units_after` is unchanged from before this call.
 #[event]
 pub struct EpochSolSwapped {
     pub epoch: u64,
     pub sol_swapped_lamports: u64,
+    pub usdc_received: u64,
     pub hub_received: u64,
     pub hub_burned: u64,
     pub hub_lp_earmarked: u64,
     pub hub_float_requested: u64,
     pub hub_float_deposited: u64,
     pub treasury_float_units_after: u64,
+    pub price_updated: bool,
+    pub tier_hub_cost_units_after: [u64; TIER_COUNT],
+    pub last_price_update_ts: i64,
 }
 
-/// Authority/treasury records the vault-owned $HUB scratch, WSOL scratch, and treasury-float
-/// ATAs used by the synchronous Jupiter legs (one-time, post-init — mirrors `init_otc_pot`).
+/// Authority/treasury records the vault-owned $HUB scratch, WSOL scratch, USDC scratch, and
+/// treasury-float ATAs used by the synchronous Jupiter legs (one-time, post-init — mirrors
+/// `init_otc_pot`).
 #[event]
 pub struct TreasuryFloatInitialized {
     pub vault_wsol: Pubkey,
+    pub vault_usdc: Pubkey,
     pub vault_hub: Pubkey,
     pub treasury_float_vault: Pubkey,
 }
@@ -143,11 +165,15 @@ pub struct OtcBuyRecorded {
     pub total_lamports_spent: u64,
 }
 
+/// `lamports` is the gross amount the treasury moved; `to_ops` (the `Config.protocol_fee_bp`
+/// skim, taken before this became pot inflow) already left for `ops_wallet` — only
+/// `lamports - to_ops` was booked as epoch inflow.
 #[event]
 pub struct InflowRegistered {
     pub epoch: u64,
     pub source: u8,
     pub lamports: u64,
+    pub to_ops: u64,
 }
 
 #[event]
@@ -165,6 +191,28 @@ pub struct LpLocked {
     pub pair: u8,
     pub hub_amount: u64,
     pub quote_amount: u64,
+}
+
+/// `compound_lp_otc` / `compound_lp_basket`'s permissionless call — self-contained summary,
+/// mirrored by `LpBuilt`/`LpLocked` for the same deposit. Uncapped (§A5 revenue-model
+/// extension): `hub_deposited` always equals `hub_pending_before` — nothing is ever burned, the
+/// position only ever grows.
+#[event]
+pub struct LpCompounded {
+    pub pair: u8,
+    pub hub_pending_before: u64,
+    pub hub_deposited: u64,
+    pub quote_deposited: u64,
+}
+
+/// `harvest_lp_fees`'s permissionless call — `hub_harvested` feeds back into `pair`'s own
+/// pending compounding earmark; `quote_harvested` is credited straight into `HubPotConfig`'s
+/// matching bucket (yield flowing back to desk-holders).
+#[event]
+pub struct LpFeesHarvested {
+    pub pair: u8,
+    pub hub_harvested: u64,
+    pub quote_harvested: u64,
 }
 
 /// §A6.3 — treasury deposits its claimed launcher holder-leg $OTC into the creator-fee vault.
@@ -293,6 +341,17 @@ pub struct HubPotFunded {
     pub crclx_pending_after: u64,
     pub openai_pending_after: u64,
     pub anthropic_pending_after: u64,
+}
+
+/// §A5 revenue-model extension — `Config.protocol_fee_bp` skimmed per-mint into `ops_wallet`'s
+/// ATAs in the same `fund_hub_pot` call the `HubPotFunded` above reports (that event's amounts
+/// are already net of this skim).
+#[event]
+pub struct HubPotProtocolFeeSkimmed {
+    pub otc_to_ops: u64,
+    pub crclx_to_ops: u64,
+    pub openai_to_ops: u64,
+    pub anthropic_to_ops: u64,
 }
 
 /// Permissionless snapshot: each bucket's pending balance split across the active desks' Σw.

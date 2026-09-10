@@ -53,17 +53,31 @@ pub mod hub {
     }
 
     /// §B3 #4 / §A5 4-way split — 90% distributed to desks (unchanged mechanic); the other 10%
-    /// (5% burn / 2.5% LP / 2.5% treasury float) is swapped SOL→$HUB via a synchronous Jupiter
-    /// CPI executed inside this instruction. `jupiter_data`/`ctx.remaining_accounts` are the
-    /// caller-assembled Jupiter route (see `jupiter_swap::swap_exact_in`); `min_hub_out` floors
-    /// the swap's received $HUB.
+    /// (5% burn / 2.5% LP / 2.5% treasury float) is swapped SOL→$HUB via a two-hop synchronous
+    /// Jupiter CPI executed inside this instruction: hop1 WSOL→USDC, hop2 USDC→$HUB. `ctx
+    /// .remaining_accounts[..hop1_account_count]`/`hop1_data` are hop1's caller-assembled route;
+    /// the remainder of `remaining_accounts`/`hop2_data` are hop2's (see
+    /// `jupiter_swap::swap_exact_in`). `min_usdc_out`/`min_hub_out` floor each hop's output. The
+    /// realized USDC/HUB rate this observes also refreshes `Config.tier_hub_cost_units_cached`
+    /// when `sol_swapped_lamports` clears `PRICE_UPDATE_MIN_SOL_LAMPORTS` (see `epochs.rs`).
     pub fn finalize_epoch<'info>(
         ctx: Context<'info, FinalizeEpoch<'info>>,
         epoch_index: u64,
+        min_usdc_out: u64,
         min_hub_out: u64,
-        jupiter_data: Vec<u8>,
+        hop1_account_count: u16,
+        hop1_data: Vec<u8>,
+        hop2_data: Vec<u8>,
     ) -> Result<()> {
-        instructions::epochs::finalize_epoch(ctx, epoch_index, min_hub_out, jupiter_data)
+        instructions::epochs::finalize_epoch(
+            ctx,
+            epoch_index,
+            min_usdc_out,
+            min_hub_out,
+            hop1_account_count,
+            hop1_data,
+            hop2_data,
+        )
     }
 
     /// §B3 #5 (lazy revocation → #8 void_tier). One tx settles every closed round.
@@ -213,6 +227,78 @@ pub mod hub {
             deposit_account_count,
             with_metadata,
         )
+    }
+
+    /// §A6.2 phase-2 auto-compounder — permissionless: deposits the *entire*
+    /// `TreasuryState.lp_pending_hub_units` earmark every call (uncapped — locked forever, only
+    /// ever grows). Any keeper may call it once the pending earmark clears
+    /// `LP_COMPOUND_MIN_HUB_UNITS`.
+    pub fn compound_lp_otc(
+        ctx: Context<CompoundLpOtc>,
+        otc_amount: u64,
+        lp_token_amount: u64,
+        deposit_account_count: u8,
+        with_metadata: bool,
+    ) -> Result<()> {
+        instructions::treasury::compound_lp_otc(
+            ctx,
+            otc_amount,
+            lp_token_amount,
+            deposit_account_count,
+            with_metadata,
+        )
+    }
+
+    /// §A5.1 basket extension of `build_lp_otc_locked` — treasury-signed, seeds (or tops up)
+    /// one of the three MemeStock basket pairs' (HUB/CRCLx, HUB/OpenAI, HUB/Anthropic) locked
+    /// Raydium CP-Swap position.
+    pub fn build_lp_basket_locked(
+        ctx: Context<BuildLpBasketLocked>,
+        pair: LpPair,
+        hub_amount: u64,
+        quote_amount: u64,
+        lp_token_amount: u64,
+        deposit_account_count: u8,
+        with_metadata: bool,
+    ) -> Result<()> {
+        instructions::treasury::build_lp_basket_locked(
+            ctx,
+            pair,
+            hub_amount,
+            quote_amount,
+            lp_token_amount,
+            deposit_account_count,
+            with_metadata,
+        )
+    }
+
+    /// §A5.1 basket sibling of `compound_lp_otc` — permissionless, uncapped, deposits the
+    /// entire `TreasuryState.lp_basket_pending_hub_units[pair]` earmark (fed by
+    /// `harvest_lp_fees`, not `finalize_epoch`) once it clears `LP_COMPOUND_MIN_HUB_UNITS`.
+    pub fn compound_lp_basket(
+        ctx: Context<CompoundLpBasket>,
+        pair: LpPair,
+        quote_amount: u64,
+        lp_token_amount: u64,
+        deposit_account_count: u8,
+        with_metadata: bool,
+    ) -> Result<()> {
+        instructions::treasury::compound_lp_basket(
+            ctx,
+            pair,
+            quote_amount,
+            lp_token_amount,
+            deposit_account_count,
+            with_metadata,
+        )
+    }
+
+    /// §A5.1/§A6.2 yield leg — permissionless harvest of a locked position's accrued Raydium
+    /// CP-Swap trading fees. The HUB-side leg feeds back into `pair`'s own pending compounding
+    /// earmark; the quote-side leg (OTC/CRCLx/OpenAI-stock/Anthropic-stock) is credited straight
+    /// into `HubPotConfig`'s matching bucket, routing real yield back to desk-holders.
+    pub fn harvest_lp_fees(ctx: Context<HarvestLpFees>, pair: LpPair) -> Result<()> {
+        instructions::treasury::harvest_lp_fees(ctx, pair)
     }
 
     /// §A6.3/§A7.1 bridge — authority records the vault-owned WSOL scratch, $HUB scratch, and

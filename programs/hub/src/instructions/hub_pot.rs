@@ -11,6 +11,7 @@ use crate::errors::HubError;
 use crate::events::*;
 use crate::instructions::mpl_core::require_desk;
 use crate::instructions::otc_pay::{require_token_account, transfer_checked};
+use crate::instructions::pot::{bps_of, sub};
 use crate::instructions::tokenomics::reward_share;
 use crate::state::*;
 
@@ -121,15 +122,30 @@ pub struct FundHubPot<'info> {
     /// CHECK: recorded on HubPotConfig at init.
     #[account(mut, address = hub_pot.anthropic_vault @ HubError::InvalidTokenAccount)]
     pub anthropic_vault: UncheckedAccount<'info>,
+    /// CHECK: `Config.protocol_fee_bp`'s skim destination for the $OTC leg — ops_wallet's own
+    /// ATA (mint/owner verified in handler), same 10% carve-out as `register_treasury_inflow`.
+    #[account(mut)]
+    pub ops_otc: UncheckedAccount<'info>,
+    /// CHECK: skim destination for the CRCLx leg — verified as above.
+    #[account(mut)]
+    pub ops_crclx: UncheckedAccount<'info>,
+    /// CHECK: skim destination for the OpenAI-stock leg — verified as above.
+    #[account(mut)]
+    pub ops_openai: UncheckedAccount<'info>,
+    /// CHECK: skim destination for the Anthropic-stock leg — verified as above.
+    #[account(mut)]
+    pub ops_anthropic: UncheckedAccount<'info>,
     /// CHECK: classic SPL Token program, asserted in `transfer_checked`.
     pub token_program: UncheckedAccount<'info>,
 }
 
 /// Treasury deposits the four already-converted basket amounts (swapped off-chain by the
-/// keeper from source-B's 13-stock claim, per §A5.1) in one instruction. Each leg is an
-/// enforced `TransferChecked`, not merely attested (mirrors `fund_treasury_reward`); a
-/// zero-amount leg is skipped rather than rejected, since not every fund cycle need touch
-/// every bucket evenly.
+/// keeper from source-B's 13-stock claim, per §A5.1) in one instruction. `Config.protocol_fee_bp`
+/// (§A5 revenue-model extension) is skimmed per-mint into `ops_wallet`'s matching ATA first —
+/// only the remainder is transferred into the bucket vault and credited as pending/deposited.
+/// Each leg (skim + deposit) is an enforced `TransferChecked`, not merely attested (mirrors
+/// `fund_treasury_reward`); a zero-amount leg is skipped rather than rejected, since not every
+/// fund cycle need touch every bucket evenly.
 pub fn fund_hub_pot(
     ctx: Context<FundHubPot>,
     otc_amount: u64,
@@ -141,90 +157,142 @@ pub fn fund_hub_pot(
         otc_amount > 0 || crclx_amount > 0 || openai_amount > 0 || anthropic_amount > 0,
         HubError::ZeroAmount
     );
-    let legs: [(u64, &UncheckedAccount, &UncheckedAccount, &UncheckedAccount); 4] = [
+    let fee_bp = ctx.accounts.config.protocol_fee_bp;
+    require_token_account(
+        &ctx.accounts.ops_otc,
+        &ctx.accounts.hub_pot.otc_mint,
+        &ctx.accounts.config.ops_wallet,
+    )?;
+    require_token_account(
+        &ctx.accounts.ops_crclx,
+        &ctx.accounts.hub_pot.crclx_mint,
+        &ctx.accounts.config.ops_wallet,
+    )?;
+    require_token_account(
+        &ctx.accounts.ops_openai,
+        &ctx.accounts.hub_pot.openai_mint,
+        &ctx.accounts.config.ops_wallet,
+    )?;
+    require_token_account(
+        &ctx.accounts.ops_anthropic,
+        &ctx.accounts.hub_pot.anthropic_mint,
+        &ctx.accounts.config.ops_wallet,
+    )?;
+
+    let legs: [(u64, &UncheckedAccount, &UncheckedAccount, &UncheckedAccount, &UncheckedAccount); 4] = [
         (
             otc_amount,
             &ctx.accounts.treasury_otc,
             &ctx.accounts.otc_mint,
             &ctx.accounts.otc_vault,
+            &ctx.accounts.ops_otc,
         ),
         (
             crclx_amount,
             &ctx.accounts.treasury_crclx,
             &ctx.accounts.crclx_mint,
             &ctx.accounts.crclx_vault,
+            &ctx.accounts.ops_crclx,
         ),
         (
             openai_amount,
             &ctx.accounts.treasury_openai,
             &ctx.accounts.openai_mint,
             &ctx.accounts.openai_vault,
+            &ctx.accounts.ops_openai,
         ),
         (
             anthropic_amount,
             &ctx.accounts.treasury_anthropic,
             &ctx.accounts.anthropic_mint,
             &ctx.accounts.anthropic_vault,
+            &ctx.accounts.ops_anthropic,
         ),
     ];
-    for (amount, from, mint, to) in legs {
+    let mut net = [0u64; 4];
+    let mut to_ops_amounts = [0u64; 4];
+    for (i, (amount, from, mint, to, ops_to)) in legs.into_iter().enumerate() {
         if amount == 0 {
             continue;
         }
-        transfer_checked(
-            &ctx.accounts.token_program,
-            from,
-            mint,
-            to,
-            &ctx.accounts.treasury,
-            amount,
-            &[],
-        )?;
+        let to_ops = bps_of(amount, fee_bp)?;
+        let to_pool = sub(amount, to_ops)?;
+        if to_ops > 0 {
+            transfer_checked(
+                &ctx.accounts.token_program,
+                from,
+                mint,
+                ops_to,
+                &ctx.accounts.treasury,
+                to_ops,
+                &[],
+            )?;
+        }
+        if to_pool > 0 {
+            transfer_checked(
+                &ctx.accounts.token_program,
+                from,
+                mint,
+                to,
+                &ctx.accounts.treasury,
+                to_pool,
+                &[],
+            )?;
+        }
+        net[i] = to_pool;
+        to_ops_amounts[i] = to_ops;
     }
+    let (otc_net, crclx_net, openai_net, anthropic_net) = (net[0], net[1], net[2], net[3]);
 
     let p = &mut ctx.accounts.hub_pot;
     p.otc_pending_units = p
         .otc_pending_units
-        .checked_add(otc_amount)
+        .checked_add(otc_net)
         .ok_or_else(|| error!(HubError::MathOverflow))?;
     p.crclx_pending_units = p
         .crclx_pending_units
-        .checked_add(crclx_amount)
+        .checked_add(crclx_net)
         .ok_or_else(|| error!(HubError::MathOverflow))?;
     p.openai_pending_units = p
         .openai_pending_units
-        .checked_add(openai_amount)
+        .checked_add(openai_net)
         .ok_or_else(|| error!(HubError::MathOverflow))?;
     p.anthropic_pending_units = p
         .anthropic_pending_units
-        .checked_add(anthropic_amount)
+        .checked_add(anthropic_net)
         .ok_or_else(|| error!(HubError::MathOverflow))?;
     p.otc_deposited_units = p
         .otc_deposited_units
-        .checked_add(otc_amount)
+        .checked_add(otc_net)
         .ok_or_else(|| error!(HubError::MathOverflow))?;
     p.crclx_deposited_units = p
         .crclx_deposited_units
-        .checked_add(crclx_amount)
+        .checked_add(crclx_net)
         .ok_or_else(|| error!(HubError::MathOverflow))?;
     p.openai_deposited_units = p
         .openai_deposited_units
-        .checked_add(openai_amount)
+        .checked_add(openai_net)
         .ok_or_else(|| error!(HubError::MathOverflow))?;
     p.anthropic_deposited_units = p
         .anthropic_deposited_units
-        .checked_add(anthropic_amount)
+        .checked_add(anthropic_net)
         .ok_or_else(|| error!(HubError::MathOverflow))?;
 
     emit!(HubPotFunded {
-        otc_amount,
-        crclx_amount,
-        openai_amount,
-        anthropic_amount,
+        otc_amount: otc_net,
+        crclx_amount: crclx_net,
+        openai_amount: openai_net,
+        anthropic_amount: anthropic_net,
         otc_pending_after: p.otc_pending_units,
         crclx_pending_after: p.crclx_pending_units,
         openai_pending_after: p.openai_pending_units,
         anthropic_pending_after: p.anthropic_pending_units,
+    });
+    emit!(HubPotProtocolFeeSkimmed {
+        otc_to_ops: to_ops_amounts[0],
+        crclx_to_ops: to_ops_amounts[1],
+        openai_to_ops: to_ops_amounts[2],
+        anthropic_to_ops: to_ops_amounts[3],
     });
     Ok(())
 }

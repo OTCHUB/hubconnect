@@ -21,7 +21,9 @@ use anchor_lang::solana_program::{
 use crate::constants::*;
 use crate::errors::HubError;
 
-fn read_token_amount(ai: &AccountInfo) -> Result<u64> {
+/// Also reused by `treasury::harvest_lp_fees` for its balance-delta fee-harvest accounting —
+/// the same "trust the balance, not the CPI's own return value" pattern this module pioneered.
+pub(crate) fn read_token_amount(ai: &AccountInfo) -> Result<u64> {
     require_keys_eq!(*ai.owner, TOKEN_PROGRAM_ID, HubError::InvalidTokenAccount);
     let data = ai.try_borrow_data()?;
     require!(

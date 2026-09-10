@@ -66,6 +66,7 @@ describe("M1 — initialize_config", () => {
           deskCollection: f.deskCollection,
           hubMint: Keypair.generate().publicKey,
           otcMint: Keypair.generate().publicKey,
+          usdcMint: Keypair.generate().publicKey,
           minPotThresholdLamports: new (await import("@anchor-lang/core")).BN(0),
         })
         .accountsPartial({ payer: h.payer.publicKey, ...f, epoch0 })

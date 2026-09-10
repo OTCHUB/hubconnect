@@ -110,4 +110,12 @@ pub enum HubError {
     SwapAccountsMissing,
     #[msg("Treasury float vault has not been initialized")]
     TreasuryFloatNotInitialized,
+    #[msg("lp_pending_hub_units is below the compounding dust floor")]
+    LpCompoundBelowThreshold,
+    #[msg("LpPair does not apply to this instruction (e.g. HubSol has no locked position)")]
+    InvalidLpPair,
+    #[msg("Fee-harvest CPI reported a lower balance than before the call")]
+    HarvestBalanceUnderflow,
+    #[msg("hop1_account_count exceeds the number of accounts supplied in remaining_accounts")]
+    HopAccountSplitOutOfRange,
 }

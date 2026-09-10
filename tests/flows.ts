@@ -63,6 +63,8 @@ export async function activate(h: Harness, f: Fixture, owner: Keypair, asset: Pu
       payerHub,
       tokenProgram: TOKEN_PROGRAM_ID,
       deskTier,
+      tokenomics: f.tokenomics,
+      treasuryLockVault: f.treasuryLockVault,
     })
     .signers([owner])
     .rpc();
@@ -92,6 +94,8 @@ export async function upgrade(
       payerHub,
       tokenProgram: TOKEN_PROGRAM_ID,
       deskTier,
+      tokenomics: f.tokenomics,
+      treasuryLockVault: f.treasuryLockVault,
     })
     .signers([owner])
     .rpc();
@@ -138,6 +142,8 @@ async function otcPayAccounts(h: Harness, f: Fixture) {
     hubMint: c.hubMint,
     tokenProgram: TOKEN_PROGRAM_ID,
     jupiterProgram: new PublicKey(K.JUPITER_PROGRAM_ID),
+    tokenomics: f.tokenomics,
+    treasuryLockVault: f.treasuryLockVault,
   };
 }
 
@@ -288,6 +294,7 @@ export async function inflow(
       epoch,
       pot: f.pot,
       treasuryState: f.treasuryState,
+      opsWallet: f.opsWallet,
     })
     .signers([f.treasury])
     .rpc();
@@ -298,20 +305,26 @@ export async function inflow(
  * settles the round's $OTC leg (see `settleOtcPending`) so claims never hit `NoOtcPurchased`.
  *
  * §A5: the 5%/2.5%/2.5% burn/lp/treasury-float legs are now swapped SOL→$HUB inside
- * `finalize_epoch` via a synchronous Jupiter CPI, so the account list grew (vault/hub_mint/
- * vault_wsol/vault_hub/treasury_float_vault/jupiter_program) and the ix takes `minHubOut` +
- * `jupiterData` (+ `remainingAccounts` for the route). Empty defaults only work because
- * `TreasuryState.vault_hub` is now set (`init_treasury_float`, wired into `ensureInitialized`)
- * and `swap_total == 0` (all three split bps at 0) — a real swap needs a real Jupiter route,
- * blocked on the pending localnet Jupiter V6 clone (see Anchor.toml task).
+ * `finalize_epoch` via a **two-hop** synchronous Jupiter CPI (WSOL→USDC via `vault_usdc`, then
+ * USDC→$HUB), so the account list grew (vault/hub_mint/vault_wsol/vault_usdc/vault_hub/
+ * treasury_float_vault/jupiter_program) and the ix takes `minUsdcOut` + `minHubOut` +
+ * `hop1AccountCount` + `hop1Data` + `hop2Data` (+ `remainingAccounts`, the two hops'
+ * caller-assembled route accounts concatenated, split on-chain at `hop1AccountCount`). Empty
+ * defaults only work because `TreasuryState.vault_hub`/`vault_usdc` are now set
+ * (`init_treasury_float`, wired into `ensureInitialized`) and `swap_total == 0` (all three split
+ * bps at 0) — a real two-hop swap needs real Jupiter routes for each leg, blocked on the pending
+ * localnet Jupiter V6 clone (see Anchor.toml task; same caveat as `activateOtc`/`upgradeOtc`).
  */
 export async function finalizeIdx(
   h: Harness,
   f: Fixture,
   idx: number,
   swap: {
+    minUsdcOut?: number | bigint;
     minHubOut?: number | bigint;
-    jupiterData?: Buffer;
+    hop1AccountCount?: number;
+    hop1Data?: Buffer;
+    hop2Data?: Buffer;
     remainingAccounts?: { pubkey: PublicKey; isSigner: boolean; isWritable: boolean }[];
   } = {},
 ) {
@@ -321,7 +334,14 @@ export async function finalizeIdx(
   const cfg = await h.program.account.config.fetch(f.config);
   const treasury = await h.program.account.treasuryState.fetch(f.treasuryState);
   const sig = await h.program.methods
-    .finalizeEpoch(bn(idx), bn(swap.minHubOut ?? 0), swap.jupiterData ?? Buffer.alloc(0))
+    .finalizeEpoch(
+      bn(idx),
+      bn(swap.minUsdcOut ?? 0),
+      bn(swap.minHubOut ?? 0),
+      swap.hop1AccountCount ?? 0,
+      swap.hop1Data ?? Buffer.alloc(0),
+      swap.hop2Data ?? Buffer.alloc(0),
+    )
     .accountsPartial({
       keeper: h.payer.publicKey,
       config: f.config,
@@ -334,6 +354,7 @@ export async function finalizeIdx(
       vault,
       hubMint: cfg.hubMint,
       vaultWsol: treasury.vaultWsol,
+      vaultUsdc: treasury.vaultUsdc,
       vaultHub: treasury.vaultHub,
       treasuryFloatVault: treasury.treasuryFloatVault,
       tokenProgram: TOKEN_PROGRAM_ID,

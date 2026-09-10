@@ -95,8 +95,12 @@ export const JUPITER_PROGRAM_ID = "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4";
  * Never valid against a mainnet-beta deployment; use `scripts/lib/mock-jupiter.ts` to build
  * routes against it, not `keeper/keeper/src/jupiter.ts`'s real Jupiter quote API. */
 export const MOCK_JUPITER_PROGRAM_ID = "BvjZ2YNTxKmKKKWUiNNRG83tQr5djiMMPBAGJxiZZn5C";
-/** Native mint (wrapped SOL) — the input side of `finalize_epoch`'s SOL→$HUB Jupiter route. */
+/** Native mint (wrapped SOL) — hop1's input in `finalize_epoch`'s two-hop WSOL→USDC→$HUB route. */
 export const WSOL_MINT = "So11111111111111111111111111111111111111112";
+/** Circle USDC (mainnet-beta) — hop1's output / hop2's input in `finalize_epoch`'s two-hop route,
+ * and `Config.usdc_mint`'s expected value on a mainnet deploy. Devnet/localnet deploys point
+ * `Config.usdc_mint` at a mock mint instead (see `scripts/mock-jupiter-setup.ts`). */
+export const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 
 export const MPL_CORE_PROGRAM_ID = "CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d";
 export const HUB_PROGRAM_ID = "7c5oPs9GvX8vrC5jVFketNx1ZLuPs7HeH8Qc4XJx7b7i";

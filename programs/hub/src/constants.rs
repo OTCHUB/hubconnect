@@ -19,18 +19,75 @@ pub const TIER_WEIGHTS_BP: [u16; TIER_COUNT] = [10_000, 12_500, 16_000, 20_000];
 pub const STEP_FEE_LAMPORTS: u64 = LAMPORTS_PER_SOL / 2;
 pub const OPS_PCT_BP: u16 = 1_000;
 
-/// TIER_HUB_COST: $HUB base units required to reach each tier from scratch (cumulative table,
-/// not incremental) — T1 100k, T2 125k, T3 150k, T4 200k. A fresh activation burns the full cost
-/// of the target tier; a later upgrade burns only the difference from the tier it's already at
-/// (never pays for the same $HUB twice). Burned via spl-token `BurnChecked` at the moment of
-/// activation/upgrade, so every tier change permanently shrinks supply — independent of, and in
-/// addition to, the round-based buyback burn (the synchronous Jupiter CPI in `finalize_epoch`).
+/// Protocol-fee skim, taken at the source of *treasury-controlled* revenue only — never off the
+/// desk-holder activation fee (that 10% is `OPS_PCT_BP` above, unchanged) — so operations funding
+/// scales with what the treasury is actively harvesting (sweeps, exits, misc inflows, and the
+/// MemeStock basket's converted yield) instead of trending to zero once most desks sit at T4 with
+/// no more tier upgrades to sell. Applied in two places, both before the revenue becomes
+/// staker/desk-holder yield:
+///   - `register_treasury_inflow` (sources B/C/D/F): `bps_of(lamports, protocol_fee_bp)` routes to
+///     `Config.ops_wallet` in SOL; only the remainder is booked as pot inflow.
+///   - `fund_hub_pot` (MemeStock basket deposits): the same bp is skimmed per-mint into
+///     `ops_wallet`'s ATA for that mint; only the remainder credits the bucket's pending balance.
+/// Default 10% — matches the basket's carve-out described in §A5.1. Admin-retunable via
+/// `update_config(ProtocolFeeBp, ...)`.
+pub const PROTOCOL_FEE_BP: u16 = 1_000;
+
+/// TIER_HUB_COST_UNITS: the genesis/ceiling $HUB table — T1 100k, T2 125k, T3 150k, T4 200k.
+/// Two roles: (1) `Config.tier_hub_cost_units_cached`'s starting value before any price update
+/// has ever landed (and its stale-price fallback — see `PRICE_STALENESS_SECS`), and (2) the
+/// hard ceiling a live-priced cost can never exceed, however low $HUB's market price goes. The
+/// *floor* (`TIER_HUB_COST_FLOOR_BP` of this table) bounds the other direction. See
+/// `TIER_USD_COST_MICROS` for the fixed USD target this table's token-unit equivalent tracks.
 pub const TIER_HUB_COST_UNITS: [u64; TIER_COUNT] = [
     100_000 * HUB_UNIT,
     125_000 * HUB_UNIT,
     150_000 * HUB_UNIT,
     200_000 * HUB_UNIT,
 ];
+
+/// TIER_USD_COST_MICROS: the fixed USD target for each tier, in micro-USDC (6 decimals) —
+/// $50/$60/$70/$80 cumulative. This never moves; what moves is how many $HUB tokens currently
+/// equal it (`Config.tier_hub_cost_units_cached`), refreshed at `finalize_epoch` from a realized
+/// two-hop Jupiter swap (WSOL→USDC→$HUB) — see `PRICE_CLAMP_BP`/`PRICE_UPDATE_MIN_SOL_LAMPORTS`/
+/// `PRICE_STALENESS_SECS`. Same dollar cost for every activator regardless of when they show up;
+/// only the token-unit burn size (and therefore the deflationary pressure) changes with price.
+pub const TIER_USD_COST_MICROS: [u64; TIER_COUNT] = [
+    50_000_000,
+    60_000_000,
+    70_000_000,
+    80_000_000,
+];
+
+/// A round's priced leg (`finalize_epoch`'s SOL input to the two-hop swap) must be at least this
+/// large to be eligible to move the cached $HUB-per-tier cost — a thinner, keeper-controlled
+/// trade is skipped (not trusted) rather than accepted at face value. Separate from, and larger
+/// than, `MIN_POT_THRESHOLD_LAMPORTS` (a round can close and still not be price-eligible).
+pub const PRICE_UPDATE_MIN_SOL_LAMPORTS: u64 = LAMPORTS_PER_SOL / 5; // 0.2 SOL
+
+/// Symmetric clamp: an eligible round may move each tier's cached cost by at most this many bp,
+/// in either direction, from its previous value — bounds the worst case a single sampled price
+/// (sandwich, thin liquidity, etc.) can do to one round, regardless of how extreme the raw
+/// observed rate is. Applied *in addition to* the floor/ceiling bound below.
+pub const PRICE_CLAMP_BP: u16 = 1_000; // ±10% per eligible round
+
+/// The cached cost may never shrink below this % of `TIER_HUB_COST_UNITS` (the genesis/ceiling
+/// table) — a hard minimum-burn guarantee that holds no matter how high $HUB's real price climbs.
+pub const TIER_HUB_COST_FLOOR_BP: u16 = 1_000; // 10% of ceiling
+
+/// If the cached cost hasn't been refreshed by an eligible round in this long, `Config::hub_cost`
+/// ignores the cache and falls back to the ceiling table instead — a hard stop against ever
+/// trading off a price that's gone stale (e.g. the keeper stops calling `finalize_epoch`,
+/// or every recent round has been below the eligibility gate).
+pub const PRICE_STALENESS_SECS: i64 = 86_400; // 24h
+
+/// Of every tier activation/upgrade's $HUB cost, this fraction is burned (`BurnChecked`,
+/// permanent); the remainder is deposited into `TokenomicsConfig.treasury_lock_vault` as a
+/// `reward_pending_units` credit — the same pro-rata-by-tier-weight mechanism
+/// `fund_treasury_reward`/`open_reward_round`/`distribute_treasury_reward` already implements —
+/// so it flows back to every active desk (diluted across Σw, including the activator) the next
+/// time someone opens a reward round, instead of vanishing entirely into the burn.
+pub const TIER_COST_BURN_BP: u16 = 5_000; // 50% burn / 50% → active-desk reward pool
 
 /// Round split (§A5, 4-way): 90% buys $OTC and is distributed pro-rata to activated desks
 /// (unchanged mechanic — accumulator-credited, keeper-reimbursed `record_otc_buy`); the other
@@ -77,7 +134,16 @@ pub const FLOOR_STALENESS_BP: u16 = 500;
 
 /// LP_TARGET_SOL_DEPTH reference ceiling 100–200 SOL-side; default lower bound.
 pub const LP_ENABLED: bool = false;
+/// No longer a compounding cap (removed — see `treasury::compound_lp_otc`'s doc comment: locked
+/// LP is a one-way, permanent position that only ever grows, either from `finalize_epoch`'s
+/// earmark or from harvested fee yield, so there is nothing to cap or burn-excess). Retained only
+/// as a legacy, currently-unused `Config`/`ConfigField` slot so existing devnet deployments and
+/// the on-chain account layout don't need a migration; a future use may repurpose it.
 pub const LP_TARGET_SOL_LAMPORTS: u64 = 100 * LAMPORTS_PER_SOL;
+/// Dust floor for the LP compounders (`compound_lp_otc` and the basket `compound_lp_basket`): a
+/// permissionless call is refused until the pair's pending $HUB earmark clears this, so a keeper
+/// never burns a Raydium CPI's compute budget/rent compounding a few thousand base units. 100 $HUB.
+pub const LP_COMPOUND_MIN_HUB_UNITS: u64 = 100 * HUB_UNIT;
 
 /// TREASURY_HUB_FLOAT_CAP ≤ 5% of supply (experimental parameter; admin-updatable via
 /// `set_treasury_float_cap_bp` — the treasury multisig may retune while iterating). Excess
@@ -171,6 +237,12 @@ pub const RAYDIUM_LOCK_CP_SWAP_PROGRAM_ID: Pubkey =
 /// not read from a vendored IDL, so no crate dependency is added for this integration.
 pub const RAYDIUM_IX_DEPOSIT: [u8; 8] = [242, 35, 198, 137, 82, 225, 242, 182];
 pub const RAYDIUM_IX_LOCK_CP_LIQUIDITY: [u8; 8] = [216, 157, 29, 78, 38, 51, 31, 26];
+/// Locking program's `collect_cp_fees` — harvests the fee-claim NFT's accrued CP-Swap trading
+/// fees straight into the caller-supplied recipient token accounts (no args). This is the yield
+/// leg of the "lock forever, keep claiming fees" primitive: the deposited LP itself never moves
+/// again, but whoever holds the fee-claim NFT (the treasury vault PDA, see `lock_cp_liquidity`
+/// above) may harvest it indefinitely. `sha256("global:collect_cp_fees")[..8]`.
+pub const RAYDIUM_IX_COLLECT_CP_FEES: [u8; 8] = [8, 30, 51, 199, 209, 184, 247, 133];
 
 /// §A7.1 supply plan. $HUB is minted once: 1,000,000,000 × 10⁶ base units (§A3.1 / §A7).
 pub const HUB_DECIMALS: u8 = 6;

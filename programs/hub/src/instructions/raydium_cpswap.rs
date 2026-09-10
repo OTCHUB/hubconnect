@@ -86,3 +86,25 @@ pub fn lock_cp_liquidity<'info>(
     invoke_signed(&ix, &infos_owned(lock_accounts), signer_seeds)?;
     Ok(())
 }
+
+/// Locking program's `collect_cp_fees {}` (no args) — harvests whatever trading fees have
+/// accrued to a `lock_cp_liquidity`-created position, straight into the fee-claim NFT holder's
+/// (the treasury vault PDA's) token-0/token-1 recipient accounts. `harvest_accounts` must be in
+/// the locking program's IDL order (authority, fee_nft_owner, fee_nft_account, pool_state,
+/// locked_liquidity, lock authority PDA, recipient_token_0_account, recipient_token_1_account,
+/// pool vaults 0/1, vault mints 0/1, token programs...). The caller (`treasury::harvest_lp_fees`)
+/// reads the recipient accounts' balances before/after this call to learn how much was harvested
+/// — this CPI has no return value and Raydium reports nothing beyond the accounts it credits.
+pub fn collect_cp_fees<'info>(
+    harvest_accounts: &[AccountInfo<'info>],
+    signer_seeds: &[&[&[u8]]],
+) -> Result<()> {
+    require!(!harvest_accounts.is_empty(), HubError::LpAccountsMissing);
+    let ix = Instruction {
+        program_id: RAYDIUM_LOCK_CP_SWAP_PROGRAM_ID,
+        accounts: metas_from(harvest_accounts),
+        data: RAYDIUM_IX_COLLECT_CP_FEES.to_vec(),
+    };
+    invoke_signed(&ix, &infos_owned(harvest_accounts), signer_seeds)?;
+    Ok(())
+}

@@ -16,6 +16,8 @@ pub struct InitializeConfigArgs {
     pub desk_collection: Pubkey,
     pub hub_mint: Pubkey,
     pub otc_mint: Pubkey,
+    /// USDC mint for `finalize_epoch`'s two-hop price-discovery swap.
+    pub usdc_mint: Pubkey,
     /// 0 → Appendix default (MIN_POT_THRESHOLD_LAMPORTS = 0.1 SOL).
     pub min_pot_threshold_lamports: u64,
 }
@@ -77,14 +79,19 @@ pub fn initialize_config(ctx: Context<InitializeConfig>, args: InitializeConfigA
     c.desk_collection = args.desk_collection;
     c.hub_mint = args.hub_mint;
     c.otc_mint = args.otc_mint;
+    c.usdc_mint = args.usdc_mint;
     c.tier_weights_bp = TIER_WEIGHTS_BP;
     c.step_fee_lamports = STEP_FEE_LAMPORTS;
-    c.tier_hub_cost_units = TIER_HUB_COST_UNITS;
+    c.tier_usd_cost_micros = TIER_USD_COST_MICROS;
+    c.tier_hub_cost_units_cached = TIER_HUB_COST_UNITS;
+    c.last_price_update_ts = 0;
+    c.tier_cost_burn_bp = TIER_COST_BURN_BP;
     c.min_pot_threshold_lamports = threshold;
     c.burn_pct_bp = BURN_PCT_BP;
     c.lp_pct_bp = LP_PCT_BP;
     c.treasury_float_pct_bp = TREASURY_FLOAT_PCT_BP;
     c.ops_pct_bp = OPS_PCT_BP;
+    c.protocol_fee_bp = PROTOCOL_FEE_BP;
     c.lp_enabled = LP_ENABLED;
     c.lp_target_sol_lamports = LP_TARGET_SOL_LAMPORTS;
     c.lp_phase2_open_ts = 0;
@@ -118,8 +125,9 @@ pub fn initialize_config(ctx: Context<InitializeConfig>, args: InitializeConfigA
     t.total_exits = 0;
     t.total_sweeps = 0;
     t.lp_pending_hub_units = 0;
-    // Set by `init_treasury_float` once the vault-owned WSOL/HUB scratch and float ATAs exist.
+    // Set by `init_treasury_float` once the vault-owned WSOL/USDC/HUB scratch and float ATAs exist.
     t.vault_wsol = Pubkey::default();
+    t.vault_usdc = Pubkey::default();
     t.vault_hub = Pubkey::default();
     t.treasury_float_vault = Pubkey::default();
     t.treasury_float_units = 0;
@@ -246,11 +254,14 @@ pub fn update_config(
         ConfigField::DeskCollection => c.desk_collection = pk(&value)?,
         ConfigField::HubMint => c.hub_mint = pk(&value)?,
         ConfigField::OtcMint => c.otc_mint = pk(&value)?,
+        ConfigField::UsdcMint => c.usdc_mint = pk(&value)?,
+        ConfigField::TierCostBurnBp => c.tier_cost_burn_bp = bps(&value)?,
         ConfigField::Authority => c.authority = pk(&value)?,
         ConfigField::BurnPctBp => c.burn_pct_bp = bps(&value)?,
         ConfigField::LpPctBp => c.lp_pct_bp = bps(&value)?,
         ConfigField::TreasuryFloatPctBp => c.treasury_float_pct_bp = bps(&value)?,
         ConfigField::OpsPctBp => c.ops_pct_bp = bps(&value)?,
+        ConfigField::ProtocolFeeBp => c.protocol_fee_bp = bps(&value)?,
         ConfigField::LpEnabled => c.lp_enabled = flag(&value)?,
         ConfigField::Treasury => c.treasury = pk(&value)?,
         ConfigField::LpTargetSolLamports => c.lp_target_sol_lamports = u64v(&value)?,

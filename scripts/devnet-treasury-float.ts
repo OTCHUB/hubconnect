@@ -1,17 +1,26 @@
-// One-time devnet provisioning for `init_treasury_float` (§A6.3/§A7.1 bridge): creates the three
-// `["vault"]`-PDA-owned token accounts `finalize_epoch`'s synchronous Jupiter legs write into —
-// vault_wsol (mint = WSOL), vault_hub (mint = Config.hub_mint), treasury_float_vault (mint =
+// One-time devnet provisioning for `init_treasury_float` (§A6.3/§A7.1 bridge): creates the four
+// `["vault"]`-PDA-owned token accounts `finalize_epoch`'s synchronous two-hop Jupiter swap writes
+// into — vault_wsol (mint = WSOL), vault_usdc (mint = Config.usdc_mint, the two-hop swap's
+// intermediate leg), vault_hub (mint = Config.hub_mint), treasury_float_vault (mint =
 // Config.hub_mint) — then calls `init_treasury_float` to record them on `TreasuryState`.
 //
 // Not associated-token accounts: vault_hub and treasury_float_vault share (owner, mint), which
-// an ATA can't represent twice, so both are plain spl-token accounts at fresh keypair addresses.
+// an ATA can't represent twice, so all four are plain spl-token accounts at fresh keypair
+// addresses (for uniformity, not just vault_hub/treasury_float_vault).
 //
 //   npx ts-node -T scripts/devnet-treasury-float.ts
 //
-// Requires: Config.hub_mint already a real mint (devnet-hub-mint.ts) and `finalize_epoch`
-// gates on `TreasuryState.vault_hub != default` — this must run before any finalize_epoch call.
-// Idempotent: no-ops if TreasuryState.vault_hub is already set (no update path once created).
-import { Keypair, PublicKey, SystemProgram, Transaction, TransactionInstruction } from "@solana/web3.js";
+// Requires: Config.hub_mint (devnet-hub-mint.ts) and Config.usdc_mint (mock-jupiter-setup.ts)
+// already real mints — `finalize_epoch` gates on `TreasuryState.vault_hub != default` — this
+// must run before any finalize_epoch call. Idempotent: no-ops if TreasuryState.vault_hub is
+// already set (no update path once created).
+import {
+  Keypair,
+  PublicKey,
+  SystemProgram,
+  Transaction,
+  TransactionInstruction,
+} from "@solana/web3.js";
 import { treasuryPda, vaultPda, WSOL_MINT } from "../sdk/src";
 import { TOKEN_PROGRAM_ID, devnetCtx, explorer, type Ctx } from "./lib/devnet";
 
@@ -54,6 +63,9 @@ async function main() {
   if (cfg.hubMint.equals(PublicKey.default)) {
     throw new Error("Config.hub_mint unset — run devnet-hub-mint.ts first");
   }
+  if (cfg.usdcMint.equals(PublicKey.default)) {
+    throw new Error("Config.usdc_mint unset — run mock-jupiter-setup.ts first");
+  }
   const [treasuryState] = treasuryPda(ctx.program.programId);
   const [vault] = vaultPda(ctx.program.programId);
   const existing = await ctx.program.account.treasuryState.fetch(treasuryState);
@@ -65,10 +77,16 @@ async function main() {
   const wsolMint = new PublicKey(WSOL_MINT);
   const { account: vaultWsol, sig: sig1 } = await createTokenAccount(ctx, wsolMint, vault);
   console.log(`vault_wsol ${vaultWsol.toBase58()} (${sig1})`);
-  const { account: vaultHub, sig: sig2 } = await createTokenAccount(ctx, cfg.hubMint, vault);
-  console.log(`vault_hub ${vaultHub.toBase58()} (${sig2})`);
-  const { account: treasuryFloatVault, sig: sig3 } = await createTokenAccount(ctx, cfg.hubMint, vault);
-  console.log(`treasury_float_vault ${treasuryFloatVault.toBase58()} (${sig3})`);
+  const { account: vaultUsdc, sig: sig2 } = await createTokenAccount(ctx, cfg.usdcMint, vault);
+  console.log(`vault_usdc ${vaultUsdc.toBase58()} (${sig2})`);
+  const { account: vaultHub, sig: sig3 } = await createTokenAccount(ctx, cfg.hubMint, vault);
+  console.log(`vault_hub ${vaultHub.toBase58()} (${sig3})`);
+  const { account: treasuryFloatVault, sig: sig4 } = await createTokenAccount(
+    ctx,
+    cfg.hubMint,
+    vault,
+  );
+  console.log(`treasury_float_vault ${treasuryFloatVault.toBase58()} (${sig4})`);
 
   const sig = await ctx.program.methods
     .initTreasuryFloat()
@@ -78,6 +96,7 @@ async function main() {
       treasuryState,
       vault,
       vaultWsol,
+      vaultUsdc,
       vaultHub,
       treasuryFloatVault,
     })

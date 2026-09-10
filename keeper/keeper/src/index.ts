@@ -28,7 +28,7 @@ import {
   vaultPda,
   type HubProgram,
 } from "../../../sdk/src";
-import { fetchSolToHubRoute } from "./jupiter";
+import { fetchWsolToHubRoute } from "./jupiter";
 import { alreadySent, appendJournal } from "./journal";
 
 export {
@@ -44,7 +44,7 @@ export {
   type OperationalGateInputs,
   type OperationalGateResult,
 } from "../../shared/src/gate";
-export { fetchSolToHubRoute } from "./jupiter";
+export { fetchWsolToHubRoute } from "./jupiter";
 
 import { checkGasFloat } from "../../shared/src/gas";
 import { checkOperationalGate } from "../../shared/src/gate";
@@ -148,34 +148,48 @@ export async function runCycle(env: KeeperEnv): Promise<void> {
   const swapTotal = burn + lp + float;
 
   const [vaultKey] = vaultPda(id);
+  let minUsdcOut = new BN(0);
   let minHubOut = new BN(0);
-  let jupiterData: Buffer = Buffer.alloc(0);
+  let hop1AccountCount = 0;
+  let hop1Data: Buffer = Buffer.alloc(0);
+  let hop2Data: Buffer = Buffer.alloc(0);
   let remainingAccounts: { pubkey: PublicKey; isSigner: boolean; isWritable: boolean }[] = [];
   let routeLabels: string[] = [];
   let outAmount = "0";
 
   if (swapTotal > 0) {
-    const route = await fetchSolToHubRoute(vaultKey, hubMint, treasury.vaultHub, BigInt(swapTotal), {
-      apiBase: env.jupiterApiBase,
-      apiKey: env.jupiterApiKey,
-      slippageBps: env.slippageBps,
-      maxAccounts: env.maxAccounts,
-    });
-    minHubOut = new BN(route.minHubOut.toString());
-    jupiterData = route.jupiterData;
-    remainingAccounts = route.remainingAccounts;
-    routeLabels = route.routeLabels;
-    outAmount = route.outAmount.toString();
+    const route = await fetchWsolToHubRoute(
+      vaultKey,
+      hubMint,
+      treasury.vaultUsdc,
+      treasury.vaultHub,
+      BigInt(swapTotal),
+      {
+        apiBase: env.jupiterApiBase,
+        apiKey: env.jupiterApiKey,
+        slippageBps: env.slippageBps,
+        maxAccounts: env.maxAccounts,
+      },
+    );
+    minUsdcOut = new BN(route.hop1.minOut.toString());
+    minHubOut = new BN(route.hop2.minOut.toString());
+    hop1AccountCount = route.hop1.accounts.length;
+    hop1Data = route.hop1.data;
+    hop2Data = route.hop2.data;
+    remainingAccounts = [...route.hop1.accounts, ...route.hop2.accounts];
+    routeLabels = [...route.hop1.routeLabels, ...route.hop2.routeLabels];
+    outAmount = route.hop2.outAmount.toString();
   }
 
   console.log(
-    `[epoch ${config.currentEpoch}] finalizing — inflow ${inflow / 1e9} SOL, swap ${swapTotal / 1e9} SOL → $HUB via [${routeLabels.join(", ") || "n/a"}], min_out ${minHubOut.toString()}`,
+    `[epoch ${config.currentEpoch}] finalizing — inflow ${inflow / 1e9} SOL, swap ${swapTotal / 1e9} SOL → USDC → $HUB via [${routeLabels.join(", ") || "n/a"}], min_usdc_out ${minUsdcOut.toString()}, min_hub_out ${minHubOut.toString()}`,
   );
 
   const journalBase = {
     ts: new Date().toISOString(),
     epochIndex: config.currentEpoch,
     swapTotalLamports: String(swapTotal),
+    minUsdcOut: minUsdcOut.toString(),
     minHubOut: minHubOut.toString(),
     outAmount,
     routeLabels,
@@ -194,7 +208,14 @@ export async function runCycle(env: KeeperEnv): Promise<void> {
 
   try {
     const sig = await program.methods
-      .finalizeEpoch(new BN(config.currentEpoch), minHubOut, jupiterData)
+      .finalizeEpoch(
+        new BN(config.currentEpoch),
+        minUsdcOut,
+        minHubOut,
+        hop1AccountCount,
+        hop1Data,
+        hop2Data,
+      )
       .accountsPartial({
         keeper: keeper.publicKey,
         config: configKey,
@@ -207,6 +228,7 @@ export async function runCycle(env: KeeperEnv): Promise<void> {
         vault: vaultKey,
         hubMint,
         vaultWsol: treasury.vaultWsol,
+        vaultUsdc: treasury.vaultUsdc,
         vaultHub: treasury.vaultHub,
         treasuryFloatVault: treasury.treasuryFloatVault,
         tokenProgram: new PublicKey(TOKEN_PROGRAM_ID),

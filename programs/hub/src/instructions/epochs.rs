@@ -6,9 +6,14 @@
 //! mechanic — the $OTC leg's lamport-equivalent value is credited to `Config.acc_per_weight`
 //! and its SOL earmarked in `OtcPotState.otc_pending_lamports` for `record_otc_buy`; `claim_yield`
 //! pays desks in $OTC at the pot's lifetime average buy rate). The other 10% (5% burn / 2.5% LP
-//! / 2.5% treasury float) is swapped SOL→$HUB in a single *synchronous* on-chain Jupiter CPI
-//! executed right here — best rate, real AMM volume/fees, no keeper-reimbursement round-trip —
-//! then the received $HUB splits 50/25/25 into: burned immediately; earmarked in
+//! / 2.5% treasury) is swapped SOL→$HUB via a **two-hop** *synchronous* on-chain Jupiter CPI
+//! executed right here — WSOL→USDC (hop1) then USDC→$HUB (hop2), routed through
+//! `TreasuryState.vault_usdc` — best rate, real AMM volume/fees, no keeper-reimbursement
+//! round-trip. The two hops exist for a second reason beyond moving the SOL: the realized
+//! USDC/HUB rate they observe (`usdc_received` from hop1, `hub_received` from hop2) is how
+//! `Config.tier_hub_cost_units_cached` gets refreshed — see the price-update block below and
+//! `TIER_USD_COST_MICROS`/`PRICE_CLAMP_BP`/`PRICE_UPDATE_MIN_SOL_LAMPORTS`/`PRICE_STALENESS_SECS`.
+//! The received $HUB (from hop2) splits 50/25/25 into: burned immediately; earmarked in
 //! `TreasuryState.lp_pending_hub_units` for the phase-2 $HUB/$OTC LP; deposited into
 //! `TreasuryState.treasury_float_vault` (buy-and-hold), capped at `hub_float_cap_bp` of supply
 //! with any excess folded into the burn leg instead of left un-swapped.
@@ -60,7 +65,11 @@ pub struct FinalizeEpoch<'info> {
     /// CHECK: vault-owned WSOL scratch ATA, recorded on TreasuryState by `init_treasury_float`.
     #[account(mut, address = treasury_state.vault_wsol @ HubError::InvalidTokenAccount)]
     pub vault_wsol: UncheckedAccount<'info>,
-    /// CHECK: vault-owned $HUB scratch ATA — the Jupiter swap's destination and
+    /// CHECK: vault-owned USDC scratch ATA — hop1's (WSOL→USDC) destination and hop2's
+    /// (USDC→$HUB) source; the intermediate leg of the two-hop price-discovery swap.
+    #[account(mut, address = treasury_state.vault_usdc @ HubError::InvalidTokenAccount)]
+    pub vault_usdc: UncheckedAccount<'info>,
+    /// CHECK: vault-owned $HUB scratch ATA — hop2's (USDC→$HUB) destination and
     /// `lp_pending_hub_units`'s physical custody.
     #[account(mut, address = treasury_state.vault_hub @ HubError::InvalidTokenAccount)]
     pub vault_hub: UncheckedAccount<'info>,
@@ -77,8 +86,11 @@ pub struct FinalizeEpoch<'info> {
 pub fn finalize_epoch<'info>(
     ctx: Context<'info, FinalizeEpoch<'info>>,
     epoch_index: u64,
+    min_usdc_out: u64,
     min_hub_out: u64,
-    jupiter_data: Vec<u8>,
+    hop1_account_count: u16,
+    hop1_data: Vec<u8>,
+    hop2_data: Vec<u8>,
 ) -> Result<()> {
     let now = Clock::get()?.unix_timestamp;
     let config = &mut ctx.accounts.config;
@@ -164,10 +176,29 @@ pub fn finalize_epoch<'info>(
 
         let vault_bump = ctx.accounts.treasury_state.vault_bump;
         let vault_seeds: &[&[u8]] = &[SEED_VAULT, &[vault_bump]];
+
+        // Two-hop route: split `remaining_accounts` at `hop1_account_count` into hop1's
+        // (WSOL→USDC) and hop2's (USDC→$HUB) account lists — each assembled off-chain against
+        // its own Jupiter quote, so each hop clears at its own best route.
+        let hop1_count = hop1_account_count as usize;
+        require!(
+            hop1_count <= ctx.remaining_accounts.len(),
+            HubError::HopAccountSplitOutOfRange
+        );
+        let (hop1_accounts, hop2_accounts) = ctx.remaining_accounts.split_at(hop1_count);
+
+        let usdc_received = jupiter_swap::swap_exact_in(
+            &ctx.accounts.jupiter_program.to_account_info(),
+            hop1_accounts,
+            hop1_data,
+            &ctx.accounts.vault_usdc.to_account_info(),
+            min_usdc_out,
+            &[vault_seeds],
+        )?;
         let hub_received = jupiter_swap::swap_exact_in(
             &ctx.accounts.jupiter_program.to_account_info(),
-            ctx.remaining_accounts,
-            jupiter_data,
+            hop2_accounts,
+            hop2_data,
             &ctx.accounts.vault_hub.to_account_info(),
             min_hub_out,
             &[vault_seeds],
@@ -224,15 +255,46 @@ pub fn finalize_epoch<'info>(
         ts.lp_pending_hub_units = add(ts.lp_pending_hub_units, hub_lp)?;
         ts.treasury_float_units = add(ts.treasury_float_units, hub_float_deposited)?;
 
+        // Price refresh: hop1's `usdc_received` and hop2's `hub_received` give a realized
+        // USDC/HUB rate for this round's swap. Only trust it if `swap_total` cleared the
+        // eligibility gate (thin/keeper-controlled trades are skipped, not accepted at face
+        // value) — see `PRICE_UPDATE_MIN_SOL_LAMPORTS`'s doc comment. Each tier's raw USD-target
+        // equivalent is clamped by `clamp_tier_cost` (±`PRICE_CLAMP_BP` per round, bounded to
+        // [`TIER_HUB_COST_FLOOR_BP`, 100%] of the `TIER_HUB_COST_UNITS` ceiling) before landing
+        // in the cache `Config::hub_cost` reads from.
+        let mut price_updated = false;
+        if swap_total >= PRICE_UPDATE_MIN_SOL_LAMPORTS && usdc_received > 0 {
+            let mut new_costs = config.tier_hub_cost_units_cached;
+            for i in 0..TIER_COUNT {
+                let raw = u64::try_from(
+                    (config.tier_usd_cost_micros[i] as u128) * (hub_received as u128)
+                        / (usdc_received as u128),
+                )
+                .map_err(|_| error!(HubError::MathOverflow))?;
+                new_costs[i] = clamp_tier_cost(
+                    config.tier_hub_cost_units_cached[i],
+                    raw,
+                    TIER_HUB_COST_UNITS[i],
+                )?;
+            }
+            config.tier_hub_cost_units_cached = new_costs;
+            config.last_price_update_ts = now;
+            price_updated = true;
+        }
+
         emit!(EpochSolSwapped {
             epoch: epoch_index,
             sol_swapped_lamports: swap_total,
+            usdc_received,
             hub_received,
             hub_burned: hub_burn_total,
             hub_lp_earmarked: hub_lp,
             hub_float_requested,
             hub_float_deposited,
             treasury_float_units_after: ts.treasury_float_units,
+            price_updated,
+            tier_hub_cost_units_after: config.tier_hub_cost_units_cached,
+            last_price_update_ts: config.last_price_update_ts,
         });
     }
 
@@ -283,24 +345,40 @@ pub struct RegisterTreasuryInflow<'info> {
     pub pot: UncheckedAccount<'info>,
     #[account(mut, seeds = [SEED_TREASURY], bump = treasury_state.bump)]
     pub treasury_state: Account<'info, TreasuryState>,
+    /// CHECK: `Config.protocol_fee_bp`'s skim destination — plain system account, matched by
+    /// address so a caller cannot redirect the skim anywhere else.
+    #[account(mut, address = config.ops_wallet @ HubError::Unauthorized)]
+    pub ops_wallet: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
 }
 
-/// Sources B/C/D/F: treasury moves `lamports` into the pot and books them as epoch inflow.
+/// Sources B/C/D/F: treasury moves `lamports` in, `bps_of(lamports, protocol_fee_bp)` is skimmed
+/// straight to `ops_wallet` (§A5 revenue-model extension — see `PROTOCOL_FEE_BP`'s doc comment),
+/// and only the remainder lands in the pot / is booked as epoch inflow.
 pub fn register_treasury_inflow(
     ctx: Context<RegisterTreasuryInflow>,
     source: InflowSource,
     lamports: u64,
 ) -> Result<()> {
     require!(lamports > 0, HubError::ZeroAmount);
+    let config = &mut ctx.accounts.config;
+    let to_ops = bps_of(lamports, config.protocol_fee_bp)?;
+    let to_pot = sub(lamports, to_ops)?;
+    if to_ops > 0 {
+        transfer_from_signer(
+            &ctx.accounts.system_program,
+            &ctx.accounts.treasury,
+            &ctx.accounts.ops_wallet.to_account_info(),
+            to_ops,
+        )?;
+    }
     transfer_from_signer(
         &ctx.accounts.system_program,
         &ctx.accounts.treasury,
         &ctx.accounts.pot,
-        lamports,
+        to_pot,
     )?;
-    let config = &mut ctx.accounts.config;
-    book_inflow(config, &mut ctx.accounts.epoch, lamports)?;
+    book_inflow(config, &mut ctx.accounts.epoch, to_pot)?;
     if source == InflowSource::D {
         ctx.accounts.treasury_state.total_exits = ctx
             .accounts
@@ -314,6 +392,7 @@ pub fn register_treasury_inflow(
         epoch: config.current_epoch,
         source: source as u8,
         lamports,
+        to_ops,
     });
     Ok(())
 }

@@ -9,9 +9,11 @@
 // never present in a mainnet build) so `initialize_config` can re-`init` the same addresses.
 // Without --reset this only runs `initialize_config` on a cluster where Config has never existed.
 //
-// hub_mint/otc_mint/desk_collection are left at their zero default here — run (in order)
-// devnet-hub-mint.ts, devnet-otc-mint.ts, mock-jupiter-setup.ts, devnet-mock-desks.ts afterwards
-// to reprovision them, then scripts/devnet-treasury-float.ts before any finalize_epoch call.
+// hub_mint/otc_mint/usdc_mint/desk_collection are left at their zero default here — run (in
+// order) devnet-hub-mint.ts, devnet-otc-mint.ts, mock-jupiter-setup.ts (also creates a devnet
+// mock USDC mint and points Config.usdc_mint at it — see its doc comment), devnet-mock-desks.ts
+// afterwards to reprovision them, then scripts/devnet-treasury-float.ts before any
+// finalize_epoch call.
 import { Keypair, PublicKey } from "@solana/web3.js";
 import { BN } from "@anchor-lang/core";
 import { burnPda, epochPda, potPda, treasuryPda, vaultPda } from "../sdk/src";
@@ -92,9 +94,18 @@ async function main() {
       deskCollection: PublicKey.default,
       hubMint: PublicKey.default,
       otcMint: PublicKey.default,
+      usdcMint: PublicKey.default,
       minPotThresholdLamports: new BN(minPotThresholdLamports),
     })
-    .accountsPartial({ payer: ctx.payer.publicKey, config: ctx.config, pot, burn, treasuryState, vault, epoch0 })
+    .accountsPartial({
+      payer: ctx.payer.publicKey,
+      config: ctx.config,
+      pot,
+      burn,
+      treasuryState,
+      vault,
+      epoch0,
+    })
     .rpc();
   console.log(`initialize_config :: authority/ops/treasury = ${ctx.payer.publicKey.toBase58()}`);
   console.log(`  ${explorer(sig, "tx")}`);

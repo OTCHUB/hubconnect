@@ -39,19 +39,28 @@ pub struct ActivateTier<'info> {
     /// CHECK: payer's $HUB token account (mint/owner verified in handler); burned on activation.
     #[account(mut)]
     pub payer_hub: UncheckedAccount<'info>,
-    /// CHECK: classic SPL Token program, asserted in `burn_checked`.
+    /// CHECK: classic SPL Token program, asserted in `burn_checked`/`transfer_checked`.
     pub token_program: UncheckedAccount<'info>,
     #[account(
         init_if_needed, payer = payer, space = 8 + DeskTier::INIT_SPACE,
         seeds = [SEED_TIER, desk_asset.key().as_ref()], bump
     )]
     pub desk_tier: Account<'info, DeskTier>,
+    #[account(mut, seeds = [SEED_TOKENOMICS], bump = tokenomics.bump)]
+    pub tokenomics: Account<'info, TokenomicsConfig>,
+    /// CHECK: recorded on TokenomicsConfig at init; holds the genesis floor + reward deposits —
+    /// the 50%-of-cost "reward" leg of the tier-activation burn split lands here (see
+    /// `Config.tier_cost_burn_bp`), same destination `fund_treasury_reward` uses.
+    #[account(mut, address = tokenomics.treasury_lock_vault @ HubError::InvalidTokenAccount)]
+    pub treasury_lock_vault: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
 }
 
 /// Fresh activation into any tier `target_tier`, or re-activation of a voided tier (full price,
 /// §B5 wash-transfer): flat `step_fee(0, target_tier)` SOL (90% pot / 10% ops) + the full $HUB
-/// cost of `target_tier`, burned.
+/// cost of `target_tier`, split `tier_cost_burn_bp` burned / remainder into the active-desk
+/// reward pool (`TokenomicsConfig.reward_pending_units`, same mechanism `fund_treasury_reward`
+/// feeds — paid out pro-rata by `distribute_treasury_reward` the next round it opens).
 pub fn activate_tier(ctx: Context<ActivateTier>, target_tier: u8) -> Result<()> {
     let asset = require_desk(
         &ctx.accounts.desk_asset,
@@ -72,8 +81,11 @@ pub fn activate_tier(ctx: Context<ActivateTier>, target_tier: u8) -> Result<()> 
         &config.hub_mint,
         ctx.accounts.payer.key,
     )?;
+    let now = Clock::get()?.unix_timestamp;
     let fee = config.step_fee(0, target_tier)?;
-    let hub_cost = config.hub_cost_delta(0, target_tier)?;
+    let hub_cost = config.hub_cost_delta(0, target_tier, now)?;
+    let hub_burn = bps_of(hub_cost, config.tier_cost_burn_bp)?;
+    let hub_reward = sub(hub_cost, hub_burn)?;
     let to_ops = bps_of(fee, config.ops_pct_bp)?;
     let to_pot = sub(fee, to_ops)?;
     transfer_from_signer(
@@ -94,9 +106,23 @@ pub fn activate_tier(ctx: Context<ActivateTier>, target_tier: u8) -> Result<()> 
         &ctx.accounts.payer_hub,
         &ctx.accounts.hub_mint,
         &ctx.accounts.payer,
-        hub_cost,
+        hub_burn,
         &[],
     )?;
+    if hub_reward > 0 {
+        transfer_checked(
+            &ctx.accounts.token_program,
+            &ctx.accounts.payer_hub,
+            &ctx.accounts.hub_mint,
+            &ctx.accounts.treasury_lock_vault,
+            &ctx.accounts.payer,
+            hub_reward,
+            &[],
+        )?;
+        let tk = &mut ctx.accounts.tokenomics;
+        tk.reward_pending_units = add(tk.reward_pending_units, hub_reward)?;
+        tk.reward_deposited_units = add(tk.reward_deposited_units, hub_reward)?;
+    }
 
     let epoch_idx = apply_activation(
         config,
@@ -116,7 +142,8 @@ pub fn activate_tier(ctx: Context<ActivateTier>, target_tier: u8) -> Result<()> 
         fee_lamports: fee,
         to_pot,
         to_ops,
-        hub_burned_units: hub_cost,
+        hub_burned_units: hub_burn,
+        hub_reward_units: hub_reward,
     });
     Ok(())
 }
@@ -143,18 +170,27 @@ pub struct UpgradeTier<'info> {
     /// CHECK: payer's $HUB token account (mint/owner verified in handler); burned on upgrade.
     #[account(mut)]
     pub payer_hub: UncheckedAccount<'info>,
-    /// CHECK: classic SPL Token program, asserted in `burn_checked`.
+    /// CHECK: classic SPL Token program, asserted in `burn_checked`/`transfer_checked`.
     pub token_program: UncheckedAccount<'info>,
     #[account(
         mut, seeds = [SEED_TIER, desk_asset.key().as_ref()], bump = desk_tier.bump,
         constraint = !desk_tier.voided @ HubError::TierVoided
     )]
     pub desk_tier: Account<'info, DeskTier>,
+    #[account(mut, seeds = [SEED_TOKENOMICS], bump = tokenomics.bump)]
+    pub tokenomics: Account<'info, TokenomicsConfig>,
+    /// CHECK: recorded on TokenomicsConfig at init; holds the genesis floor + reward deposits —
+    /// the 50%-of-cost "reward" leg of the tier-upgrade burn split lands here (see
+    /// `Config.tier_cost_burn_bp`), same destination `fund_treasury_reward` uses.
+    #[account(mut, address = tokenomics.treasury_lock_vault @ HubError::InvalidTokenAccount)]
+    pub treasury_lock_vault: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
 }
 
 /// Pay the flat `step_fee` once (90% pot / 10% ops, regardless of the step size) + the $HUB cost
-/// difference for `from → target_tier`, burned. Ownership change → void, no charge.
+/// difference for `from → target_tier`, split `tier_cost_burn_bp` burned / remainder into the
+/// active-desk reward pool (see `activate_tier`'s doc comment). Ownership change → void, no
+/// charge.
 pub fn upgrade_tier(ctx: Context<UpgradeTier>, target_tier: u8) -> Result<()> {
     let asset = require_desk(
         &ctx.accounts.desk_asset,
@@ -178,8 +214,11 @@ pub fn upgrade_tier(ctx: Context<UpgradeTier>, target_tier: u8) -> Result<()> {
     )?;
     let from = settle_for_upgrade(config, t)?;
 
+    let now = Clock::get()?.unix_timestamp;
     let fee = config.step_fee(from, target_tier)?;
-    let hub_cost = config.hub_cost_delta(from, target_tier)?;
+    let hub_cost = config.hub_cost_delta(from, target_tier, now)?;
+    let hub_burn = bps_of(hub_cost, config.tier_cost_burn_bp)?;
+    let hub_reward = sub(hub_cost, hub_burn)?;
     let to_ops = bps_of(fee, config.ops_pct_bp)?;
     let to_pot = sub(fee, to_ops)?;
     transfer_from_signer(
@@ -200,9 +239,23 @@ pub fn upgrade_tier(ctx: Context<UpgradeTier>, target_tier: u8) -> Result<()> {
         &ctx.accounts.payer_hub,
         &ctx.accounts.hub_mint,
         &ctx.accounts.payer,
-        hub_cost,
+        hub_burn,
         &[],
     )?;
+    if hub_reward > 0 {
+        transfer_checked(
+            &ctx.accounts.token_program,
+            &ctx.accounts.payer_hub,
+            &ctx.accounts.hub_mint,
+            &ctx.accounts.treasury_lock_vault,
+            &ctx.accounts.payer,
+            hub_reward,
+            &[],
+        )?;
+        let tk = &mut ctx.accounts.tokenomics;
+        tk.reward_pending_units = add(tk.reward_pending_units, hub_reward)?;
+        tk.reward_deposited_units = add(tk.reward_deposited_units, hub_reward)?;
+    }
 
     apply_upgrade(config, t, target_tier)?;
 
@@ -214,7 +267,8 @@ pub fn upgrade_tier(ctx: Context<UpgradeTier>, target_tier: u8) -> Result<()> {
         to_tier: target_tier,
         epoch: config.current_epoch,
         fee_lamports: fee,
-        hub_burned_units: hub_cost,
+        hub_burned_units: hub_burn,
+        hub_reward_units: hub_reward,
     });
     Ok(())
 }

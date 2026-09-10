@@ -99,6 +99,7 @@ export type PubkeyField =
   | "deskCollection"
   | "hubMint"
   | "otcMint"
+  | "usdcMint"
   | "otcDeskPot"
   | "otcProgram"
   | "treasury"
@@ -297,14 +298,20 @@ export async function roundStatus(ctx: Ctx) {
 }
 
 /**
- * §A5 Jupiter-route args for the 5%/2.5%/2.5% swap leg inside `finalize_epoch`. Callers that
- * only exercise the pre-swap gates (e.g. asserting `PotBelowThreshold`) can omit `swap` entirely
- * — the account list below is fixed regardless of whether a route was fetched.
+ * §A5 two-hop Jupiter-route args for the 5%/2.5%/2.5% swap leg inside `finalize_epoch` — hop1
+ * WSOL→USDC, hop2 USDC→$HUB. Callers that only exercise the pre-swap gates (e.g. asserting
+ * `PotBelowThreshold`) can omit `swap` entirely — the account list below is fixed regardless of
+ * whether a route was fetched.
  */
 export type FinalizeSwapArgs = {
+  minUsdcOut?: BN | number | bigint;
   minHubOut?: BN | number | bigint;
-  jupiterData?: Buffer;
-  remainingAccounts?: { pubkey: PublicKey; isSigner: boolean; isWritable: boolean }[];
+  hop1Data?: Buffer;
+  hop2Data?: Buffer;
+  /** hop1's (WSOL→USDC) accounts, then hop2's (USDC→$HUB) — concatenated into
+   * `ctx.remaining_accounts` and split on-chain at `hop1AccountCount` (= `hop1Accounts.length`). */
+  hop1Accounts?: { pubkey: PublicKey; isSigner: boolean; isWritable: boolean }[];
+  hop2Accounts?: { pubkey: PublicKey; isSigner: boolean; isWritable: boolean }[];
   /** Override for the `jupiter_program` account — defaults to the real Jupiter v6 id. Pass
    * `MOCK_JUPITER_PROGRAM_ID` (see `scripts/lib/mock-jupiter.ts`) when the target `hub` deploy
    * was built with the `mock-jupiter` Cargo feature, or the on-chain `WrongJupiterProgram` check
@@ -312,8 +319,8 @@ export type FinalizeSwapArgs = {
   jupiterProgram?: PublicKey;
 };
 
-/** Raw `finalize_epoch(idx, min_hub_out, jupiter_data)` — no readiness check, so callers can
- * assert the negative case. */
+/** Raw `finalize_epoch(idx, min_usdc_out, min_hub_out, hop1_account_count, hop1_data,
+ * hop2_data)` — no readiness check, so callers can assert the negative case. */
 export async function finalizeIx(ctx: Ctx, idx: number, swap: FinalizeSwapArgs = {}) {
   const id = ctx.program.programId;
   const [nextEpoch] = epochPda(id, idx + 1);
@@ -325,10 +332,14 @@ export async function finalizeIx(ctx: Ctx, idx: number, swap: FinalizeSwapArgs =
   const [key] = epochPda(id, idx);
   const cfg = await ctx.program.account.config.fetch(ctx.config);
   const treasury = await ctx.program.account.treasuryState.fetch(treasuryState);
+  const minUsdcOut = new BN((swap.minUsdcOut ?? 0).toString());
   const minHubOut = new BN((swap.minHubOut ?? 0).toString());
-  const jupiterData = swap.jupiterData ?? Buffer.alloc(0);
+  const hop1Accounts = swap.hop1Accounts ?? [];
+  const hop2Accounts = swap.hop2Accounts ?? [];
+  const hop1Data = swap.hop1Data ?? Buffer.alloc(0);
+  const hop2Data = swap.hop2Data ?? Buffer.alloc(0);
   return ctx.program.methods
-    .finalizeEpoch(new BN(idx), minHubOut, jupiterData)
+    .finalizeEpoch(new BN(idx), minUsdcOut, minHubOut, hop1Accounts.length, hop1Data, hop2Data)
     .accountsPartial({
       keeper: ctx.payer.publicKey,
       config: ctx.config,
@@ -341,13 +352,14 @@ export async function finalizeIx(ctx: Ctx, idx: number, swap: FinalizeSwapArgs =
       vault,
       hubMint: cfg.hubMint,
       vaultWsol: treasury.vaultWsol,
+      vaultUsdc: treasury.vaultUsdc,
       vaultHub: treasury.vaultHub,
       treasuryFloatVault: treasury.treasuryFloatVault,
       tokenProgram: TOKEN_PROGRAM_ID,
       jupiterProgram: swap.jupiterProgram ?? new PublicKey(JUPITER_PROGRAM_ID),
       systemProgram: SystemProgram.programId,
     })
-    .remainingAccounts(swap.remainingAccounts ?? [])
+    .remainingAccounts([...hop1Accounts, ...hop2Accounts])
     .rpc();
 }
 

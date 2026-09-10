@@ -182,6 +182,7 @@ export function ActivatePanel({ address, state, desks, onChanged, selectedAsset 
       config: state.config,
       otcPay,
       otcPot,
+      tokenomics: state.tokenomics,
       pendingLamports: pending,
       otcRoute: otcRoute ?? undefined,
       onLog: (l) => setLogs((p) => [...p, l]),
