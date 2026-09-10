@@ -1,5 +1,3 @@
-import { useUITheme } from "../../ThemeProvider";
-
 const ASCII_CELLS = 32;
 
 // red (0%) -> orange -> yellow (~50-80%) -> neon green (100%), interpolated per filled cell so
@@ -19,40 +17,18 @@ type ProgressBarProps = {
 };
 
 /**
- * Theme-aware progress bar — the app's one progress-bar primitive, reskinned by the global
- * Retro/Modern toggle (see `ThemeProvider`): "retro" renders the ASCII block heat-gradient loader
- * (red → yellow → neon green climbing left→right, `flex-wrap` so it never overflows narrow
- * viewports); "modern" renders a smooth rounded gradient track. Both pulse once `frac` clears
- * `imminentAt` to signal the final stretch. Shared by `EpochTracker` (round-close threshold) and
- * the bonding curve panel (graduation progress).
+ * The app's one progress-bar primitive — the ASCII block heat-gradient loader (red → yellow →
+ * neon green climbing left→right, `flex-wrap` so it never overflows narrow viewports). Pulses
+ * once `frac` clears `imminentAt` to signal the final stretch. Shared by `EpochTracker`
+ * (round-close threshold) and the bonding curve panel (graduation progress).
  */
 export function ProgressBar({
   frac,
   suffix = "to graduation",
   imminentAt = 0.8,
 }: ProgressBarProps) {
-  const { theme } = useUITheme();
   const pct = Math.min(100, Math.max(0, frac * 100));
   const imminent = pct / 100 >= imminentAt;
-
-  if (theme === "modern") {
-    return (
-      <div className="mt-1">
-        <div className="h-2 w-full overflow-hidden rounded-full bg-white/[0.06]">
-          <div
-            className={`h-full rounded-full bg-gradient-to-r from-orange-400 via-yellow-400 to-emerald-400 transition-[width] duration-500 ${imminent ? "animate-pulse" : ""}`}
-            style={{ width: `${pct}%` }}
-          />
-        </div>
-        <div
-          className={`mt-1 text-right text-[10px] ${imminent ? "font-semibold text-emerald-300" : "text-emerald-200/50"}`}
-        >
-          {pct.toFixed(2)}% {suffix}
-          {imminent ? " — IMMINENT" : ""}
-        </div>
-      </div>
-    );
-  }
 
   const filled = Math.round((pct / 100) * ASCII_CELLS);
   return (

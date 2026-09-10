@@ -1,10 +1,9 @@
 import type { SVGProps } from "react";
 
 /**
- * Minimal stroke-icon set — replaces the decorative emoji (⚡ 🔐 🧺 💧 ✨ 🖥) that used to sit in
- * the header, Wallet Connect, and M.I.M ETF chrome. Plain inline SVGs (no icon-library
- * dependency), single `currentColor` stroke so each call site can tint them via `className` and
- * they read correctly in both the retro (green-on-black) and modern (white/emerald) themes.
+ * Minimal stroke-icon set — replaces the decorative emoji (⚡ 🔐 🧺 💧) that used to sit in the
+ * header, Wallet Connect, and M.I.M ETF chrome. Plain inline SVGs (no icon-library dependency),
+ * single `currentColor` stroke so each call site can tint them via `className`.
  */
 type IconProps = Omit<SVGProps<SVGSVGElement>, "viewBox" | "fill" | "stroke">;
 
@@ -52,25 +51,8 @@ export function DropletIcon({ className = "h-4 w-4", ...props }: IconProps) {
   );
 }
 
-export function SparkleIcon({ className = "h-4 w-4", ...props }: IconProps) {
-  return (
-    <svg {...base} className={className} aria-hidden {...props}>
-      <path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M18 6l-2.5 2.5M8.5 15.5 6 18" />
-    </svg>
-  );
-}
-
-export function MonitorIcon({ className = "h-4 w-4", ...props }: IconProps) {
-  return (
-    <svg {...base} className={className} aria-hidden {...props}>
-      <rect x="3" y="4" width="18" height="12" rx="1" />
-      <path d="M8 20h8M12 16v4" />
-    </svg>
-  );
-}
-
 /** X (formerly Twitter) glyph — filled, not stroked (matches the brand mark), single-color via
- *  `currentColor` so it tints correctly in both themes. */
+ *  `currentColor` so it tints via `className` like the rest of the set. */
 export function XIcon({ className = "h-4 w-4", ...props }: IconProps) {
   return (
     <svg viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden {...props}>

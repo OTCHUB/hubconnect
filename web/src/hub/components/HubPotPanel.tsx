@@ -6,11 +6,9 @@ import { useHub } from "../HubProvider";
 import type { OwnedDesk } from "../hooks/useWalletPortfolio";
 import { useHubPot, type HubPotDecimals } from "../hooks/useHubPot";
 import { executeClaimHubPotReward, type HubPotClaimPhase } from "../lib/hubPotClaim";
-import { useUITheme } from "../ThemeProvider";
 import { fmtNum, fmtUnits } from "../lib/format";
 import type { TxLog } from "../lib/swap";
 import { AddressLink } from "./ui/AddressLink";
-import { BasketIcon } from "./ui/Icons";
 import { Panel, Row, Stat } from "./ui/Panel";
 import { TxLogView } from "./ui/TxLogView";
 
@@ -22,13 +20,9 @@ const BUCKET_LABELS = {
 } as const;
 type BucketKey = keyof typeof BUCKET_LABELS;
 const BUCKET_KEYS = Object.keys(BUCKET_LABELS) as BucketKey[];
-const MODERN_PRIMARY_BTN =
-  "rounded-full bg-emerald-400 px-4 py-1.5 text-xs font-semibold text-black transition hover:bg-emerald-300 disabled:opacity-30";
-const MODERN_GHOST_BTN =
-  "rounded-full border border-white/15 px-3 py-1.5 text-xs text-emerald-100 transition hover:bg-white/5 disabled:opacity-30";
 const RETRO_BTN = "border px-2.5 py-1 text-[12px] disabled:opacity-30";
-const RETRO_PRIMARY_BTN = `${RETRO_BTN} border-emerald-500/60 font-bold text-emerald-300 hover:bg-emerald-500/10`;
-const RETRO_GHOST_BTN = `${RETRO_BTN} border-green-500/30 text-green-500/70`;
+const PRIMARY_BTN = `${RETRO_BTN} border-emerald-500/60 font-bold text-emerald-300 hover:bg-emerald-500/10`;
+const GHOST_BTN = `${RETRO_BTN} border-green-500/30 text-green-500/70`;
 
 /** Sums an active desk's `hubPotShareUnits` estimate across every bucket, for every desk owned
  *  by the wallet — mirrors the on-chain per-desk `reward_share` floor-division exactly. */
@@ -55,8 +49,6 @@ type Props = { desks?: OwnedDesk[]; address?: string | null };
  *  one `HubPotClaim` receipt per (round, desk), so a desk is paid at most once per round. */
 export function HubPotPanel({ desks, address }: Props) {
   const { connection, program, programId, resolveSigner } = useHub();
-  const { theme } = useUITheme();
-  const isModern = theme === "modern";
   const qc = useQueryClient();
   const q = useHubPot();
   const pot = q.data?.pot ?? null;
@@ -88,22 +80,18 @@ export function HubPotPanel({ desks, address }: Props) {
     },
   });
 
-  const potIcon = <BasketIcon className="h-4 w-4" />;
-
   if (q.isPending) {
     return (
-      <Panel title="M.I.M ETF" icon={potIcon}>
-        <div className={isModern ? "text-sm text-emerald-200/40" : "text-xs text-green-700"}>
-          loading…
-        </div>
+      <Panel title="M.I.M ETF">
+        <div className="text-xs text-green-700">loading…</div>
       </Panel>
     );
   }
 
   if (!pot || !decimals) {
     return (
-      <Panel title="M.I.M ETF" icon={potIcon}>
-        <div className={isModern ? "text-sm text-emerald-200/40" : "text-xs text-green-700"}>
+      <Panel title="M.I.M ETF">
+        <div className="text-xs text-green-700">
           Not live yet on this cluster — the pot hasn't been initialized.
         </div>
       </Panel>
@@ -159,43 +147,22 @@ export function HubPotPanel({ desks, address }: Props) {
 
   const potAddress = hubPotPda(programId)[0].toBase58();
 
-  const mutedCls = isModern ? "text-emerald-200/40" : "text-green-700";
-  const sectionLabelCls = isModern
-    ? "mb-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-emerald-200/40"
-    : "mb-1.5 text-[10px] uppercase tracking-widest text-green-600";
-  const pillCls = isModern
-    ? "inline-flex items-center gap-1.5 rounded-full border border-emerald-400/30 bg-emerald-400/10 px-3 py-1 text-xs font-semibold text-emerald-300"
-    : "inline-flex items-center gap-1.5 rounded-none border border-green-500 bg-green-500/10 px-2 py-1 text-[10px] font-bold tracking-widest text-green-300";
-  const listContainerCls = isModern
-    ? "max-h-52 divide-y divide-white/5 overflow-y-auto rounded-2xl border border-white/5"
-    : "max-h-52 divide-y divide-green-500/10 overflow-y-auto rounded-none border border-green-500/20";
-  const primaryBtn = isModern ? MODERN_PRIMARY_BTN : RETRO_PRIMARY_BTN;
-  const ghostBtn = isModern ? MODERN_GHOST_BTN : RETRO_GHOST_BTN;
-  const footerCls = isModern
-    ? "mt-4 flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-white/5 pt-3 font-mono text-[10px] text-emerald-200/30"
-    : "mt-4 flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-green-500/20 pt-3 text-[10px] text-green-800";
-  const disclaimerCls = isModern
-    ? "mt-2 flex items-start gap-1.5 text-[10px] leading-relaxed text-emerald-200/30"
-    : "mt-2 flex items-start gap-1.5 text-[10px] leading-relaxed text-green-800";
+  const mutedCls = "text-green-700";
+  const sectionLabelCls = "mb-1.5 text-[10px] uppercase tracking-widest text-green-600";
+  const pillCls =
+    "inline-flex items-center gap-1.5 rounded-none border border-green-500 bg-green-500/10 px-2 py-1 text-[10px] font-bold tracking-widest text-green-300";
+  const listContainerCls =
+    "max-h-52 divide-y divide-green-500/10 overflow-y-auto rounded-none border border-green-500/20";
+  const footerCls =
+    "mt-4 flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-green-500/20 pt-3 text-[10px] text-green-800";
+  const disclaimerCls = "mt-2 flex items-start gap-1.5 text-[10px] leading-relaxed text-green-800";
 
   return (
-    <Panel title="M.I.M ETF" icon={potIcon}>
-      <p
-        className={
-          isModern
-            ? "text-[11px] font-semibold uppercase tracking-[0.2em] text-emerald-300/60"
-            : "text-[10px] uppercase tracking-widest text-green-600"
-        }
-      >
+    <Panel title="M.I.M ETF">
+      <p className="text-[10px] uppercase tracking-widest text-green-600">
         Magic Internet Money Basket
       </p>
-      <p
-        className={
-          isModern
-            ? "mt-1.5 text-sm leading-relaxed text-white/80"
-            : "mt-1.5 text-xs leading-relaxed text-green-400/90"
-        }
-      >
+      <p className="mt-1.5 text-xs leading-relaxed text-green-400/90">
         A tier-weighted basket of $OTC, CRCLx, OPENAI, and ANTHROPIC. Funded by treasury yield
         rebalancing: 13 stocks consolidated into 4 native tickers. Pure yield, zero cost.
       </p>
@@ -261,13 +228,7 @@ export function HubPotPanel({ desks, address }: Props) {
                 <label
                   key={r.asset}
                   className={`flex cursor-pointer items-center gap-2 px-3 py-2 text-xs transition ${
-                    selected.has(r.asset)
-                      ? isModern
-                        ? "bg-emerald-400/10"
-                        : "bg-green-500/10"
-                      : isModern
-                        ? "hover:bg-white/5"
-                        : "hover:bg-green-500/5"
+                    selected.has(r.asset) ? "bg-green-500/10" : "hover:bg-green-500/5"
                   }`}
                 >
                   <input
@@ -275,16 +236,12 @@ export function HubPotPanel({ desks, address }: Props) {
                     checked={selected.has(r.asset)}
                     disabled={busy}
                     onChange={() => toggle(r.asset)}
-                    className={isModern ? "accent-emerald-400" : "accent-green-500"}
+                    className="accent-green-500"
                   />
                   <span className="min-w-0 flex-1">
                     <AddressLink address={r.asset} />
                   </span>
-                  <span
-                    className={
-                      isModern ? "text-right text-emerald-300" : "text-right text-green-300"
-                    }
-                  >
+                  <span className="text-right text-green-300">
                     {BUCKET_KEYS.filter((b) => r.share[b] > 0n)
                       .map((b) => `${fmtUnits(r.share[b], decimals[b])} ${BUCKET_LABELS[b]}`)
                       .join(" · ")}
@@ -298,7 +255,7 @@ export function HubPotPanel({ desks, address }: Props) {
               type="button"
               onClick={run}
               disabled={busy || !claimRows.length}
-              className={primaryBtn}
+              className={PRIMARY_BTN}
             >
               {busy
                 ? `${phase ?? "prep"}…`
@@ -310,7 +267,7 @@ export function HubPotPanel({ desks, address }: Props) {
               type="button"
               onClick={() => setSelected(new Set())}
               disabled={busy || !selected.size}
-              className={ghostBtn}
+              className={GHOST_BTN}
             >
               Clear
             </button>
