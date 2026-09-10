@@ -647,7 +647,7 @@ async function main() {
 
 if (require.main === module) {
   main().catch((e) => {
-    console.error(String(e?.message ?? e));
+    console.error(e?.stack ?? String(e?.message ?? e));
     process.exit(1);
   });
 }

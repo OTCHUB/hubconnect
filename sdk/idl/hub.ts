@@ -1636,6 +1636,80 @@ export type Hub = {
       ]
     },
     {
+      "name": "devnetCloseEpoch",
+      "docs": [
+        "Devnet-only: closes a single stale `epoch(epoch_index)` PDA left over from an earlier",
+        "test session, without touching `config`/`burn`/`treasury_state`. Compiled only under the",
+        "`mock-jupiter` feature — absent from every mainnet build."
+      ],
+      "discriminator": [
+        125,
+        60,
+        128,
+        235,
+        134,
+        153,
+        174,
+        54
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "epoch",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  112,
+                  111,
+                  99,
+                  104
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "epochIndex"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "epochIndex",
+          "type": "u64"
+        }
+      ]
+    },
+    {
       "name": "devnetReset",
       "docs": [
         "Devnet-only: closes `config`/`burn`/`treasury_state`/`epoch(epoch_index)` so",

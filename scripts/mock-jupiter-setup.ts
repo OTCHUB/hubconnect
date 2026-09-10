@@ -102,7 +102,9 @@ async function ensureMockUsdcMint(ctx: Ctx, supply: bigint): Promise<PublicKey> 
   if (!cfg.usdcMint.equals(PublicKey.default)) {
     return new PublicKey(cfg.usdcMint);
   }
-  const { mint, sig } = await createHubMint(ctx, 6, supply);
+  // `supply` here is already base-unit-scaled (× 10^6, see `usdcSupply` in main()), but
+  // `createHubMint` scales by `decimals` itself — undo the pre-scale so it isn't applied twice.
+  const { mint, sig } = await createHubMint(ctx, 6, supply / 10n ** 6n);
   console.log(`mock USDC devnet mint ${mint.toBase58()} · ${supply} × 10^6 minted to payer`);
   console.log(`  ${explorer(sig, "tx")}`);
   await setConfigPubkey(ctx, "usdcMint", mint);

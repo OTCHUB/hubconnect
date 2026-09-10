@@ -176,6 +176,32 @@ pub struct DevnetReset<'info> {
     pub epoch: UncheckedAccount<'info>,
 }
 
+/// Devnet-only escape hatch: closes a single stale `Epoch[epoch_index]` PDA left over from an
+/// earlier test session, without touching `config`/`burn`/`treasury_state` (unlike
+/// `DevnetReset`, which always bundles all four). Needed because `finalize_epoch` `init`s
+/// `Epoch[current_epoch + 1]` — if a prior run already created that address (e.g. before a
+/// `DevnetReset` that only closed the then-current epoch), the `init` fails with "already in
+/// use" even though `config`/`burn`/`treasury_state` are fine. Same gating and authority check
+/// as `DevnetReset`.
+#[cfg(feature = "mock-jupiter")]
+#[derive(Accounts)]
+#[instruction(epoch_index: u64)]
+pub struct DevnetCloseEpoch<'info> {
+    #[account(mut)]
+    pub authority: Signer<'info>,
+    #[account(seeds = [SEED_CONFIG], bump = config.bump, has_one = authority @ HubError::Unauthorized)]
+    pub config: Account<'info, Config>,
+    /// CHECK: raw close target; see the module doc above.
+    #[account(mut, seeds = [SEED_EPOCH, &epoch_index.to_le_bytes()], bump)]
+    pub epoch: UncheckedAccount<'info>,
+}
+
+#[cfg(feature = "mock-jupiter")]
+pub fn devnet_close_epoch(ctx: Context<DevnetCloseEpoch>, _epoch_index: u64) -> Result<()> {
+    let dest = ctx.accounts.authority.to_account_info();
+    close_raw(&ctx.accounts.epoch.to_account_info(), &dest)
+}
+
 /// Zeroes an account's data and sweeps its lamports to `dest`. Draining lamports to 0 is what
 /// actually frees the address for a later `init` — the Solana runtime purges any account with a
 /// zero balance at the end of the transaction that left it that way, regardless of its data or

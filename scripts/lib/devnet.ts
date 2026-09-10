@@ -404,7 +404,7 @@ export async function settleRound(ctx: Ctx, topUp = false, buildSwap?: FinalizeS
 
 /** Treasury books `lamports` of source B/C/D/F into the open round. */
 export async function registerInflow(ctx: Ctx, source: "b" | "c" | "d" | "f", lamports: number) {
-  const { key } = await openEpoch(ctx);
+  const { key, cfg } = await openEpoch(ctx);
   const [pot] = potPda(ctx.program.programId);
   const [treasuryState] = treasuryPda(ctx.program.programId);
   return ctx.program.methods
@@ -415,6 +415,7 @@ export async function registerInflow(ctx: Ctx, source: "b" | "c" | "d" | "f", la
       epoch: key,
       pot,
       treasuryState,
+      opsWallet: cfg.opsWallet,
     })
     .rpc();
 }

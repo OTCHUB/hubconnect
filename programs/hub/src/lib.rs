@@ -464,4 +464,12 @@ pub mod hub {
     pub fn devnet_reset(ctx: Context<DevnetReset>, epoch_index: u64) -> Result<()> {
         instructions::admin::devnet_reset(ctx, epoch_index)
     }
+
+    /// Devnet-only: closes a single stale `epoch(epoch_index)` PDA left over from an earlier
+    /// test session, without touching `config`/`burn`/`treasury_state`. Compiled only under the
+    /// `mock-jupiter` feature — absent from every mainnet build.
+    #[cfg(feature = "mock-jupiter")]
+    pub fn devnet_close_epoch(ctx: Context<DevnetCloseEpoch>, epoch_index: u64) -> Result<()> {
+        instructions::admin::devnet_close_epoch(ctx, epoch_index)
+    }
 }
