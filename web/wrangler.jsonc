@@ -61,6 +61,14 @@
       },
       "routes": [{ "pattern": "devnet.otchub.dev", "custom_domain": true }],
       "observability": { "enabled": true },
+      // Cross-origin allowlist for every /api/faucet/* + /api/curve/* response (see
+      // workers/cors.ts) — required now that otchub/src/hub/lib/{faucet,curve}.ts call this
+      // Worker's origin from a different one (otchub.dev, mounted at /hub and /devnet). Extend
+      // with a Base44 preview URL or another local dev port as needed; comma-separated, no spaces
+      // required. workers/cors.ts falls back to this same list if the var is ever removed.
+      "vars": {
+        "ALLOWED_ORIGINS": "https://otchub.dev,https://www.otchub.dev,https://devnet.otchub.dev,http://localhost:5173,http://localhost:3000",
+      },
       // Rate-limit bucket for the faucet (per-wallet cooldowns + per-IP abuse guard). Created via
       // `wrangler kv namespace create FAUCET_KV --env devnet`; id filled in after creation.
       //

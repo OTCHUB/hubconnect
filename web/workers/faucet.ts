@@ -56,6 +56,7 @@ import {
 } from "./faucet-config";
 import { coreCreateV1Ix, mintToIx } from "./faucet-ix";
 import { routeCurveRequest, type CurveEnv } from "./bonding-curve";
+import { preflightResponse, resolveAllowedOrigin, withCors, type CorsEnv } from "./cors";
 
 interface FaucetKV {
   get(key: string): Promise<string | null>;
@@ -64,7 +65,7 @@ interface FaucetKV {
 interface AssetFetcher {
   fetch(request: Request): Promise<Response>;
 }
-export interface Env extends CurveEnv {
+export interface Env extends CurveEnv, CorsEnv {
   ASSETS: AssetFetcher;
   FAUCET_KV: FaucetKV;
   /** JSON secret-key array (`solana-keygen`/`Keypair.generate().secretKey` format). */
@@ -181,27 +182,38 @@ async function checkIpLimit(env: Env, request: Request): Promise<boolean> {
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
+    if (!url.pathname.startsWith("/api/")) return env.ASSETS.fetch(request);
+
+    // Every client call (faucet.ts + curve.ts in otchub/src/hub/lib) sets `content-type:
+    // application/json`, which forces a CORS preflight for *every* method, GET included — so this
+    // has to run before any routing below, for every /api/* path, not just the mutating ones.
+    const allowedOrigin = resolveAllowedOrigin(request, env);
+    if (request.method === "OPTIONS") return preflightResponse(allowedOrigin);
+
     try {
       if (url.pathname === "/api/faucet/status" && request.method === "GET") {
-        return await handleStatus(env);
+        return withCors(await handleStatus(env), allowedOrigin);
       }
       if (url.pathname === "/api/faucet/drip" && request.method === "POST") {
-        if (!(await checkIpLimit(env, request))) return json({ error: "too many requests" }, 429);
-        return await handleDrip(request, env);
+        if (!(await checkIpLimit(env, request))) {
+          return withCors(json({ error: "too many requests" }, 429), allowedOrigin);
+        }
+        return withCors(await handleDrip(request, env), allowedOrigin);
       }
       if (url.pathname === "/api/faucet/mint-desk" && request.method === "POST") {
-        if (!(await checkIpLimit(env, request))) return json({ error: "too many requests" }, 429);
-        return await handleMintDesk(request, env);
+        if (!(await checkIpLimit(env, request))) {
+          return withCors(json({ error: "too many requests" }, 429), allowedOrigin);
+        }
+        return withCors(await handleMintDesk(request, env), allowedOrigin);
       }
       if (url.pathname.startsWith("/api/curve/")) {
         const res = await routeCurveRequest(request, env);
-        if (res) return res;
+        if (res) return withCors(res, allowedOrigin);
       }
-      if (url.pathname.startsWith("/api/")) return json({ error: "not found" }, 404);
+      return withCors(json({ error: "not found" }, 404), allowedOrigin);
     } catch (e) {
-      return json({ error: (e as Error).message }, 500);
+      return withCors(json({ error: (e as Error).message }, 500), allowedOrigin);
     }
-    return env.ASSETS.fetch(request);
   },
 };
 
