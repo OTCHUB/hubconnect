@@ -1,19 +1,15 @@
 // Mainnet PM2 process list for the 5 keeper services — mirrors `keeper/ecosystem.config.js`
 // (devnet) but targets mainnet-beta. See `keeper/README.md` §B4 for the service contract.
 //
-// SAFETY — every app below still runs DRY_RUN=1. Do NOT flip to "0" until all of the
-// following are true:
-//   1. Mainnet `initialize_config` has actually run (no on-chain Config account exists yet —
-//      derives to `6G7FFF8ct3z6cam5zBUQi54uBpRgKpUJmS5wxSdj2W9n`, currently empty).
-//   2. Each keeper wallet below is funded with real SOL to at least
-//      KEEPER_TARGET_CEILING_LAMPORTS (0.3 SOL — see the gas-float table in keeper/README.md).
-//      The keys were freshly generated this session and hold 0 SOL; fund them from a real
-//      mainnet source, there is no faucet.
-//   3. `Config.treasury` has been reassigned to `keeper/keys/mainnet-treasury-authority.json`
-//      via a mainnet equivalent of `scripts/devnet-set-treasury.ts` (not written yet — treasury
-//      write paths stay read-only heartbeats regardless of DRY_RUN until that script exists).
-//   4. `hub-keeper-sweeper-mainnet` must also keep SWEEPER_ENABLED=0 through launch — no Magic
+// STATUS — live on mainnet-beta as of the §A7.1 genesis init chain:
+//   1. `initialize_config` executed: Config = 6G7FFF8ct3z6cam5zBUQi54uBpRgKpUJmS5wxSdj2W9n.
+//   2. Each keeper wallet below funded with 0.3 SOL (KEEPER_TARGET_CEILING_LAMPORTS) from the
+//      deployer wallet.
+//   3. `Config.treasury` reassigned to `keeper/keys/mainnet-treasury-authority.json` via
+//      `scripts/mainnet-set-treasury.ts`.
+//   4. `hub-keeper-sweeper-mainnet` keeps SWEEPER_ENABLED=0 regardless of DRY_RUN — no Magic
 //      Eden/OpenSea client exists yet (`keeper/shared/src/marketplace.ts`).
+// DRY_RUN is now "0" — keepers submit real transactions against mainnet-beta.
 //
 // RPC precedence (mirrors `scripts/lib/mainnet.ts`): HUB_MAINNET_RPC_URL (raw or with
 // `${HELIUS_API_KEY}` substitution) > Helius mainnet via HELIUS_API_KEY > public mainnet-beta.
@@ -46,7 +42,7 @@ const common = {
     HUB_CLUSTER: "mainnet-beta",
     HUB_RPC_URL: mainnetRpc(),
     HUB_PROGRAM_ID: "7c5oPs9GvX8vrC5jVFketNx1ZLuPs7HeH8Qc4XJx7b7i",
-    DRY_RUN: "1",
+    DRY_RUN: "0",
     KEEPER_LOOP_INTERVAL_MS: "60000",
   },
 };
