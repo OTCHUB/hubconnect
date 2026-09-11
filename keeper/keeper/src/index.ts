@@ -242,7 +242,7 @@ export async function runCycle(env: KeeperEnv): Promise<void> {
 
   try {
     const sig = env.epochAlt
-      ? await sendWithAlt(connection, keeper, builder, env.epochAlt)
+      ? await sendWithAlt(connection, keeper, builder, env.epochAlt, config.currentEpoch)
       : await builder.rpc();
     appendJournal({ ...journalBase, status: "sent", signature: sig });
     console.log(`[epoch ${config.currentEpoch}] finalized → ${sig}`);
@@ -252,29 +252,68 @@ export async function runCycle(env: KeeperEnv): Promise<void> {
   }
 }
 
+/** SPL Memo v2 program — well-known immutable address, hardcoded rather than pulling in the
+ * `@solana/spl-memo` package for a single constant. Purely cosmetic: block explorers (Solscan,
+ * SolanaFM, etc.) render this instruction's UTF-8 data as a plain-text label on the transaction,
+ * so anyone auditing the treasury/keeper wallet sees "hub:finalize_epoch:epoch=123" instead of an
+ * opaque program invocation — a transparency/trust signal, never read on-chain by the program. */
+const MEMO_PROGRAM_ID = new PublicKey("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr");
+
+/** `finalize_epoch`'s tx sits close to the legacy 1232-byte wire limit even with the ALT (hop1's
+ * Jupiter route is the only remaining variable-size leg — see `mainnet-create-epoch-alt.ts`).
+ * Only attach the memo if it leaves this much headroom below 1232, so a wider-than-usual Jupiter
+ * route can never make the memo the reason `finalize_epoch` starts failing again. */
+const MEMO_SAFE_LIMIT_BYTES = 1180;
+
 /** Builds + sends `builder` as a v0 `VersionedTransaction` resolving `alt`'s entries by lookup
  * instead of embedding them as 32-byte static keys — see `KeeperEnv.epochAlt`'s doc comment for
  * why this is required on mainnet. `alt` covers `finalize_epoch`'s + hop2's fixed accounts only;
  * `keeper` (signer) and hop1's Jupiter route accounts always stay in the static key list (a
  * signer can never be ALT-resolved, and Jupiter's own CPI accounts can't be either — see
- * `scripts/mainnet-create-epoch-alt.ts`'s doc comment). */
+ * `scripts/mainnet-create-epoch-alt.ts`'s doc comment). Opportunistically appends a human-readable
+ * Memo instruction labelling the epoch (see `MEMO_PROGRAM_ID`); silently dropped if hop1's route
+ * for this cycle is wide enough that including it would risk the 1232-byte limit. */
 async function sendWithAlt(
   connection: Connection,
   keeper: Keypair,
   builder: ReturnType<HubProgram["methods"]["finalizeEpoch"]>,
   alt: PublicKey,
+  epochLabel: number,
 ): Promise<string> {
   const lookupTable = await connection.getAddressLookupTable(alt);
   if (!lookupTable.value) throw new Error(`epoch ALT ${alt.toBase58()} not found on-chain`);
   const ix = await builder.instruction();
   const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
-  const message = new TransactionMessage({
-    payerKey: keeper.publicKey,
-    recentBlockhash: blockhash,
-    instructions: [ix],
-  }).compileToV0Message([lookupTable.value]);
-  const tx = new VersionedTransaction(message);
-  tx.sign([keeper]);
+  const memoIx = {
+    programId: MEMO_PROGRAM_ID,
+    keys: [],
+    data: Buffer.from(`hub:finalize_epoch:epoch=${epochLabel}`, "utf8"),
+  };
+  const withMemo = new VersionedTransaction(
+    new TransactionMessage({
+      payerKey: keeper.publicKey,
+      recentBlockhash: blockhash,
+      instructions: [ix, memoIx],
+    }).compileToV0Message([lookupTable.value]),
+  );
+  withMemo.sign([keeper]);
+  const fitsWithMemo = withMemo.serialize().length <= MEMO_SAFE_LIMIT_BYTES;
+  const tx = fitsWithMemo
+    ? withMemo
+    : (() => {
+        const noMemo = new VersionedTransaction(
+          new TransactionMessage({
+            payerKey: keeper.publicKey,
+            recentBlockhash: blockhash,
+            instructions: [ix],
+          }).compileToV0Message([lookupTable.value]),
+        );
+        noMemo.sign([keeper]);
+        console.warn(
+          `[epoch ${epochLabel}] hop1 route too wide for memo headroom — sending without it`,
+        );
+        return noMemo;
+      })();
   const sig = await connection.sendTransaction(tx, { maxRetries: 3 });
   await connection.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, "confirmed");
   return sig;
