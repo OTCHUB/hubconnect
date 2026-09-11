@@ -6,6 +6,7 @@ import {
   TIER_WEIGHTS_BP,
   cumulativeFeeLamports,
   effectiveInflowLamports,
+  liveHubCostUnits,
   type ConfigView,
   type EpochView,
 } from "@hub-sdk";
@@ -54,6 +55,9 @@ export type TierRow = {
   tier: number;
   weightBp: number;
   cumulativeFeeLamports: number;
+  /** Live $HUB burn to reach this tier from scratch — see `liveHubCostUnits`; tracks the on-chain
+   *  price cache (cheaper than the genesis/ceiling table once fresh), not a static lookup. */
+  hubCostUnits: number;
   roundLamports: number;
   /** null when the round cadence is unknown (no closed round yet). */
   dailyLamports: number | null;
@@ -83,7 +87,12 @@ export function roundsPerDay(previous: EpochView | null): number | null {
   return secs >= MIN_REALISTIC_ROUND_SECS ? 86400 / secs : null;
 }
 
-export function buildTierRows(inputs: RoundInputs, perDay: number | null): TierRow[] {
+export function buildTierRows(
+  inputs: RoundInputs,
+  perDay: number | null,
+  config: ConfigView,
+  nowTs: number,
+): TierRow[] {
   return TIER_WEIGHTS_BP.map((weightBp, i) => {
     const tier = i + 1;
     const roundLamports = tierPayoutLamports(tier, inputs);
@@ -92,6 +101,7 @@ export function buildTierRows(inputs: RoundInputs, perDay: number | null): TierR
       tier,
       weightBp,
       cumulativeFeeLamports: fee,
+      hubCostUnits: liveHubCostUnits(tier, nowTs, config),
       roundLamports,
       dailyLamports: perDay === null ? null : roundLamports * perDay,
       breakevenRounds: roundLamports > 0 ? Math.ceil(fee / roundLamports) : null,

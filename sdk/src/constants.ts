@@ -26,9 +26,15 @@ export const LP_PCT_BP = 250;
 export const TREASURY_FLOAT_PCT_BP = 250;
 /**
  * $HUB base units required to reach each tier from scratch (cumulative table, not incremental) —
- * mirrors `TIER_HUB_COST_UNITS` in constants.rs: T1 100k, T2 125k, T3 150k, T4 200k. A fresh
- * activation burns the full cost of the target tier; an upgrade burns only the difference from
- * the tier already held.
+ * mirrors `TIER_HUB_COST_UNITS` in constants.rs: T1 100k, T2 125k, T3 150k, T4 200k. This is the
+ * *genesis/ceiling* table only — the live per-tier cost the program actually charges tracks a
+ * fixed USD target (`TIER_USD_COST_MICROS`) via `Config.tier_hub_cost_units_cached`, refreshed
+ * from a realized Jupiter swap at `finalize_epoch`, and can be cheaper than this table whenever
+ * $HUB's market price is fresh (not stale) — see `liveHubCostUnits`/`liveHubCostDeltaUnits` in
+ * `./reader`, which apply that cache + `PRICE_STALENESS_SECS` fallback exactly like the on-chain
+ * `Config::hub_cost`/`hub_cost_delta`. Prefer those over this table directly for any UI/quote
+ * that should match what the program will actually charge right now; this table remains the
+ * correct choice only when no live `ConfigView` is available yet, or as the known worst case.
  */
 export const TIER_HUB_COST_UNITS = [100_000, 125_000, 150_000, 200_000].map((v) => v * 10 ** 6) as [
   number,
@@ -36,6 +42,33 @@ export const TIER_HUB_COST_UNITS = [100_000, 125_000, 150_000, 200_000].map((v) 
   number,
   number,
 ];
+/**
+ * Fixed USD target for each tier, in micro-USDC (6 decimals) — $50/$60/$70/$80 cumulative. Never
+ * moves; what moves is how many $HUB tokens currently equal it (see `TIER_HUB_COST_UNITS`'s doc).
+ */
+export const TIER_USD_COST_MICROS = [50_000_000, 60_000_000, 70_000_000, 80_000_000] as [
+  number,
+  number,
+  number,
+  number,
+];
+/** A round's priced leg must be at least this large to be eligible to move the cached $HUB-per-
+ *  tier cost — a thinner trade is skipped (not trusted) rather than accepted at face value. */
+export const PRICE_UPDATE_MIN_SOL_LAMPORTS = LAMPORTS_PER_SOL / 5; // 0.2 SOL
+/** Symmetric clamp: an eligible round may move each tier's cached cost by at most this many bp,
+ *  in either direction, from its previous value. */
+export const PRICE_CLAMP_BP = 1_000; // ±10% per eligible round
+/** The cached cost may never shrink below this % of `TIER_HUB_COST_UNITS` (the genesis/ceiling
+ *  table) — a hard minimum-burn guarantee, however high $HUB's real price climbs. */
+export const TIER_HUB_COST_FLOOR_BP = 1_000; // 10% of ceiling
+/** If the cached cost hasn't been refreshed by an eligible round in this long, the live cost
+ *  falls back to the ceiling table instead of trading off a possibly-stale price. */
+export const PRICE_STALENESS_SECS = 86_400; // 24h
+/** Of every tier activation/upgrade's $HUB cost, this fraction is burned outright (`BurnChecked`,
+ *  permanent); the remainder credits the active-desk reward pool (`TokenomicsConfig`'s
+ *  `treasury_lock_vault`, distributed pro-rata by tier weight the next `distribute_treasury_reward`)
+ *  instead of vanishing — a real yield source on top of the round-split "HUB Protocol Boost". */
+export const TIER_COST_BURN_BP = 5_000; // 50% burn / 50% -> active-desk reward pool
 /** A round closes once its inflow reaches this (OTC desk-pot trigger: 0.1 SOL). */
 export const MIN_POT_THRESHOLD_LAMPORTS = LAMPORTS_PER_SOL / 10;
 /** Fixed-point scale of `Config.acc_per_weight` (lamports × ACC_SCALE per bp of weight). */
@@ -61,7 +94,7 @@ export const TREASURY_HUB_FLOAT_CAP_BP = 500;
  * 2× premium that replaces the tier's direct $HUB burn. Pricing is no longer a static
  * authority-refreshed rate — it's a real synchronous on-chain Jupiter OTC→$HUB swap, so it's
  * dynamic as $HUB's market price moves. The caller supplies `otcSwapAmount` (sized off-chain via
- * a live Jupiter quote so the swap clears at least `hubCostDeltaUnits` — enforced on-chain via
+ * a live Jupiter quote so the swap clears at least `liveHubCostDeltaUnits` (`./reader`) — enforced on-chain via
  * balance-delta); an equal-scaled $OTC amount (`otcPotLeg`) is charged again and injected
  * straight into `OtcPotState.otc_vault` (no swap — raises `total_otc_bought_units`, lifting the
  * lifetime average buy rate `claim_yield` prices every desk's yield at), so the total $OTC
@@ -304,11 +337,16 @@ export const cumulativeFeeLamports = (_tier: number) => STEP_FEE_LAMPORTS;
 /** Flat SOL fee to move `from` → `to` (from = 0 is a fresh activation) — same value every time. */
 export const stepFeeLamports = (_from: number, _to: number) => STEP_FEE_LAMPORTS;
 
-/** $HUB base units required to reach `tier` from scratch (§A4, cumulative table lookup). */
+/** $HUB base units required to reach `tier` from scratch, off the *genesis/ceiling* table only
+ *  (§A4, cumulative table lookup) — ignores the live price cache entirely. Prefer `liveHubCostUnits`
+ *  (`./reader`) wherever a `ConfigView` is available; this remains correct as the known worst
+ *  case, or when no live config has loaded yet. */
 export const cumulativeHubCostUnits = (tier: number) => TIER_HUB_COST_UNITS[tier - 1] ?? 0;
 /**
- * $HUB due for `from` → `to` (`from = 0` is a fresh activation: the full cost of `to`) — mirrors
- * `Config::hub_cost_delta`. An upgrade only ever burns the difference, never the same $HUB twice.
+ * $HUB due for `from` → `to` off the genesis/ceiling table only (`from = 0` is a fresh
+ * activation: the full cost of `to`) — see `cumulativeHubCostUnits`'s caveat above; prefer
+ * `liveHubCostDeltaUnits` (`./reader`) wherever a `ConfigView` is available. An upgrade only ever
+ * burns the difference, never the same $HUB twice.
  */
 export function hubCostDeltaUnits(from: number, to: number): number {
   const toCost = cumulativeHubCostUnits(to);

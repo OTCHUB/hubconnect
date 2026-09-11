@@ -2,9 +2,9 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import {
   HUB_DECIMALS,
-  TIER_HUB_COST_UNITS,
   TIER_NAMES,
   cumulativeFeeLamports,
+  liveHubCostUnits,
   type ProtocolState,
 } from "@hub-sdk";
 import { useHub } from "../HubProvider";
@@ -268,7 +268,12 @@ export function MechanicsPanel({ state }: { state: ProtocolState }) {
                     <td className="py-1 pr-3 text-green-300">{TIER_NAMES[i]}</td>
                     <td className="py-1 pr-3">{fmtSol(cumulativeFeeLamports(tier))}</td>
                     <td className="py-1 pr-3 text-cyan-300">
-                      {fmtUnits(BigInt(TIER_HUB_COST_UNITS[i]), HUB_DECIMALS, 0)} HUB
+                      {fmtUnits(
+                        BigInt(liveHubCostUnits(tier, Math.floor(Date.now() / 1000), config)),
+                        HUB_DECIMALS,
+                        0,
+                      )}{" "}
+                      HUB
                     </td>
                     <td className="py-1 pr-3 text-emerald-300">
                       {tier === 1 ? "base rate" : `+${yieldBoostPctOverBase(tier)}%`}
@@ -282,7 +287,9 @@ export function MechanicsPanel({ state }: { state: ProtocolState }) {
           <div className="mt-1 text-[10px] text-green-700">
             SOL fee is flat — paid once per activate/upgrade call, the same whether it's a fresh T1
             or a fresh T4. $HUB burn is cumulative — an upgrade only burns the difference from the
-            tier you're already at.
+            tier you're already at — and targets a fixed USD price per tier, so the token amount
+            shown here tracks $HUB's live market price; only {(config.tierCostBurnBp / 100).toFixed(0)}
+            % of it is destroyed, the rest funds the active-desk reward pool.
           </div>
         </div>
         <MermaidBlock source={ACTIVATION_DIAGRAM} title="activation flow (technical detail)" />

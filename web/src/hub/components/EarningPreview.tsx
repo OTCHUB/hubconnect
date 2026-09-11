@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { LAMPORTS_PER_SOL, TIER_HUB_COST_UNITS, TIER_NAMES, type ProtocolState } from "@hub-sdk";
+import { LAMPORTS_PER_SOL, TIER_NAMES, type ProtocolState } from "@hub-sdk";
 import { fmtNum, fmtSol, fmtTokens, fmtWeight } from "../lib/format";
 import {
   baseInputs,
@@ -47,7 +47,12 @@ export function EarningPreview({ state, rawDeskDailyLamports }: Props) {
       : Math.max(0, Number(rawSol) || 0) * LAMPORTS_PER_SOL);
   const inputs = baseInputs(state.currentEpoch, state.config);
   const perDay = roundsPerDay(state.previousEpoch);
-  const rows = useMemo(() => buildTierRows(inputs, perDay), [inputs, perDay]);
+  // §HUB burn tracks the live on-chain price cache (cheaper than the genesis ceiling once fresh
+  // — see `liveHubCostUnits`), not a static lookup, so `state.config` + a fresh `now` feed in.
+  const rows = useMemo(
+    () => buildTierRows(inputs, perDay, state.config, Math.floor(Date.now() / 1000)),
+    [inputs, perDay, state.config],
+  );
   const selected = rows[selectedTier - 1] ?? rows[0];
 
   // Native Yield always has a day rate — it accrues from the desk pot continuously, independent
@@ -111,9 +116,7 @@ export function EarningPreview({ state, rawDeskDailyLamports }: Props) {
                     ({on ? "●" : " "}) {TIER_NAMES[r.tier - 1]}
                   </td>
                   <td className="px-1 py-1 text-right">{fmtWeight(r.weightBp)}</td>
-                  <td className="px-1 py-1 text-right">
-                    {fmtTokens(TIER_HUB_COST_UNITS[r.tier - 1])}
-                  </td>
+                  <td className="px-1 py-1 text-right">{fmtTokens(r.hubCostUnits)}</td>
                   <td className="px-1 py-1 text-right">
                     {r.dailyLamports == null ? "—" : fmtSol(r.dailyLamports, 4)}
                   </td>
@@ -149,6 +152,10 @@ export function EarningPreview({ state, rawDeskDailyLamports }: Props) {
 
       <div className="mt-2 text-[10px] text-green-700">
         <div>burn slice removed before distribution · {cadence}</div>
+        <div className="mt-1">
+          $HUB BURN is a live, USD-pegged price — only {(state.config.tierCostBurnBp / 100).toFixed(0)}
+          % of it is destroyed; the rest credits the active-desk reward pool (not reflected above).
+        </div>
         <div className="mt-1 text-cyan-700">
           non-custodial — your desk NFT never leaves your wallet.
         </div>

@@ -28,6 +28,8 @@ import {
   ACC_SCALE,
   BPS,
   HUB_MAX_SUPPLY_UNITS,
+  PRICE_STALENESS_SECS,
+  TIER_HUB_COST_UNITS,
   TIER_WEIGHTS_BP,
   supplyBreakdown,
   type SupplyBreakdown,
@@ -107,6 +109,39 @@ export type ConfigView = {
   /** Sub-lamport remainders (× ACC_SCALE); whole lamports re-enter at the next finalize. */
   dustScaled: bigint;
 };
+
+/**
+ * Live $HUB cost to reach `tier` from scratch — mirrors on-chain `Config::hub_cost` exactly:
+ * prefers the price-updated cache (`config.tierHubCostUnitsCached`) when it's fresh, falls back
+ * to the genesis/ceiling table (`TIER_HUB_COST_UNITS`) when `lastPriceUpdateTs` is 0 (never
+ * updated) or older than `PRICE_STALENESS_SECS` — never trades off a possibly-stale price. Use
+ * this (not `TIER_HUB_COST_UNITS` directly) for any UI/quote that should match what the program
+ * will actually charge right now.
+ */
+export function liveHubCostUnits(tier: number, nowTs: number, config: ConfigView): number {
+  const idx = tier - 1;
+  const ceiling = TIER_HUB_COST_UNITS[idx];
+  if (ceiling == null) return 0;
+  const stale =
+    config.lastPriceUpdateTs === 0 || nowTs - config.lastPriceUpdateTs > PRICE_STALENESS_SECS;
+  return stale ? ceiling : (config.tierHubCostUnitsCached[idx] ?? ceiling);
+}
+
+/**
+ * Live $HUB due for `from` → `to` (`from = 0` is a fresh activation: the full cost of `to`) —
+ * mirrors `Config::hub_cost_delta`, built on `liveHubCostUnits` above. An upgrade only ever pays
+ * the difference from the tier already held, never the same $HUB twice.
+ */
+export function liveHubCostDeltaUnits(
+  from: number,
+  to: number,
+  nowTs: number,
+  config: ConfigView,
+): number {
+  const toCost = liveHubCostUnits(to, nowTs, config);
+  if (from === 0) return toCost;
+  return toCost - liveHubCostUnits(from, nowTs, config);
+}
 
 export type EpochView = {
   index: number;

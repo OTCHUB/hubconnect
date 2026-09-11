@@ -4,7 +4,7 @@
 // step fee once, exactly like a fresh T1 activation. The SOL path burns the $HUB tier cost
 // directly from the payer's wallet; the $OTC path (§otc_pay.rs, revised) charges the *same* flat
 // SOL fee **plus** a live-quoted Jupiter $OTC→$HUB swap that both produces the tier's $HUB burn
-// (`min_out = hubCostDeltaUnits`, enforced on-chain via balance-delta) and — at an equal-scaled
+// (`min_out = liveHubCostDeltaUnits`, enforced on-chain via balance-delta) and — at an equal-scaled
 // amount injected straight into `OtcPotState.otc_vault` (see `otcPotLeg`) — pays roughly 2× that
 // swap's $OTC cost in total. Pricing is no longer a static authority-refreshed rate: the caller
 // must fetch a live route (`fetchOtcToHubRoute`) and pass its `otcSwapAmount`/`jupiterData` in.
@@ -28,7 +28,7 @@ import {
   configPda,
   createAtaIdempotentIx,
   epochPda,
-  hubCostDeltaUnits,
+  liveHubCostDeltaUnits,
   otcPayPda,
   otcPayable,
   otcPotPda,
@@ -98,8 +98,11 @@ export function otcUnavailableReason(p: OtcPayView | null): string | undefined {
   return undefined;
 }
 
-/** Side-by-side cost of moving `fromTier → toTier` (fromTier 0 = fresh activation). The $OTC
- *  amount itself isn't known until `fetchOtcToHubRoute` returns a live quote. */
+/** Side-by-side cost of moving `fromTier → toTier` (fromTier 0 = fresh activation). The $HUB
+ *  burn is the *live* USD-pegged cost (`liveHubCostDeltaUnits` — tracks `config`'s price cache,
+ *  falling back to the genesis/ceiling table only when stale), matching what `Config::hub_cost_
+ *  delta` will actually charge on-chain right now. The $OTC amount itself isn't known until
+ *  `fetchOtcToHubRoute` returns a live quote. */
 export function quoteTierChange(opts: {
   config: ConfigView;
   otcPay: OtcPayView | null;
@@ -117,7 +120,7 @@ export function quoteTierChange(opts: {
     solLamports: config.stepFeeLamports,
     otcAvailable: !reason && otcPayable(otcPay),
     otcUnavailableReason: reason,
-    hubBurnUnits: hubCostDeltaUnits(fromTier, toTier),
+    hubBurnUnits: liveHubCostDeltaUnits(fromTier, toTier, Math.floor(Date.now() / 1000), config),
   };
 }
 
@@ -223,7 +226,7 @@ export async function buildTierChangeIxs(opts: {
   tokenomics: TokenomicsView | null;
   pendingLamports: number;
   /** Required for `method: "otc"` — a live route from `fetchOtcToHubRoute`, sized to clear this
-   *  call's `hubCostDeltaUnits`. Unused on the SOL path. */
+   *  call's `liveHubCostDeltaUnits`. Unused on the SOL path. */
   otcRoute?: OtcSwapRoute;
 }): Promise<TransactionInstruction[]> {
   const { program, payer, deskAsset, fromTier, toTier, method, config, otcPay, otcPot } = opts;

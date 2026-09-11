@@ -5,9 +5,9 @@ import {
   BPS,
   HUB_DECIMALS,
   OTC_PAY_SWAP_BURN_PCT_BP,
-  TIER_HUB_COST_UNITS,
   TIER_NAMES,
   ataPda,
+  liveHubCostUnits,
   otcPotLeg,
   pendingYieldLamports,
   splitFee,
@@ -69,6 +69,10 @@ export function ActivatePanel({ address, state, desks, onChanged, selectedAsset 
   const [otcRouteLoading, setOtcRouteLoading] = useState(false);
   const [otcRouteErr, setOtcRouteErr] = useState<string | null>(null);
 
+  // Fed into `liveHubCostUnits` below so the T1–T4 preview tracks the live, USD-pegged $HUB cost
+  // (cheaper than the genesis/ceiling table once the on-chain price cache is fresh) rather than a
+  // static lookup — same source `quoteTierChange` uses for the selected tier's actual burn.
+  const nowTs = Math.floor(Date.now() / 1000);
   const otcPay = otcPayQ.data ?? null;
   const otcPot = state.otcPot;
   const rows = desks.filter((d) => currentTier(d) < MAX_TIER);
@@ -268,7 +272,7 @@ export function ActivatePanel({ address, state, desks, onChanged, selectedAsset 
                   T{t} {TIER_NAMES[t - 1]}
                 </span>
                 <span className="text-[9px] opacity-70">
-                  {fmtUnits(BigInt(TIER_HUB_COST_UNITS[t - 1]), HUB_DECIMALS, 0)} HUB
+                  {fmtUnits(BigInt(liveHubCostUnits(t, nowTs, state.config)), HUB_DECIMALS, 0)} HUB
                 </span>
               </button>
             ))}
@@ -408,7 +412,7 @@ export function ActivatePanel({ address, state, desks, onChanged, selectedAsset 
       {err && <div className="mt-2 text-[11px] text-amber-400">ERR: {err}</div>}
       <TxLogView logs={logs} />
       <div className="mt-2 text-[10px] text-green-700">
-        {`SOL fee = flat step_fee, paid once per activate/upgrade call (90% pot, 10% ops) — independent of how many tiers the call crosses. $HUB burn = full tier cost on a fresh activation, or just the difference from your current tier on an upgrade — never paid twice. $OTC fee = a live Jupiter $OTC→$HUB route sized to clear that $HUB burn (swapped and burned on-chain), plus an equal-scaled amount into the program-custodied yield vault — ${OTC_TOTAL_PREMIUM}× total, dynamic with $HUB's market price. The tx is simulated unsigned first; a failing sim is dropped with no fee spent.`}
+        {`SOL fee = flat step_fee, paid once per activate/upgrade call (90% pot, 10% ops) — independent of how many tiers the call crosses. $HUB burn = full tier cost on a fresh activation, or just the difference from your current tier on an upgrade — never paid twice; it targets a fixed USD price per tier, so the token amount moves with $HUB's live market price, and only ${(state.config.tierCostBurnBp / 100).toFixed(0)}% of it is actually destroyed — the rest credits the active-desk reward pool. $OTC fee = a live Jupiter $OTC→$HUB route sized to clear that $HUB burn (swapped and burned on-chain), plus an equal-scaled amount into the program-custodied yield vault — ${OTC_TOTAL_PREMIUM}× total, dynamic with $HUB's market price. The tx is simulated unsigned first; a failing sim is dropped with no fee spent.`}
       </div>
     </Panel>
   );
