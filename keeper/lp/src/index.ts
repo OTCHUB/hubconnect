@@ -3,9 +3,11 @@
 // IMPORTANT — read-only for now: `build_lp`, `build_lp_otc_locked`, `compound_lp_otc`, and
 // `compound_lp_basket` all require the transaction signer to literally be `Config.treasury`
 // (`has_one = treasury`, see `programs/hub/src/instructions/treasury.rs`), not this service's
-// own `HUB_KEEPER_KEYPAIR` gas wallet. This cycle only reads live state and logs what it would
-// do — it never submits a transaction. See `keeper/creator-fee/src/index.ts`'s module doc for
-// the same Config.treasury signer note.
+// own `HUB_KEEPER_KEYPAIR` gas wallet. The key-custody half is resolved — `Config.treasury`
+// now points at a dedicated hot wallet, loadable via `TREASURY_KEYPAIR` → `KeeperEnv.treasury`
+// (see `keeper/creator-fee/src/index.ts`'s module doc). The instruction-assembly/submission
+// code itself is not implemented yet, so this cycle still only reads live state and logs what
+// it would do — it never submits a transaction.
 import { PublicKey } from "@solana/web3.js";
 import path from "node:path";
 import { configPda, toConfigView, treasuryPda } from "../../../sdk/src";
@@ -67,7 +69,7 @@ export async function runCycle(env: KeeperEnv): Promise<void> {
   const tres = await program.account.treasuryState.fetch(treasuryKey);
   const lpHubDeposited = tres.lpHubDeposited.toString();
   const lpPendingHub = tres.lpPendingHubUnits.toString();
-  const detail = `lp_enabled, target ${config.lpTargetSolLamports / 1e9} SOL, lp_hub_deposited ${lpHubDeposited}, lp_pending_hub ${lpPendingHub} — would evaluate build_lp/harvest_lp_fees [execution deferred: Config.treasury signer not wired, see module doc]`;
+  const detail = `lp_enabled, target ${config.lpTargetSolLamports / 1e9} SOL, lp_hub_deposited ${lpHubDeposited}, lp_pending_hub ${lpPendingHub} — would evaluate build_lp/harvest_lp_fees [execution deferred: treasury signer ${env.treasury ? "loaded, but" : "not loaded and"} instruction submission not yet implemented, see module doc]`;
   appendJournal(JOURNAL_DIR, {
     ts,
     service: "lp",

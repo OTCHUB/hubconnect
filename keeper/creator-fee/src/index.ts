@@ -5,12 +5,14 @@
 // IMPORTANT — read-only for now: `record_creator_fee`, `clear_creator_fees`, and
 // `draw_creator_fee_leg` all require the transaction signer to literally be
 // `Config.treasury` (`has_one = treasury`, see `programs/hub/src/instructions/creator_fee.rs`),
-// not this service's own `HUB_KEEPER_KEYPAIR` gas wallet. Until the operator either (a)
-// reassigns `Config.treasury` to a dedicated hot wallet via `update_config` or (b) decides
-// these stay manually co-signed, this cycle only computes and logs the decision — it never
-// submits a transaction. The `SwapLeg` execution (OTC→HUB/OTC→SOL via Jupiter,
-// `build_lp_otc_locked` for the LP leg) is also not wired yet; `../../shared/src/eoaSwap`
-// is ready to consume once a signer is assigned.
+// not this service's own `HUB_KEEPER_KEYPAIR` gas wallet. The key-custody half of this is
+// now resolved: `Config.treasury` has been reassigned (`scripts/devnet-set-treasury.ts`) to a
+// dedicated hot wallet, loadable here via `TREASURY_KEYPAIR` → `KeeperEnv.treasury`. What's
+// still missing is the instruction-assembly/submission code itself (building and signing
+// `record_creator_fee` / `clear_creator_fees` / `draw_creator_fee_leg` with `env.treasury` as
+// co-signer) — not implemented yet, so this cycle still only computes and logs the decision.
+// The `SwapLeg` execution (OTC→HUB/OTC→SOL via Jupiter, `build_lp_otc_locked` for the LP leg)
+// is also not wired yet; `../../shared/src/eoaSwap` is ready to consume once it is.
 import { PublicKey } from "@solana/web3.js";
 import path from "node:path";
 import { configPda, fetchCreatorFee, toConfigView } from "../../../sdk/src";
@@ -118,7 +120,7 @@ export async function runCycle(env: KeeperEnv): Promise<void> {
     });
     return void console.log(`[creator-fee] ${clear.reason}`);
   }
-  const clearDetail = `threshold cleared (${snapshot.pendingOtcUnits} ≥ ${snapshot.clearThresholdUnits} $OTC-units) — would call clear_creator_fees [execution deferred: Config.treasury signer not wired, see module doc]`;
+  const clearDetail = `threshold cleared (${snapshot.pendingOtcUnits} ≥ ${snapshot.clearThresholdUnits} $OTC-units) — would call clear_creator_fees [execution deferred: treasury signer ${env.treasury ? "loaded, but" : "not loaded and"} instruction submission not yet implemented, see module doc]`;
   console.log(`[creator-fee] ${clearDetail}`);
 
   const legs = planLegDraws(snapshot);

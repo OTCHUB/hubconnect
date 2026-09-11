@@ -40,11 +40,24 @@ fresh each run (never cached):
 
 **Passing the gate is necessary but not sufficient.** `register_treasury_inflow`,
 `record_creator_fee`, `build_lp`, and `build_lp_otc_locked` all require the transaction
-signer to literally be `Config.treasury` (`has_one = treasury`). The gate only decides
-whether a keeper _should_ attempt a cycle — whether it _can_ still depends on the operator
-handing the keeper process a key authorized to sign as `Config.treasury`. That key-custody
-decision (dedicated hot wallet vs. multisig bot-signer session key vs. manual co-sign) is
-made outside this program and is not expressed by any on-chain flag.
+signer to literally be `Config.treasury` (`has_one = treasury`). On devnet this key-custody
+decision is resolved: `Config.treasury` has been reassigned (`scripts/devnet-set-treasury.ts`)
+to a dedicated hot wallet, separate from `Config.authority` and from every keeper's own
+`HUB_KEEPER_KEYPAIR` gas wallet, and is passed to `creator-fee`/`lp`/`sweeper` via
+`TREASURY_KEYPAIR` (`keeper/ecosystem.config.js`, loaded into `KeeperEnv.treasury` by
+`keeper/shared/src/env.ts`). What's still missing is the instruction-assembly/submission code
+itself for each write path — not implemented yet, so these three services remain read-only
+heartbeats regardless. Mainnet has not been touched; the equivalent mainnet script and hot
+wallet are a separate, explicit decision.
+
+## Marketplace gate (`shared/src/marketplace.ts`)
+
+The sweeper carries one more gate on top of the two above: `checkMarketplaceGate`, driven by
+`SWEEPER_ENABLED` (default off, independent of `DRY_RUN`/`Config.paused`), `MARKETPLACE_PROVIDER`
+(`magiceden` | `opensea`), and that provider's API key. No Magic Eden or OpenSea client exists
+in this repo yet, so `SWEEPER_ENABLED=0` in `keeper/ecosystem.config.js` and should stay `0`
+through mainnet launch — flip it only once one integration is picked, implemented, and
+verified on devnet.
 
 ## Desk acquisition target (`sweeper/src/arbitrage.ts`)
 
@@ -71,4 +84,7 @@ transfer from `ops_wallet` (which already accumulates the 5% ops-SOL creator-fee
 | `KEEPER_TARGET_CEILING_LAMPORTS` | 0.3 SOL  | A drip refills to here — ~6–10 unattended cycles' worth.         |
 
 Env contract (all services): `HUB_RPC_URL`, `HUB_PROGRAM_ID`, `HUB_KEEPER_KEYPAIR`,
-`HUB_CLUSTER=devnet|mainnet-beta`, `DRY_RUN=1`.
+`HUB_CLUSTER=devnet|mainnet-beta`, `DRY_RUN=1`. Optional: `TREASURY_KEYPAIR` (`creator-fee`/
+`lp`/`sweeper` — the `Config.treasury` co-signer, see above); `SWEEPER_ENABLED`,
+`MARKETPLACE_PROVIDER`, `MAGIC_EDEN_API_KEY`/`OPENSEA_API_KEY` (`sweeper` only, see the
+marketplace gate above).

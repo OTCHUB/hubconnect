@@ -6,12 +6,23 @@
 // would submit `finalize_epoch` once DRY_RUN is dropped and the round is ready; the other 4
 // (`creator-fee`, `lp`, `sweeper`, `treasury`) are read-only heartbeats regardless of
 // DRY_RUN — see each service's `src/index.ts` module doc for the specific blocker
-// (Config.treasury signer custody, missing Magic Eden client, or missing on-chain
-// instruction) standing between them and real execution.
+// (missing instruction-submission code, missing marketplace integration, or missing
+// on-chain instruction) standing between them and real execution.
+//
+// `Config.treasury` is reassigned to `keeper/keys/devnet-treasury-authority.json`
+// (`scripts/devnet-set-treasury.ts`) and passed to the three services whose write path needs
+// it (`creator-fee`, `lp`, `sweeper`) via `TREASURY_KEYPAIR` — see `keeper/shared/src/env.ts`.
+//
+// `hub-keeper-sweeper` additionally carries `SWEEPER_ENABLED: "0"` — explicit operator
+// pause, independent of `DRY_RUN`/`Config.paused`, until a Magic Eden or OpenSea integration
+// is picked and implemented (`keeper/shared/src/marketplace.ts`). Keep this "0" through
+// mainnet launch; flip to "1" (with `MARKETPLACE_PROVIDER` + its API key) only once that
+// integration ships and is verified on devnet.
 //
 // Usage: `pm2 start keeper/ecosystem.config.js` from the repo root.
 const ROOT = __dirname + "/..";
 const DEVNET_RPC = "https://api.devnet.solana.com";
+const TREASURY_KEYPAIR = "keeper/keys/devnet-treasury-authority.json";
 
 const common = {
   cwd: ROOT,
@@ -40,19 +51,32 @@ module.exports = {
       ...common,
       name: "hub-keeper-creator-fee",
       args: ["-T", "keeper/creator-fee/src/index.ts"],
-      env: { ...common.env, HUB_KEEPER_KEYPAIR: "keeper/keys/devnet-creator-fee-keeper.json" },
+      env: {
+        ...common.env,
+        HUB_KEEPER_KEYPAIR: "keeper/keys/devnet-creator-fee-keeper.json",
+        TREASURY_KEYPAIR,
+      },
     },
     {
       ...common,
       name: "hub-keeper-lp",
       args: ["-T", "keeper/lp/src/index.ts"],
-      env: { ...common.env, HUB_KEEPER_KEYPAIR: "keeper/keys/devnet-lp-keeper.json" },
+      env: {
+        ...common.env,
+        HUB_KEEPER_KEYPAIR: "keeper/keys/devnet-lp-keeper.json",
+        TREASURY_KEYPAIR,
+      },
     },
     {
       ...common,
       name: "hub-keeper-sweeper",
       args: ["-T", "keeper/sweeper/src/index.ts"],
-      env: { ...common.env, HUB_KEEPER_KEYPAIR: "keeper/keys/devnet-sweeper-keeper.json" },
+      env: {
+        ...common.env,
+        HUB_KEEPER_KEYPAIR: "keeper/keys/devnet-sweeper-keeper.json",
+        TREASURY_KEYPAIR,
+        SWEEPER_ENABLED: "0",
+      },
     },
     {
       ...common,
