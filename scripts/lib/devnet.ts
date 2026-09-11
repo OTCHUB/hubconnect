@@ -368,6 +368,7 @@ export async function finalizeIx(ctx: Ctx, idx: number, swap: FinalizeSwapArgs =
       vaultHub: treasury.vaultHub,
       treasuryFloatVault: treasury.treasuryFloatVault,
       tokenProgram: TOKEN_PROGRAM_ID,
+      hubTokenProgram: TOKEN_PROGRAM_ID,
       jupiterProgram: swap.jupiterProgram ?? new PublicKey(JUPITER_PROGRAM_ID),
       raydiumProgram: swap.raydiumProgram ?? new PublicKey(RAYDIUM_CP_SWAP_PROGRAM_ID),
       systemProgram: SystemProgram.programId,

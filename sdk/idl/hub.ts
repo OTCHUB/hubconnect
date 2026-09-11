@@ -2828,7 +2828,20 @@ export type Hub = {
           "writable": true
         },
         {
-          "name": "tokenProgram"
+          "name": "tokenProgram",
+          "docs": [
+            "`$HUB`'s own burn/transfer legs use `hub_token_program` instead (see its doc comment):",
+            "this instruction is the one place that touches both a classic-Token mint (WSOL) and",
+            "$HUB in the same call, so a single shared `token_program` field can't serve both."
+          ]
+        },
+        {
+          "name": "hubTokenProgram",
+          "docs": [
+            "`hub_mint.owner` inside `burn_checked`/`transfer_checked`. Already present in",
+            "`HUB_EPOCH_ALT` (see `scripts/mainnet-create-epoch-alt.ts`) alongside hop2's other fixed",
+            "accounts, so passing it here doesn't add to the ALT-compiled tx's static key count."
+          ]
         },
         {
           "name": "jupiterProgram",

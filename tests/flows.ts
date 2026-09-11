@@ -454,6 +454,7 @@ export async function finalizeIdx(
       vaultHub: treasury.vaultHub,
       treasuryFloatVault: treasury.treasuryFloatVault,
       tokenProgram: TOKEN_PROGRAM_ID,
+      hubTokenProgram: TOKEN_PROGRAM_ID,
       jupiterProgram:
         swap.jupiterProgram ??
         (h.cluster === "localnet" ? MOCK_JUPITER_PROGRAM : new PublicKey(K.JUPITER_PROGRAM_ID)),

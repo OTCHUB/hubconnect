@@ -83,8 +83,16 @@ pub struct FinalizeEpoch<'info> {
     /// CHECK: vault-owned $HUB buy-and-hold ATA, capped at `hub_float_cap_bp` of supply.
     #[account(mut, address = treasury_state.treasury_float_vault @ HubError::InvalidTokenAccount)]
     pub treasury_float_vault: UncheckedAccount<'info>,
-    /// CHECK: classic SPL Token program, asserted in the token-program helpers.
+    /// CHECK: classic SPL Token program — used only for `vault_wsol`'s `sync_native` below.
+    /// `$HUB`'s own burn/transfer legs use `hub_token_program` instead (see its doc comment):
+    /// this instruction is the one place that touches both a classic-Token mint (WSOL) and
+    /// $HUB in the same call, so a single shared `token_program` field can't serve both.
     pub token_program: UncheckedAccount<'info>,
+    /// CHECK: `$HUB`'s actual token program — Token-2022 on mainnet — asserted against
+    /// `hub_mint.owner` inside `burn_checked`/`transfer_checked`. Already present in
+    /// `HUB_EPOCH_ALT` (see `scripts/mainnet-create-epoch-alt.ts`) alongside hop2's other fixed
+    /// accounts, so passing it here doesn't add to the ALT-compiled tx's static key count.
+    pub hub_token_program: UncheckedAccount<'info>,
     /// CHECK: pinned to `JUPITER_PROGRAM_ID` in `jupiter_swap::swap_exact_in`, used for hop1
     /// (WSOL→USDC) only — hop2 (USDC→$HUB) calls Raydium CP-Swap directly, see
     /// `raydium_cpswap::swap_base_input`.
@@ -252,7 +260,7 @@ pub fn finalize_epoch<'info>(
 
         if hub_burn_total > 0 {
             burn_checked(
-                &ctx.accounts.token_program.to_account_info(),
+                &ctx.accounts.hub_token_program.to_account_info(),
                 &ctx.accounts.vault_hub.to_account_info(),
                 &ctx.accounts.hub_mint.to_account_info(),
                 &ctx.accounts.vault.to_account_info(),
@@ -262,7 +270,7 @@ pub fn finalize_epoch<'info>(
         }
         if hub_float_deposited > 0 {
             transfer_checked(
-                &ctx.accounts.token_program.to_account_info(),
+                &ctx.accounts.hub_token_program.to_account_info(),
                 &ctx.accounts.vault_hub.to_account_info(),
                 &ctx.accounts.hub_mint.to_account_info(),
                 &ctx.accounts.treasury_float_vault.to_account_info(),

@@ -324,14 +324,21 @@ pub const SEED_HUB_POT_ROUND: &[u8] = b"hub_pot_round";
 /// `["hub_pot_claim", round_index, asset]` — one payout per desk asset per HUB Pot round.
 pub const SEED_HUB_POT_CLAIM: &[u8] = b"hub_pot_claim";
 
-/// Classic SPL Token program ($HUB, WSOL and USDC are all classic Token-v1 mints — the two-hop
-/// price leg and $HUB burn/transfer paths only ever touch this program).
+/// Classic SPL Token program. WSOL and USDC are classic Token-v1 mints — the two-hop price
+/// leg's `vault_wsol`/`vault_usdc` legs (`sync_native`, hop1's Jupiter route) only ever touch
+/// this program. Devnet/localnet's test-fixture $HUB mint is also classic Token-v1 (see
+/// `scripts/devnet-hub-mint.ts`/`tests/harness.ts`'s `createSplMint`), but mainnet's real $HUB
+/// mint is Token-2022 — see `TOKEN_2022_PROGRAM_ID` below, never assume $HUB implies this one.
 pub const TOKEN_PROGRAM_ID: Pubkey = pubkey!("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
 /// Token-2022 (Token Extensions) program. $OTC and the whole MemeStock basket (CRCLx/NVDAx/
-/// SPCXx xStock RWA mints) are issued as Token-2022, not classic Token-v1 — every helper in
-/// `otc_pay.rs` that moves or reads one of those mints' accounts must accept either program,
-/// dispatching the CPI to whichever one the account is actually owned by (never hardcoded),
-/// so it works for both a classic mint ($HUB) and a Token-2022 mint ($OTC/basket) alike.
+/// SPCXx xStock RWA mints) are issued as Token-2022, not classic Token-v1. Mainnet's real $HUB
+/// mint is *also* Token-2022 (devnet/localnet's test-fixture $HUB mint is classic Token-v1
+/// instead — the two environments intentionally differ here, see `TOKEN_PROGRAM_ID` above).
+/// Every helper in `otc_pay.rs` that moves or reads a mint's accounts must accept either
+/// program, dispatching the CPI to whichever one the account is actually owned by (never
+/// hardcoded) — and every `Accounts` struct that could touch both a classic-Token mint and
+/// $HUB/$OTC/basket in the *same instruction* (e.g. `epochs::FinalizeEpoch`) needs distinct
+/// `token_program`/`hub_token_program`-style fields, since a single field can't be both.
 pub const TOKEN_2022_PROGRAM_ID: Pubkey = pubkey!("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb");
 /// spl-token / Token-2022 `TransferChecked` instruction discriminator (identical byte in both
 /// programs — Token-2022 is wire-compatible with classic Token for every base instruction).
