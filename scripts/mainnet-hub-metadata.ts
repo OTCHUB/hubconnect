@@ -12,11 +12,7 @@ import { AnchorProvider, Program, Wallet } from "@anchor-lang/core";
 import { Connection, PublicKey } from "@solana/web3.js";
 import { HUB_IDL, configPda, type HubProgram } from "../sdk/src";
 import { loadMainnetKeypair, mainnetRpc, redactRpc, TOKEN_PROGRAM_ID } from "./lib/mainnet";
-import {
-  createMetadataV3,
-  metadataPda,
-  updateMetadataV2,
-} from "./devnet-hub-metadata";
+import { createMetadataV3, metadataPda, updateMetadataV2 } from "./devnet-hub-metadata";
 
 const MINT_SIZE = 82;
 

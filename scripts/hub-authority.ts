@@ -17,14 +17,7 @@ import "dotenv/config";
 import { PublicKey, Transaction, TransactionInstruction } from "@solana/web3.js";
 import { AnchorProvider, Program, Wallet } from "@anchor-lang/core";
 import { Connection } from "@solana/web3.js";
-import {
-  HUB_IDL,
-  configPda,
-  otcPayPda,
-  treasuryPda,
-  vaultPda,
-  type HubProgram,
-} from "../sdk/src";
+import { HUB_IDL, configPda, otcPayPda, treasuryPda, vaultPda, type HubProgram } from "../sdk/src";
 import {
   ata,
   createAtaIdempotent,

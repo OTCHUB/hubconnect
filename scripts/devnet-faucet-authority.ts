@@ -56,7 +56,9 @@ async function repointMint(ctx: Ctx, label: string, mint: PublicKey, faucet: Pub
     return null;
   }
   if (mintAuthority !== ctx.payer.publicKey.toBase58()) {
-    throw new Error(`${label} mint authority is ${mintAuthority}, not the deployer — can't re-point`);
+    throw new Error(
+      `${label} mint authority is ${mintAuthority}, not the deployer — can't re-point`,
+    );
   }
   return setMintAuthorityIx(mint, ctx.payer.publicKey, faucet);
 }
@@ -127,7 +129,11 @@ async function main() {
     const topUp = target - bal;
     const sig = await ctx.provider.sendAndConfirm(
       new Transaction().add(
-        SystemProgram.transfer({ fromPubkey: ctx.payer.publicKey, toPubkey: faucet, lamports: topUp }),
+        SystemProgram.transfer({
+          fromPubkey: ctx.payer.publicKey,
+          toPubkey: faucet,
+          lamports: topUp,
+        }),
       ),
       [ctx.payer],
     );
