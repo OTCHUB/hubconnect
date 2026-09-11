@@ -49,8 +49,11 @@ disabled, only the direct-burn SOL path is available.
 
 ## 3. Rounds & the 4-way yield split
 
-Pot inflow (activation fees, treasury desk yield, discount-exit proceeds, LP swap
-fees) accumulates in an open round (`Epoch`). `finalize_epoch` is **permissionless**
+Pot inflow (activation fees, discount-exit proceeds, LP swap fees) accumulates in
+an open round (`Epoch`) — the treasury's own 13-stock desk-pot yield and its
+launcher holder-leg $OTC claim are separate flywheels that fund the M.I.M ETF
+basket and the desk pot directly instead (see [`hubconnect-spec.md`](hubconnect-spec.md)
+§A5.1/§A6.3). `finalize_epoch` is **permissionless**
 and threshold-gated, not clocked: it can be called the instant the round's inflow
 reaches `MIN_POT_THRESHOLD = 0.1 SOL`, and is rejected below it. A round can be
 seconds or days long depending on flow.

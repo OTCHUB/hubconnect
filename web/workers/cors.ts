@@ -1,10 +1,13 @@
 // Shared CORS handling for the devnet Worker (workers/faucet.ts + the /api/curve/* routes it
-// mounts from bonding-curve.ts). Both otchub/src/hub/lib/faucet.ts and curve.ts always call this
-// Worker's own origin (devnet.otchub.dev) regardless of which host renders the dashboard — so once
-// the module is embedded in otchub (a different origin, e.g. https://otchub.dev), every request
-// becomes cross-origin and needs these headers or the browser blocks it before it ever reaches
-// the routes below. Every client call sets `content-type: application/json`, which is never a
-// CORS-"simple" header, so *every* GET and POST here (not just mutating ones) triggers a
+// mounts from bonding-curve.ts). Both otchub/src/hub/lib/faucet.ts and curve.ts always call
+// https://otchub.dev (this Worker's own origin — see ../wrangler.jsonc's env.devnet routes:
+// otchub.dev/api/faucet/*, otchub.dev/api/curve/*), which is same-origin once otchub.dev's own
+// site links straight to otchub.dev/devnet + /drip. These headers still matter whenever the
+// module is loaded from a genuinely different origin — a local Vite dev server, a Base44 preview
+// deploy, or this repo's own standalone shell before it's fully retired — since every request
+// becomes cross-origin there and needs these headers or the browser blocks it before it ever
+// reaches the routes below. Every client call sets `content-type: application/json`, which is
+// never a CORS-"simple" header, so *every* GET and POST here (not just mutating ones) triggers a
 // preflight OPTIONS request first.
 //
 // Origin allowlist is env-driven (`ALLOWED_ORIGINS`, comma-separated — see wrangler.jsonc) so it
@@ -14,7 +17,6 @@
 const DEFAULT_ALLOWED_ORIGINS = [
   "https://otchub.dev",
   "https://www.otchub.dev",
-  "https://devnet.otchub.dev",
   "http://localhost:5173",
   "http://localhost:3000",
 ];

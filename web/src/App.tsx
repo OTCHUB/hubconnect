@@ -6,7 +6,7 @@ import { GraduationFxTestPage } from "./hub/routes/GraduationFxTestPage";
 import { Header } from "./Header";
 import { Footer } from "./Footer";
 import { TerminalBottomBar, TerminalTopBar } from "./TerminalBars";
-import { shellConfig } from "./config";
+import { HUB_BASE, shellConfig } from "./config";
 
 /** otchub's fixed top/bottom terminal bars + page footer — reads `cluster` from HubProvider, so
  * it must render inside the provider (unlike `App`, which mounts it). */
@@ -20,10 +20,10 @@ function AppShell() {
         <Header />
         <main className="mt-3">
           <Routes>
-            <Route path="/hub/*" element={<HubRoutes />} />
+            <Route path={`${HUB_BASE}/*`} element={<HubRoutes />} />
             <Route path="/drip" element={<DripPage />} />
             <Route path="/test/graduation-fx" element={<GraduationFxTestPage />} />
-            <Route path="*" element={<Navigate to="/hub" replace />} />
+            <Route path="*" element={<Navigate to={HUB_BASE} replace />} />
           </Routes>
         </main>
         <Footer />
@@ -35,7 +35,8 @@ function AppShell() {
   );
 }
 
-/** Standalone shell — mounts at `/hub/*`, the same path otchub will use inside its own router. */
+/** Standalone shell — mounts at `HUB_BASE` (`/hub` mainnet-beta, `/devnet` devnet), the same
+ *  paths otchub will use inside its own router. */
 export function App() {
   return (
     <HubProvider

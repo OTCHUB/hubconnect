@@ -72,7 +72,7 @@ export function WalletConnect({ onConnected }: Props) {
   };
 
   const solflareDeepLink = `https://solflare.com/ul/v1/browse/${encodeURIComponent(
-    typeof window !== "undefined" ? window.location.href : "https://app.otchub.dev",
+    typeof window !== "undefined" ? window.location.href : "https://otchub.dev/hub",
   )}`;
 
   return (

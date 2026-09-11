@@ -1,6 +1,7 @@
 // Client for the devnet-only bonding-curve Worker (../../workers/bonding-curve.ts). Mirrors
-// faucet.ts's pattern: always talks to the Worker's own origin — devnet.otchub.dev is the only
-// place CURVE_KEY/CURVE_KV are deployed — regardless of which host renders this module. Every
+// faucet.ts's pattern: always talks to a fixed origin — otchub.dev is where CURVE_KEY/CURVE_KV
+// are deployed, at the otchub.dev/api/curve/* routes bound to that same Worker (see
+// ../../wrangler.jsonc's env.devnet) — regardless of which host renders this module. Every
 // caller gates on `cluster === "devnet"` first (see HubBondingDashboard.tsx).
 //
 // Trade lifecycle mirrors bonding-curve.ts's "verify deposit, then pay out" model: this module
@@ -18,7 +19,7 @@ import { ataPda } from "@hub-sdk";
 import type { TxLog } from "./swap";
 import type { WalletSigner } from "./wallets";
 
-export const CURVE_BASE_URL = "https://devnet.otchub.dev";
+export const CURVE_BASE_URL = "https://otchub.dev";
 const TOKEN_PROGRAM_ID = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
 
 /** spl-token `TransferChecked` (ix 12) — hand-rolled client mirror of workers/curve-ix.ts, kept

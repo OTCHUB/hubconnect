@@ -54,14 +54,15 @@ const NODES: DNode[] = [
   {
     id: "pot",
     label: "POT",
-    sub: "5 revenue sources",
+    sub: "3 revenue sources",
     tone: "cyan",
     angle: 54,
     ring: true,
     title: "3 · Protocol Revenue Fills the Pot",
     body: [
-      "Activation fees, treasury-owned desk earnings, treasury OTC claims, discount-exit proceeds, and LP swap fees all register here.",
+      "Activation fees, discount-exit SOL proceeds, and harvested LP swap fees all register here.",
       "The pot is just SOL held in a program PDA — Config.pot_liability_lamports tracks what's owed.",
+      "The treasury's own desk-pot yield and its launcher holder-leg $OTC claim are separate flywheels (right) — they never touch this SOL pot.",
     ],
   },
   {
@@ -112,7 +113,7 @@ const NODES: DNode[] = [
     ring: false,
     title: "Locked liquidity (phase 2)",
     body: [
-      "5% of every round funds a Raydium CP-Swap $HUB/$OTC pool once price has held stable ≥24h post-launch.",
+      "2.5% of every round funds a Raydium CP-Swap $HUB/$OTC pool once price has held stable ≥24h post-launch.",
       "lock_cp_liquidity burns the LP mint outright — principal is never withdrawable by anyone; only trading fees return to the pot.",
     ],
   },
@@ -126,7 +127,7 @@ const NODES: DNode[] = [
     title: "Treasury desk flywheel",
     body: [
       "The treasury sweeps listed desks whenever that's cheaper than minting (zero dilution).",
-      "Every treasury-owned desk's yield claim registers as pot inflow — a bigger treasury means a bigger pool for everyone.",
+      "Every treasury-owned desk's 13-stock desk-pot claim is consolidated straight into the M.I.M ETF basket (fund_hub_pot) — a bigger treasury means a bigger basket for everyone, but it never re-enters this SOL pot.",
       "Discount exits resell treasury desks at a 10% floor discount: 50% of the sale burns $HUB, 50% returns to the pot.",
     ],
   },
@@ -153,8 +154,8 @@ const NODES: DNode[] = [
     ring: false,
     title: "Third flywheel — M.I.M ETF MemeStock basket",
     body: [
-      'A fixed 4-token basket — $OTC, CRCLx, and on-chain "MemeStock" tickers branded OPENAI/ANTHROPIC (tokenized tickers native to the OTC Desks ecosystem, not shares or equity in the real companies) — funded entirely by the treasury\'s own 13-stock desk-pot yield.',
-      "Every round: the 4 native basket stocks pass straight through untouched, while the other 9 are swapped to SOL and split evenly 25/25/25/25 back into the basket.",
+      'A fixed 4-token basket — $OTC, CRCLx, and on-chain "MemeStock" tickers branded NVDAx/SPCXx (tokenized tickers native to the OTC Desks ecosystem, not shares or equity in the real companies NVIDIA or SpaceX) — funded entirely by the treasury\'s own 13-stock desk-pot yield.',
+      "Every round: the 4 native basket stocks pass straight through untouched, while the other 9 (AAPLx/MSFTx/AMZNx/ANTHROPIC/POLYMARKET/KALSHI/NEURALINK/ANDURIL/OPENAI) are swapped to SOL and split evenly 25/25/25/25 back into the basket.",
       "claim_hub_pot_reward (self-serve pull, per desk or in bulk) or distribute_hub_pot_reward (authority push) then pays each active desk its tier-weighted share of all four buckets — on top of, and independent of, the SOL yield above.",
     ],
   },

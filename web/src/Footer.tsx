@@ -6,7 +6,7 @@ const HUB_GITHUB_URL = "https://github.com/OTCHUB/hubconnect";
 
 // Byte-identical with otchub's page footer (src/components/otc/Footer.jsx, mounted on
 // src/pages/Hub.jsx) — same copy, order, and link styling — so the $HUB dashboard closes out
-// the same way on otchub.dev, app.otchub.dev, and devnet.otchub.dev.
+// the same way on otchub.dev, otchub.dev/hub, and otchub.dev/devnet.
 export function Footer() {
   const linkCls = "underline hover:text-green-400";
   return (

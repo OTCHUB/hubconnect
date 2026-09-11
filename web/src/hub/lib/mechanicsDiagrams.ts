@@ -33,16 +33,16 @@ export const ACTIVATION_DIAGRAM = `flowchart TD
 `;
 
 export const FEE_FLOW_DIAGRAM = `flowchart TD
-    subgraph SOURCES["Pot inflow sources"]
+    subgraph SOURCES["SOL pot inflow sources (book to Epoch.inflow_lamports)"]
         A1["A - Activation fees\\nFlat 0.5 SOL per step (90% pot / 10% ops)"]
-        B1["B - Treasury desk yield\\nowned desks' desk-pot claims"]
-        C1["C - Treasury OTC-stock claims\\nHUB float <=2% supply, pro-rata OTC -> pot"]
         D1["D - Discount-exit SOL leg\\n50% of every treasury desk sale"]
         F1["F - LP swap fees\\nharvested HUB/SOL + HUB/OTC fees"]
     end
-    A1 --> G["register_*_inflow\\nEpoch.inflow_lamports += amount"]
-    B1 --> G
-    C1 --> G
+    subgraph REDIRECTED["Redirected elsewhere - never book to Epoch.inflow_lamports"]
+        B1["B - Treasury desk yield\\nowned desks' 13-stock desk-pot claims\\n-> fund_hub_pot (see HUB Pot / M.I.M ETF diagram)"]
+        C1["C - Treasury launcher holder-leg OTC claim\\nHUB float <=2% supply, pro-rata OTC\\n-> clear_creator_fees 80/5/5/5/5 (80% direct to OtcPotState, no swap)"]
+    end
+    A1 --> G["register_*_inflow / book_inflow\\nEpoch.inflow_lamports += amount"]
     D1 --> G
     F1 --> G
     G --> H{"inflow + dust_scaled carry\\n>= min_pot_threshold_lamports (0.1 SOL)?"}
@@ -66,11 +66,11 @@ export const TREASURY_DIAGRAM = `flowchart TD
         B -->|no| D["Mint (policy: never)\\ndilutes desk-pot, burns 100k OTC"]
         C --> E["TreasuryState.desks_owned += 1"]
     end
-    E --> I["Treasury claims OTC desk-pot rounds\\nfor every owned desk"]
-    I --> J["register_treasury_inflow (source B)"]
-    J --> M["100% of desk proceeds -> pot inflow"]
-    M --> N["Epoch.inflow_lamports rises\\n-> larger distributable each round\\n-> larger per_weight for every activated tier"]
-    N --> O["Yield boost = shared pro-rata across\\nT1 1.00x / T2 1.25x / T3 1.60x / T4 2.00x\\n(no per-tier multiplier changes - just a bigger pool)"]
+    E --> I["Treasury claims OTC desk-pot rounds\\nfor every owned desk (13-stock rotation)"]
+    I --> J["4 native basket stocks (OTC/CRCLx/NVDAx/SPCXx) pass through untouched\\nother 9 swapped to SOL, split 25/25/25/25, swapped into the 4 buckets"]
+    J --> M["fund_hub_pot\\n(NOT register_treasury_inflow - source B redirected, docs/hubconnect-spec.md SS A5.1)"]
+    M --> N["HubPotConfig's 4 vault-owned buckets rise\\n-> larger HubPotRound snapshot each round\\n-> larger per-bucket share for every activated tier"]
+    N --> O["Yield boost = shared pro-rata across\\nT1 1.00x / T2 1.25x / T3 1.60x / T4 2.00x\\n(independent 2nd stream, never the SOL round pot - see ETF_FLOW_DIAGRAM)"]
     E --> P["Discount exit"]
     P --> Q["sale_value = 0.90 x live floor\\nHUB leg 50% -> burned in sale tx\\nSOL leg 50% -> pot (source D)"]
     Q --> R["Sold to a non-treasury wallet\\n(one per wallet per exit window)"]
@@ -104,8 +104,8 @@ export const BUYBACK_LP_DIAGRAM = `flowchart TD
 // TREASURY_DIAGRAM, but paid out of its own 4-token basket rather than the SOL pot.
 export const ETF_FLOW_DIAGRAM = `flowchart TD
     subgraph SRC["Treasury-owned desks — 13-stock desk-pot yield claimed every round"]
-        NATIVE["4 native basket stocks\\n$OTC · CRCLx · OPENAI · ANTHROPIC\\n(MemeStock tickers native to OTC Desks\\n- NOT equity/shares in the real companies)"]
-        EXTERNAL["9 external stocks\\nAAPLx · MSFTx · NVDAx · AMZNx · SPCXx\\nPOLYMARKET · KALSHI · NEURALINK · ANDURIL"]
+        NATIVE["4 native basket stocks\\n$OTC · CRCLx · NVDAx · SPCXx\\n(MemeStock tickers native to OTC Desks\\n- NOT equity/shares in the real companies)"]
+        EXTERNAL["9 external stocks\\nAAPLx · MSFTx · AMZNx · ANTHROPIC\\nPOLYMARKET · KALSHI · NEURALINK · ANDURIL · OPENAI"]
     end
 
     subgraph SWAPPATH["Swap path - the 9 external stocks"]
@@ -118,7 +118,7 @@ export const ETF_FLOW_DIAGRAM = `flowchart TD
         NATIVE --> DIRECT["Pass straight through\\nbypasses the SOL swap entirely"]
     end
 
-    CONV --> BASKET["fund_hub_pot\\n4x enforced TransferChecked into the\\nMemeStock Basket ($OTC/CRCLx/OPENAI/ANTHROPIC)"]
+    CONV --> BASKET["fund_hub_pot\\n4x enforced TransferChecked into the\\nMemeStock Basket ($OTC/CRCLx/NVDAx/SPCXx)"]
     DIRECT --> BASKET
     BASKET --> POT["HubPotConfig ['hub_pot']\\n4 vault-owned token accounts\\npending + lifetime totals per bucket"]
     POT --> ROUND["open_hub_pot_round (permissionless)\\nsnapshots all 4 pending balances x Sigma w"]

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { NavLink } from "react-router-dom";
 import { EnvBadge, rpcHost, useHub, useWallet } from "./hub";
+import { HUB_BASE } from "./config";
 import { WalletConnect } from "./hub/components/WalletConnect";
 import { AddressLink } from "./hub/components/ui/AddressLink";
 import { CopyButton } from "./hub/components/ui/CopyButton";
@@ -167,7 +168,7 @@ export function Header() {
       >
         <div className="flex shrink-0 items-center gap-2 whitespace-nowrap">
           <img
-            src="/hub-logo.png"
+            src={`${import.meta.env.BASE_URL}hub-logo.png`}
             alt="$HUB"
             className="h-6 w-6 shrink-0 cursor-help rounded-none border border-green-500/40"
             title="H.U.B. — Headquarters for Unhinged Brokers"
@@ -237,19 +238,19 @@ export function Header() {
             mobileNavOpen ? "flex" : "hidden"
           } flex-col gap-1.5 px-3 pb-2 sm:flex sm:flex-row sm:flex-wrap sm:items-center sm:px-3 sm:py-2 sm:pb-2`}
         >
-          <NavLink to="/hub" end className={navLinkCls} onClick={closeMobileNav}>
+          <NavLink to={HUB_BASE} end className={navLinkCls} onClick={closeMobileNav}>
             [DASHBOARD]
           </NavLink>
-          <NavLink to="/hub/treasury" className={navLinkCls} onClick={closeMobileNav}>
+          <NavLink to={`${HUB_BASE}/treasury`} className={navLinkCls} onClick={closeMobileNav}>
             [TREASURY]
           </NavLink>
-          <NavLink to="/hub/tokenomics" className={navLinkCls} onClick={closeMobileNav}>
+          <NavLink to={`${HUB_BASE}/tokenomics`} className={navLinkCls} onClick={closeMobileNav}>
             [TOKENOMICS]
           </NavLink>
-          <NavLink to="/hub/mechanics" className={navLinkCls} onClick={closeMobileNav}>
+          <NavLink to={`${HUB_BASE}/mechanics`} className={navLinkCls} onClick={closeMobileNav}>
             [MECHANICS]
           </NavLink>
-          <NavLink to="/hub/deployments" className={navLinkCls} onClick={closeMobileNav}>
+          <NavLink to={`${HUB_BASE}/deployments`} className={navLinkCls} onClick={closeMobileNav}>
             [DEPLOYMENTS]
           </NavLink>
           {cluster === "devnet" && (

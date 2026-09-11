@@ -1,9 +1,10 @@
-// Client for the devnet-exclusive faucet Worker (../../workers/faucet.ts). Always talks to the
-// Worker's own origin — devnet.otchub.dev is the only place FAUCET_KEY/FAUCET_KV are deployed —
+// Client for the devnet-exclusive faucet Worker (../../workers/faucet.ts). Always talks to a
+// fixed origin — otchub.dev is where FAUCET_KEY/FAUCET_KV are deployed, at the
+// otchub.dev/api/faucet/* routes bound to that Worker (see ../../wrangler.jsonc's env.devnet) —
 // regardless of which host is currently rendering this module (standalone shell or otchub),
 // so /drip works the same everywhere it's reachable. Devnet-only by construction: every caller
 // gates on `cluster === "devnet"` before importing/using this (see DripPage.tsx / OwnDeskPanel.tsx).
-export const FAUCET_BASE_URL = "https://devnet.otchub.dev";
+export const FAUCET_BASE_URL = "https://otchub.dev";
 
 /** Public Turnstile site key (safe to ship in the bundle — pairs with the Worker-side
  *  TURNSTILE_SECRET_KEY, see workers/faucet.ts). Empty until `VITE_TURNSTILE_SITE_KEY` is set in

@@ -29,7 +29,9 @@
 //                                wallet in the dashboard, burning the $HUB `/drip` gave them and
 //                                paying the flat SOL step fee themselves — the exact mainnet flow.
 //   GET  /api/faucet/status     -> faucet pubkey, balances, live mint addresses
-//   anything else               -> env.ASSETS.fetch(request) (the SPA, including /drip)
+//   anything else               -> env.ASSETS.fetch() after stripping the `/devnet` mount prefix
+//                                (the SPA, including the otchub.dev/devnet dashboard and the
+//                                sibling otchub.dev/drip page — see stripDevnetPrefix below)
 import {
   Connection,
   Keypair,
@@ -108,6 +110,24 @@ function loadFaucetKeypair(secret: string): Keypair {
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /**
+ * Cloudflare's assets binding has no path-rewriting of its own, so a request for
+ * `/devnet/assets/*` (see vite.config.ts's `base: "/devnet/"`) 404s unless the `/devnet` mount
+ * prefix (see ../wrangler.jsonc's `otchub.dev/devnet*` route) is stripped before delegating to
+ * `env.ASSETS.fetch()` — the physical files in `dist-devnet` sit at the un-prefixed paths.
+ * `/drip` itself is left untouched: it has no prefix of its own (a separate `otchub.dev/drip*`
+ * route on the same Worker), and just needs the `not_found_handling: single-page-application`
+ * fallback below to serve this same bundle's `index.html`, whose asset tags already carry the
+ * `/devnet/` prefix and so round-trip back through this same stripping logic.
+ */
+function stripDevnetPrefix(request: Request, url: URL): Request {
+  const MOUNT = "/devnet";
+  if (url.pathname !== MOUNT && !url.pathname.startsWith(`${MOUNT}/`)) return request;
+  const rewritten = new URL(url);
+  rewritten.pathname = url.pathname.slice(MOUNT.length) || "/";
+  return new Request(rewritten.toString(), request);
+}
+
+/**
  * Manual `getSignatureStatuses` polling instead of `Connection.confirmTransaction` — that method
  * defaults to a WebSocket subscription for the "confirmed" commitment, which doesn't reliably
  * signal success inside Cloudflare Workers and can throw a false "block height exceeded" even
@@ -182,7 +202,9 @@ async function checkIpLimit(env: Env, request: Request): Promise<boolean> {
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
-    if (!url.pathname.startsWith("/api/")) return env.ASSETS.fetch(request);
+    if (!url.pathname.startsWith("/api/")) {
+      return env.ASSETS.fetch(stripDevnetPrefix(request, url));
+    }
 
     // Every client call (faucet.ts + curve.ts in otchub/src/hub/lib) sets `content-type:
     // application/json`, which forces a CORS preflight for *every* method, GET included — so this

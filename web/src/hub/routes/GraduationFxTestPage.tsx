@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
+import { HUB_BASE } from "../../config";
 import { CurveHeroPanel } from "../components/HubBondingDashboard";
 import { GraduationSequence } from "../components/GraduationSequence";
 import { ProtocolGate } from "../components/ProtocolGate";
@@ -46,7 +47,7 @@ export function GraduationFxTestPage() {
   return (
     <div className="mx-auto max-w-2xl space-y-2 font-mono">
       <div className="flex items-center justify-between">
-        <Link to="/hub" className="text-[10px] text-green-600 hover:text-green-300">
+        <Link to={HUB_BASE} className="text-[10px] text-green-600 hover:text-green-300">
           ← dashboard
         </Link>
         <span className="text-[10px] uppercase tracking-widest text-green-600">

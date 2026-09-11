@@ -1,54 +1,73 @@
-// Cloudflare Workers static-assets deployment of the standalone $HUB dashboard.
+// Cloudflare Workers deployment of the standalone $HUB dashboard.
 //
-// Two isolated, simultaneously-deployable targets — each its own Worker script with its own
-// asset bundle, so neither can leak the other's RPC / cluster / program id:
-//   - mainnet-beta -> app.otchub.dev     (env.production; assets from ./dist)
-//   - devnet       -> devnet.otchub.dev  (env.devnet;     assets from ./dist-devnet)
-// devnet.otchub.dev is a public, risk-free sandbox for auditing tokenomics/mechanics/security
-// ahead of mainnet launch; app.otchub.dev is permanently reserved for the mainnet-beta build.
+// Two isolated, simultaneously-deployable targets, each its own Worker script with its own
+// asset bundle (so neither can leak the other's RPC / cluster / program id) — mounted as
+// PATH-SCOPED ROUTES on the shared otchub.dev zone rather than Custom Domains (which claim a
+// whole hostname to one Worker), so otchub's own site keeps serving everything else on that
+// domain while these two Workers each own only their slice:
+//   - mainnet-beta -> otchub.dev/hub*                         (env.production; assets from ./dist)
+//   - devnet       -> otchub.dev/devnet* + otchub.dev/drip*   (env.devnet;     assets from ./dist-devnet)
+// otchub.dev/devnet is a public, risk-free sandbox for auditing tokenomics/mechanics/security
+// ahead of mainnet launch; otchub.dev/hub is permanently reserved for the mainnet-beta build.
+// The old app.otchub.dev / devnet.otchub.dev Custom Domains are retired — don't resurrect them
+// without also updating web/src/config.ts's `HUB_BASE` and every hardcoded fallback URL that
+// assumed them (WalletConnect.tsx, Footer.tsx, faucet.ts/curve.ts's `*_BASE_URL`).
 //
 // RPC / cluster / program id are baked in at build time from Vite env files, per mode, so a
 // single `npm run build` (mainnet) or `npm run build:devnet` never crosses into the other's
 // config — see `.env.production`(`.local`) and `.env.devnet`(`.local`). Worker `vars` cannot
 // reach a static bundle, which is why this differentiation happens at build time, not here.
+// `vite.config.ts`'s `base` (`/hub/` or `/devnet/`) makes every asset reference root-absolute
+// under that mount, so `workers/asset-router.ts` (production) / `workers/faucet.ts` (devnet) can
+// strip the prefix before falling through to `env.ASSETS.fetch()` — the assets binding has no
+// path-rewriting of its own, so without this every JS/CSS request 404s once mounted off-root.
 //
-// Deploy: `npm run deploy:production` (app.otchub.dev) or `npm run deploy:devnet`
-// (devnet.otchub.dev) — both always pass `--env` explicitly (wrangler warns otherwise, since
-// this file now defines named environments). `npm run deploy` is a `deploy:production` alias.
-// The top-level config below mirrors `env.production` exactly (same Worker, same route) purely
-// so `wrangler dev`/other env-less commands still resolve to something sane.
+// Deploy: `npm run deploy:production` (otchub.dev/hub) or `npm run deploy:devnet`
+// (otchub.dev/devnet + otchub.dev/drip) — both always pass `--env` explicitly (wrangler warns
+// otherwise, since this file now defines named environments). `npm run deploy` is a
+// `deploy:production` alias. The top-level config below mirrors `env.production` exactly (same
+// Worker, same routes) purely so `wrangler dev`/other env-less commands still resolve to
+// something sane.
 {
   "name": "hubconnect-web",
   "compatibility_date": "2026-08-01",
+  "main": "workers/asset-router.ts",
   "assets": {
     "directory": "./dist",
+    "binding": "ASSETS",
     "not_found_handling": "single-page-application",
     "html_handling": "auto-trailing-slash",
   },
-  "routes": [{ "pattern": "app.otchub.dev", "custom_domain": true }],
+  "routes": [{ "pattern": "otchub.dev/hub*", "zone_name": "otchub.dev" }],
   "observability": { "enabled": true },
   "env": {
-    // Mainnet-beta — the only build ever served at app.otchub.dev. Same Worker name as the
+    // Mainnet-beta — the only build ever served at otchub.dev/hub. Same Worker name as the
     // top-level default (deliberately) so `wrangler deploy` and `wrangler deploy --env
-    // production` always resolve to one script, never two competing claims on the domain.
+    // production` always resolve to one script, never two competing claims on the route.
+    // `workers/asset-router.ts` strips the `/hub` mount prefix before delegating to
+    // `env.ASSETS.fetch()` — see the top-of-file note on `vite.config.ts`'s `base`.
     "production": {
       "name": "hubconnect-web",
+      "main": "workers/asset-router.ts",
       "assets": {
         "directory": "./dist",
+        "binding": "ASSETS",
         "not_found_handling": "single-page-application",
         "html_handling": "auto-trailing-slash",
       },
-      "routes": [{ "pattern": "app.otchub.dev", "custom_domain": true }],
+      "routes": [{ "pattern": "otchub.dev/hub*", "zone_name": "otchub.dev" }],
       "observability": { "enabled": true },
     },
-    // Devnet sandbox — separate Worker, separate bundle, separate domain. Requires
-    // `devnet.otchub.dev` to exist in the same Cloudflare zone as `otchub.dev` (one-time
-    // DNS/zone setup); `wrangler deploy --env devnet` provisions the custom domain binding.
+    // Devnet sandbox — separate Worker, separate bundle, same zone as production and otchub's
+    // own site (path-scoped routes below, not a Custom Domain, so all three coexist on
+    // otchub.dev without any of them claiming the whole hostname).
     //
-    // Unlike `production` above, this env has a `main` script: workers/faucet.ts fronts the SPA,
-    // handling `/api/faucet/*` (token drips + Mock OTC Desk minting, devnet.otchub.dev/drip)
-    // itself and falling through to `env.ASSETS.fetch()` for everything else. `nodejs_compat` is
-    // required for the Buffer usage in @solana/web3.js + the faucet's raw instruction builders.
+    // Unlike `production` above, this env's `main` script (workers/faucet.ts) fronts the SPA,
+    // handling `/api/faucet/*` + `/api/curve/*` (token drips + Mock OTC Desk minting, bonding
+    // curve trades) itself, stripping the `/devnet` mount prefix for page/asset requests, and
+    // falling through to `env.ASSETS.fetch()` for everything else (including `/drip`, which
+    // shares this same bundle — see faucet.ts's routing comment). `nodejs_compat` is required
+    // for the Buffer usage in @solana/web3.js + the faucet's raw instruction builders.
     "devnet": {
       "name": "hubconnect-web-devnet",
       "main": "workers/faucet.ts",
@@ -59,15 +78,21 @@
         "not_found_handling": "single-page-application",
         "html_handling": "auto-trailing-slash",
       },
-      "routes": [{ "pattern": "devnet.otchub.dev", "custom_domain": true }],
+      "routes": [
+        { "pattern": "otchub.dev/devnet*", "zone_name": "otchub.dev" },
+        { "pattern": "otchub.dev/drip*", "zone_name": "otchub.dev" },
+        { "pattern": "otchub.dev/api/faucet/*", "zone_name": "otchub.dev" },
+        { "pattern": "otchub.dev/api/curve/*", "zone_name": "otchub.dev" },
+      ],
       "observability": { "enabled": true },
       // Cross-origin allowlist for every /api/faucet/* + /api/curve/* response (see
-      // workers/cors.ts) — required now that otchub/src/hub/lib/{faucet,curve}.ts call this
-      // Worker's origin from a different one (otchub.dev, mounted at /hub and /devnet). Extend
-      // with a Base44 preview URL or another local dev port as needed; comma-separated, no spaces
-      // required. workers/cors.ts falls back to this same list if the var is ever removed.
+      // workers/cors.ts). Same-origin (no preflight needed at all) once otchub.dev's own site
+      // links straight to otchub.dev/devnet + /drip — this stays purely as a fallback for
+      // `wrangler dev`/local Vite (different port = different origin) and any preview deploy
+      // (Base44, etc.) that calls this Worker cross-origin. Extend as needed; comma-separated,
+      // no spaces required. workers/cors.ts falls back to this same list if the var is removed.
       "vars": {
-        "ALLOWED_ORIGINS": "https://otchub.dev,https://www.otchub.dev,https://devnet.otchub.dev,http://localhost:5173,http://localhost:3000",
+        "ALLOWED_ORIGINS": "https://otchub.dev,https://www.otchub.dev,http://localhost:5173,http://localhost:3000",
       },
       // Rate-limit bucket for the faucet (per-wallet cooldowns + per-IP abuse guard). Created via
       // `wrangler kv namespace create FAUCET_KV --env devnet`; id filled in after creation.
@@ -93,8 +118,7 @@
       // Turnstile challenge (bot-abuse guard, independent of the IP/wallet cooldowns above).
       // Optional: verification is skipped when unset, so the faucet keeps working before it's
       // provisioned. Pair with VITE_TURNSTILE_SITE_KEY (web/.env.devnet(.local)) for the client
-      // widget. Create a widget in the Cloudflare dash (Turnstile) pointed at devnet.otchub.dev,
-      // then:
+      // widget. Create a widget in the Cloudflare dash (Turnstile) pointed at otchub.dev, then:
       //   wrangler secret put TURNSTILE_SECRET_KEY --env devnet
     },
   },

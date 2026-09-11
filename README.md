@@ -9,7 +9,7 @@ Anchor program · keeper services · read-only SDK · treasury dashboard.
 [![verified build](https://github.com/OTCHUB/hubconnect/actions/workflows/verify.yml/badge.svg)](https://github.com/OTCHUB/hubconnect/actions/workflows/verify.yml)
 [![program](https://img.shields.io/badge/program-7c5oPs9G…XJx7b7i-14f195?logo=solana&logoColor=white)](https://explorer.solana.com/address/7c5oPs9GvX8vrC5jVFketNx1ZLuPs7HeH8Qc4XJx7b7i/verified-build)
 [![website](https://img.shields.io/badge/website-otchub.dev-14f195)](https://otchub.dev)
-[![app](https://img.shields.io/badge/app-app.otchub.dev-14f195)](https://app.otchub.dev)
+[![app](https://img.shields.io/badge/HUB%20app-otchub.dev%2Fhub-14f195)](https://otchub.dev/hub)
 [![x](https://img.shields.io/badge/-@otchubdev-000000?logo=x&logoColor=white)](https://x.com/otchubdev)
 
 **Community tooling — not affiliated with the OTC Desks / OTCDesks Protocol team.**
@@ -24,7 +24,9 @@ Implement from it; never re-derive tokenomics.
 | | |
 |---|---|
 | 🌐 Website | [otchub.dev](https://otchub.dev) |
-| 📊 $HUB app (treasury dashboard) | [app.otchub.dev](https://app.otchub.dev) |
+| 📊 HUB Protocol (treasury dashboard, mainnet-beta) | [otchub.dev/hub](https://otchub.dev/hub) |
+| 🧪 Devnet build | [otchub.dev/devnet](https://otchub.dev/devnet) |
+| 🚰 Drip (devnet faucet — test $HUB/$OTC/M.I.M ETF mints) | [otchub.dev/drip](https://otchub.dev/drip) |
 | 🐦 X / Twitter | [@otchubdev](https://x.com/otchubdev) |
 | 📈 DexScreener | pending — published here once the $HUB mint and its first liquidity pool exist (see [Program IDs](#program-ids)) |
 | ⚙️ How it works | [`docs/mechanics.md`](docs/mechanics.md) |
@@ -36,13 +38,15 @@ Implement from it; never re-derive tokenomics.
 **OTCDesks Protocol** (otcdesks.cash) runs OTC desk NFTs and an OTC launcher. Any token launched
 through the launcher picks its own **reward asset** at launch time — a tokenized stock, a
 pre-IPO, a memecoin, or a wrapped asset — and every trade's creator fees are split a fixed
-**70% / 10% / 15% / 5%**: 70% auto-swapped into that chosen asset and airdropped pro-rata to the
-launched token's holders, 10% used to buy the reward asset for the OTC desk pot, 15% to OTC
-protocol operations, and 5% held back for manual (non-scheduled) $OTC buybacks. The launcher
-itself takes 0%. **$HUB chose $OTC as its reward asset**, so for $HUB specifically every leg above
-is paid in $OTC — that is what the rest of this document means by "$OTC yield". **hubconnect is a
-separate, community-built layer on top of that base protocol** — it does not fork or modify
-OTCDesks, it only reads its on-chain state and composes with it.
+**70% / 15% / 10% / 5%**: 70% auto-swapped into the chosen reward asset and distributed pro-rata
+per wallet to the launched token's holders, 15% to the OTC protocol, 10% into the shared OTC
+desk pot (funds that pot's own fixed 13-asset rotation buys across every desk — independent of
+which reward asset this particular launch picked), and 5% set aside for manual (non-scheduled)
+$OTC buybacks. The launcher itself takes 0%. **$HUB chose $OTC as its reward asset**, so for
+$HUB specifically every leg above is paid in $OTC — that is what the rest of this document means
+by "$OTC yield". **hubconnect is a separate, community-built layer on top of that base
+protocol** — it does not fork or modify OTCDesks, it only reads its on-chain state and composes
+with it.
 
 $HUB launches *through* the OTC launcher and lets any OTC desk NFT owner **activate a tier
 on-chain** (burn-based, never lock-based) to earn pro-rata **$OTC yield** every round, funded by

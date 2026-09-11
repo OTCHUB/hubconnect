@@ -1,5 +1,5 @@
 // Re-points devnet mint authorities + the Core desk collection's UpdateDelegate to the faucet
-// Worker's own keypair, so devnet.otchub.dev/drip can mint $HUB/$OTC/CRCLx/NVDAx/SPCXx and
+// Worker's own keypair, so otchub.dev/drip can mint $HUB/$OTC/CRCLx/NVDAx/SPCXx and
 // mint Mock OTC Desk NFTs into Config.desk_collection without ever holding the deployer's key.
 //   npx ts-node -T scripts/devnet-faucet-authority.ts <faucetPubkey> --yes [--sol 2]
 //

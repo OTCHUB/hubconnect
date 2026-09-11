@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
+import { HUB_BASE } from "../../config";
 import { useHub } from "../HubProvider";
 import { useWallet } from "../WalletProvider";
 import { parsePubkey } from "../hooks/useDeskTier";
@@ -22,9 +23,10 @@ const btn =
 
 const SOLANA_FAUCET_URL = "https://faucet.solana.com";
 
-/** devnet.otchub.dev/drip — the only place the faucet Worker is deployed (see wrangler.jsonc's
- * `devnet` env + workers/faucet.ts). Gated on the connected cluster rather than the URL so a
- * dev pointed at devnet from any host sees the same faucet, and mainnet never can. */
+/** otchub.dev/drip — the faucet page (backed by the devnet Worker deployed at otchub.dev/devnet
+ * + otchub.dev/drip, see wrangler.jsonc's `devnet` env + workers/faucet.ts). Gated on the
+ * connected cluster rather than the URL so a dev pointed at devnet from any host sees the same
+ * faucet, and mainnet never can. */
 export function DripPage() {
   const { cluster } = useHub();
   const wallet = useWallet();
@@ -59,16 +61,16 @@ export function DripPage() {
   if (cluster !== "devnet") {
     return (
       <div className="space-y-2 font-mono">
-        <Link to="/hub" className="text-[10px] text-green-600 hover:text-green-300">
+        <Link to={HUB_BASE} className="text-[10px] text-green-600 hover:text-green-300">
           ← dashboard
         </Link>
         <Panel title="FAUCET :: DEVNET ONLY">
           <p className="text-xs text-green-400/90">
-            This faucet only exists on devnet (devnet.otchub.dev) — it mints test $HUB/$OTC/M.I.M
+            This faucet only exists on devnet (otchub.dev/devnet) — it mints test $HUB/$OTC/M.I.M
             ETF basket tokens and Mock OTC Desk NFTs, and is never deployed for mainnet-beta. This
             app is currently connected to <span className="text-amber-300">{cluster}</span>.
           </p>
-          <Link to="/hub" className="mt-2 inline-block text-xs text-cyan-300 underline">
+          <Link to={HUB_BASE} className="mt-2 inline-block text-xs text-cyan-300 underline">
             → go to the dashboard
           </Link>
         </Panel>
@@ -95,7 +97,7 @@ export function DripPage() {
   return (
     <div className="mx-auto max-w-2xl space-y-2 font-mono">
       <div className="flex items-center justify-between">
-        <Link to="/hub" className="text-[10px] text-green-600 hover:text-green-300">
+        <Link to={HUB_BASE} className="text-[10px] text-green-600 hover:text-green-300">
           ← dashboard
         </Link>
         <span className="text-[10px] uppercase tracking-widest text-green-600">
@@ -186,7 +188,7 @@ export function DripPage() {
           The desk arrives not pre-activated on purpose: <code>activate_tier</code> requires the
           desk's current owner to sign, and <code>claim_yield</code> voids any tier whose owner
           changed since activation. Head to the{" "}
-          <Link to="/hub" className="underline">
+          <Link to={HUB_BASE} className="underline">
             dashboard
           </Link>{" "}
           after claiming and activate it yourself with the $HUB this faucet just gave you — the same
@@ -239,7 +241,7 @@ export function DripPage() {
               </a>
             </div>
             <div>
-              <Link to="/hub" className="text-emerald-300 underline hover:text-emerald-100">
+              <Link to={HUB_BASE} className="text-emerald-300 underline hover:text-emerald-100">
                 → activate it on the dashboard
               </Link>
             </div>

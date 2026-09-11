@@ -51,8 +51,8 @@ function MermaidBlock({ source, title }: { source: string; title?: string }) {
 }
 
 /** Devnet-only: mints an unactivated Mock OTC Desk straight to the connected wallet via the
- * devnet.otchub.dev faucet Worker — same button DripPage.tsx exposes, inlined here so "own a
- * desk" and "how to own a desk" live on the same card. Never rendered on mainnet-beta. */
+ * faucet Worker backing otchub.dev/drip — same button DripPage.tsx exposes, inlined here so "own
+ * a desk" and "how to own a desk" live on the same card. Never rendered on mainnet-beta. */
 function MintMockDeskButton() {
   const wallet = useWallet();
   const [busy, setBusy] = useState(false);
@@ -139,10 +139,11 @@ export function MechanicsPanel({ state }: { state: ProtocolState }) {
       <Panel title="HOW $HUB WORKS" collapsible>
         <p className={p}>
           $HUB turns every OTC desk NFT into a yield-earning position: own a desk → activate it into
-          a tier → the treasury's own desk stack boosts the pot everyone shares from → every round
-          splits 90 / 5 / 2.5 / 2.5 between stakers, a $HUB burn, the treasury, and $HUB/$OTC
-          liquidity → you claim, pro-rata by tier. Every leg is funded by protocol activity — never
-          taken from other holders — and the burn leg permanently shrinks supply, round after round.
+          a tier → every round splits 90 / 5 / 2.5 / 2.5 between stakers, a $HUB burn, the treasury,
+          and $HUB/$OTC liquidity → you claim, pro-rata by tier. The treasury's own desk stack boosts
+          a second, independent yield basket (the M.I.M ETF, section 4) on the same pro-rata
+          schedule. Every leg is funded by protocol activity — never taken from other holders — and
+          the burn leg permanently shrinks supply, round after round.
         </p>
         <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[10px] text-green-600">
           <span>
@@ -295,12 +296,12 @@ export function MechanicsPanel({ state }: { state: ProtocolState }) {
             are capped at 10% of treasury SOL per desk and only target verified sellers.
           </li>
           <li className={li}>
-            Every desk the treasury owns earns rewards exactly like any other desk, and that income
-            feeds straight back into the same reward pool everyone shares from — on top of what
-            activation fees alone would fund. A bigger treasury desk stack means a bigger reward
-            pool for every activated desk —{" "}
+            Every desk the treasury owns earns rewards exactly like any other desk — but that income
+            doesn't feed the SOL round pool from section 5; it's consolidated straight into the
+            M.I.M ETF basket instead (section 4), a second yield stream every activated desk shares
+            in pro-rata by tier —{" "}
             {config.tierWeightsBp.map((w, i) => `${TIER_NAMES[i]} ${fmtWeight(w)}`).join(" / ")}—
-            with zero dilution to any holder.
+            on top of the SOL round yield, with zero dilution to any holder.
           </li>
           <li className={li}>
             Occasionally the treasury sells a desk back to the market at a 10% discount to manage
@@ -347,9 +348,11 @@ export function MechanicsPanel({ state }: { state: ProtocolState }) {
       <CollapsibleCard title="5. HUB ROUND SPLIT — 90 / 5 / 2.5 / 2.5">
         <ul className="space-y-1">
           <li className={li}>
-            Revenue — activation fees, treasury desk yield, treasury OTC profits, discount-exit
-            proceeds, and LP trading fees — collects continuously until it crosses the reward-round
-            trigger ({fmtSol(config.minPotThresholdLamports)}). Rounds close purely on activity,
+            Revenue — activation fees, discount-exit proceeds, and LP trading fees — collects
+            continuously until it crosses the reward-round trigger (
+            {fmtSol(config.minPotThresholdLamports)}). The treasury's own desk-pot yield and its
+            launcher holder-leg $OTC claim are separate flywheels (sections 3/4) that never enter
+            this pool. Rounds close purely on activity,
             never a fixed schedule, so a round can settle in seconds or take days, and anyone can
             trigger the close — no keeper required.
           </li>
