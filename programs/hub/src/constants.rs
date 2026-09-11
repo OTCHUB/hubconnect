@@ -29,6 +29,7 @@ pub const OPS_PCT_BP: u16 = 1_000;
 ///     `Config.ops_wallet` in SOL; only the remainder is booked as pot inflow.
 ///   - `fund_hub_pot` (MemeStock basket deposits): the same bp is skimmed per-mint into
 ///     `ops_wallet`'s ATA for that mint; only the remainder credits the bucket's pending balance.
+///
 /// Default 10% — matches the basket's carve-out described in §A5.1. Admin-retunable via
 /// `update_config(ProtocolFeeBp, ...)`.
 pub const PROTOCOL_FEE_BP: u16 = 1_000;
