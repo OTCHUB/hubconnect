@@ -130,7 +130,9 @@ export async function runCycle(env: KeeperEnv): Promise<void> {
     return;
   }
   if (alreadySent(config.currentEpoch)) {
-    return void console.warn(`[epoch ${config.currentEpoch}] already submitted this run — skipping`);
+    return void console.warn(
+      `[epoch ${config.currentEpoch}] already submitted this run — skipping`,
+    );
   }
 
   const [treasuryKey] = treasuryPda(id);

@@ -1,13 +1,17 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { HUB_BASE } from "../../config";
 import { useHub } from "../HubProvider";
 import { useWallet } from "../WalletProvider";
 import { parsePubkey } from "../hooks/useDeskTier";
+import { useProtocolState } from "../hooks/useProtocolState";
+import { useWalletPortfolio } from "../hooks/useWalletPortfolio";
+import { ActivatePanel } from "../components/ActivatePanel";
 import { WalletConnect } from "../components/WalletConnect";
 import { Panel } from "../components/ui/Panel";
 import { AddressLink } from "../components/ui/AddressLink";
+import { ErrorBox, LoadingBox, UninitializedBox } from "../components/ui/StateBox";
 import { Turnstile } from "../components/ui/Turnstile";
 import { shortKey } from "../lib/format";
 import {
@@ -38,6 +42,7 @@ export function DripPage() {
   // empty, falls back to the connected wallet (if any) — see `targetAddress` below.
   const [manualAddress, setManualAddress] = useState("");
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  const activateRef = useRef<HTMLDivElement>(null);
 
   const status = useQuery({
     queryKey: ["faucet", "status"],
@@ -51,12 +56,26 @@ export function DripPage() {
   const manualInvalid = trimmedManual !== "" && !manualKey;
   const targetAddress = trimmedManual ? (manualKey?.toBase58() ?? null) : wallet.address;
   const requireTurnstile = !!TURNSTILE_SITE_KEY;
+  // Activation needs a real signer — only offer the inline step when the drip actually landed on
+  // the wallet connected right here (never for a manually-pasted foreign address; that case keeps
+  // pointing at the dashboard below, same as before).
+  const canActivateInline = !!wallet.address && !!targetAddress && targetAddress === wallet.address;
+  const protocol = useProtocolState();
+  const protocolState = protocol.status.kind === "ready" ? protocol.status.state : null;
+  const portfolio = useWalletPortfolio(canActivateInline ? wallet.address : null, protocolState);
 
   useEffect(() => {
     setDripResult(null);
     setDripErr(null);
     setTurnstileToken(null);
   }, [wallet.address, manualAddress]);
+
+  // Carry the eye straight down to the activation step once the starter kit (and its desk) lands.
+  useEffect(() => {
+    if (dripResult && canActivateInline) {
+      activateRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [dripResult, canActivateInline]);
 
   if (cluster !== "devnet") {
     return (
@@ -86,7 +105,10 @@ export function DripPage() {
     setDripBusy(true);
     setDripErr(null);
     try {
-      setDripResult(await dripTokens(targetAddress, turnstileToken ?? undefined));
+      const result = await dripTokens(targetAddress, turnstileToken ?? undefined);
+      setDripResult(result);
+      // Pick up the freshly-minted desk (and token balances) before ACTIVATE_DESK renders below.
+      if (canActivateInline) await portfolio.refetch();
     } catch (e) {
       setDripErr(e instanceof FaucetHttpError ? e.message : "drip failed — try again");
     } finally {
@@ -180,9 +202,9 @@ export function DripPage() {
         }
       >
         <p className="mb-2 text-xs text-green-400/90">
-          One request sends 100,000 $HUB, 100,000 $OTC, 10 each of CRCLx / NVDAx / SPCXx (the
-          M.I.M ETF basket), and mints 1 unactivated Mock OTC Desk NFT — everything needed to
-          activate a desk and test the HUB Pot claim. One request per wallet per 8h.
+          One request sends 100,000 $HUB, 100,000 $OTC, 10 each of CRCLx / NVDAx / SPCXx (the M.I.M
+          ETF basket), and mints 1 unactivated Mock OTC Desk NFT — everything needed to activate a
+          desk and test the HUB Pot claim. One request per wallet per 8h.
         </p>
         <div className="mb-2 rounded-none border border-amber-500/30 bg-amber-500/5 p-2 text-[11px] text-amber-300">
           The desk arrives not pre-activated on purpose: <code>activate_tier</code> requires the
@@ -241,13 +263,53 @@ export function DripPage() {
               </a>
             </div>
             <div>
-              <Link to={HUB_BASE} className="text-emerald-300 underline hover:text-emerald-100">
-                → activate it on the dashboard
-              </Link>
+              {canActivateInline ? (
+                <button
+                  type="button"
+                  onClick={() =>
+                    activateRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
+                  }
+                  className="text-emerald-300 underline hover:text-emerald-100"
+                >
+                  ↓ activate it below
+                </button>
+              ) : (
+                <Link to={HUB_BASE} className="text-emerald-300 underline hover:text-emerald-100">
+                  → activate it on the dashboard
+                </Link>
+              )}
             </div>
           </div>
         )}
       </Panel>
+
+      {dripResult && canActivateInline && wallet.address && (
+        <div ref={activateRef} className="space-y-2">
+          <Panel title="4 · ACTIVATE YOUR DESK">
+            <p className="text-xs text-green-400/90">
+              Desk #{dripResult.desk.deskNumber} arrived unactivated on purpose — this step burns
+              some of the $HUB the faucet just gave you to activate it into a paying tier, the exact
+              same <code>activate_tier</code> call a real desk owner signs on mainnet. Pick a tier
+              and pay method below, then press the green button.
+            </p>
+          </Panel>
+          {protocol.status.kind === "ready" ? (
+            <ActivatePanel
+              address={wallet.address}
+              state={protocol.status.state}
+              desks={portfolio.data?.desks ?? []}
+              selectedAsset={dripResult.desk.asset}
+              onChanged={() => void portfolio.refetch()}
+            />
+          ) : protocol.status.kind === "error" ? (
+            <ErrorBox message={protocol.status.message} />
+          ) : protocol.status.kind === "uninitialized" ? (
+            <UninitializedBox />
+          ) : (
+            <LoadingBox label="LOADING PROTOCOL STATE" />
+          )}
+        </div>
+      )}
 
       <div className="text-[10px] text-green-700">
         devnet only · not affiliated with OTC Desks · faucet balances are public via{" "}

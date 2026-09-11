@@ -93,7 +93,10 @@ export function mockRoute(args: MockRouteArgs) {
 }
 
 /** Idempotently creates `mockAuthorityPda()`'s liquidity ATA for `mint` (no-op if it exists). */
-export function ensureMockLiquidityAtaIx(payer: PublicKey, mint: PublicKey): TransactionInstruction {
+export function ensureMockLiquidityAtaIx(
+  payer: PublicKey,
+  mint: PublicKey,
+): TransactionInstruction {
   return createAtaIdempotent(payer, mockAuthorityPda(), mint);
 }
 

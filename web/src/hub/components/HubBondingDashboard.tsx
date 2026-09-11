@@ -1,9 +1,16 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { PublicKey, type Connection } from "@solana/web3.js";
 import { LAMPORTS_PER_SOL, type ProtocolState } from "@hub-sdk";
 import { useHub } from "../HubProvider";
 import { useWalletBalances } from "../hooks/useWalletBalances";
+import {
+  deriveCpSwapPoolKeys,
+  executeCpSwapTrade,
+  fetchCpSwapReserves,
+  quoteCpSwap,
+  type CpSwapPhase,
+} from "../lib/cpswap";
 import {
   executeCurveBuy,
   executeCurveSell,
@@ -129,6 +136,330 @@ export function CurveHeroPanel({
   );
 }
 
+/**
+ * Post-graduation swap surface for a *devnet* curve. `GraduatedPanel` (below) is only ever
+ * reached via `HubBondingDashboard`'s `isDevnet` branch — mainnet-beta returns the plain
+ * `SwapPanel` before the curve is ever fetched — so unlike `SwapPanel`, this never needs a
+ * cluster check itself: Jupiter has no devnet routes at all, so the pool this trades against
+ * (the one `bonding-curve.ts`'s graduation flow created) is the only working swap surface for a
+ * graduated devnet curve. Same UX shape as `BondingCurvePanel`'s TRADE card, sourced from the
+ * pool's own on-chain reserves instead of the pre-graduation virtual-reserve simulation.
+ */
+function DevnetGraduatedSwapPanel({
+  state,
+  address,
+  poolAddress,
+  connection,
+  resolveSigner,
+}: {
+  state: ProtocolState;
+  address: string | null;
+  poolAddress: string | null;
+  connection: Connection;
+  resolveSigner: (a: string) => WalletSigner | null;
+}) {
+  const mint = state.config.hubMint;
+  const dec = state.supply.decimals;
+  const hubMintKey = useMemo(() => new PublicKey(mint), [mint]);
+  const poolKeys = useMemo(() => deriveCpSwapPoolKeys(hubMintKey), [hubMintKey]);
+  const [mode, setMode] = useState<Mode>("BUY");
+  const [amount, setAmount] = useState("0.1");
+  const [slipBps, setSlipBps] = useState(100);
+  const [customSlip, setCustomSlip] = useState("");
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [phase, setPhase] = useState<CpSwapPhase | null>(null);
+  const [logs, setLogs] = useState<TxLog[]>([]);
+  const [err, setErr] = useState<string | null>(null);
+  const balances = useWalletBalances(address, mint);
+  const signer = address ? resolveSigner(address) : null;
+
+  const isBuy = mode === "BUY";
+  const inDec = isBuy ? SOL_DECIMALS : dec;
+  const outDec = isBuy ? dec : SOL_DECIMALS;
+
+  const reservesQuery = useQuery({
+    queryKey: ["hub", "cpswap", "reserves", poolKeys.poolState.toBase58()],
+    queryFn: () => fetchCpSwapReserves(connection, poolKeys, hubMintKey),
+    refetchInterval: 8_000,
+  });
+
+  let slippageBps = slipBps;
+  let slipError: string | null = null;
+  try {
+    if (customSlip !== "") slippageBps = parseSlippageBps(customSlip);
+  } catch (e) {
+    slipError = (e as Error).message;
+  }
+
+  let raw: bigint | null = null;
+  let inputError: string | null = null;
+  try {
+    raw = parseAmountToRaw(amount, inDec);
+    if (raw === 0n) throw new Error("Enter an amount greater than zero");
+  } catch (e) {
+    inputError = (e as Error).message;
+  }
+  const quoteOut =
+    raw && reservesQuery.data ? quoteCpSwap(isBuy ? "buy" : "sell", raw, reservesQuery.data) : null;
+  const inBal = balances.data ? (isBuy ? balances.data.solLamports : balances.data.hubUnits) : null;
+  const outBal = balances.data
+    ? isBuy
+      ? balances.data.hubUnits
+      : balances.data.solLamports
+    : null;
+
+  const reset = (m: Mode) => {
+    setMode(m);
+    setErr(null);
+    setAmount(
+      m === "BUY" ? "0.1" : balances.data ? formatRawAmount(balances.data.hubUnits, dec) : "",
+    );
+  };
+  const flip = () => reset(isBuy ? "SELL" : "BUY");
+  const quickAmount = (frac: number) => {
+    if (!balances.data || busy) return;
+    const avail = isBuy
+      ? balances.data.solLamports - SOL_FEE_RESERVE_LAMPORTS
+      : balances.data.hubUnits;
+    if (avail <= 0n) return;
+    const v = frac >= 1 ? avail : (avail * BigInt(Math.round(frac * 100))) / 100n;
+    if (v > 0n) setAmount(formatRawAmount(v, inDec));
+  };
+
+  const doTrade = async () => {
+    if (!raw || busy) return;
+    setErr(null);
+    if (!signer) return setErr("Connect a signing wallet above to trade (read-only address)");
+    if (slipError) return setErr(slipError);
+    if (inBal == null) return setErr("Balance not loaded yet — retry in a moment");
+    if (raw > inBal) return setErr(`${isBuy ? "SOL" : "$HUB"} balance too low`);
+    if (quoteOut == null || quoteOut <= 0n) {
+      return setErr("Waiting on live pool reserves — try again in a moment");
+    }
+    setBusy(true);
+    setLogs([]);
+    try {
+      const minimumAmountOut = (quoteOut * BigInt(10_000 - slippageBps)) / 10_000n;
+      await executeCpSwapTrade({
+        connection,
+        signer,
+        hubMint: hubMintKey,
+        side: isBuy ? "buy" : "sell",
+        amountIn: raw,
+        minimumAmountOut,
+        onLog: (l) => setLogs((p) => [...p, l]),
+        onPhase: setPhase,
+      });
+      void balances.refetch();
+      void reservesQuery.refetch();
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBusy(false);
+      setPhase(null);
+    }
+  };
+
+  return (
+    <Panel
+      title={`TRADE :: ${isBuy ? "SOL → $HUB" : "$HUB → SOL"}`}
+      right={
+        <div className="flex items-center gap-2">
+          <span className="hidden sm:inline">RAYDIUM CP-SWAP (DEVNET)</span>
+          <button
+            type="button"
+            onClick={() => setSettingsOpen((o) => !o)}
+            aria-expanded={settingsOpen}
+            disabled={busy}
+            className={`rounded-none border px-1.5 py-0.5 text-[11px] disabled:opacity-30 ${
+              settingsOpen
+                ? "border-emerald-500/60 text-emerald-300"
+                : "border-green-500/30 text-green-500/60 hover:border-green-500/50"
+            }`}
+          >
+            [⚙ SLIP{" "}
+            {customSlip
+              ? `${customSlip}%`
+              : (SLIPPAGE.find((s) => s.bps === slipBps)?.label ?? `${slipBps / 100}%`)}
+            ]
+          </button>
+        </div>
+      }
+      collapsible
+    >
+      <p className="mb-2 text-[11px] text-green-400/90">
+        Jupiter has no devnet routes, so trades here go straight to the live Raydium CP-Swap pool
+        this curve graduated into.{" "}
+        {poolAddress ? (
+          <>
+            POOL <AddressLink address={poolAddress} label={shortKey(poolAddress, 6)} />
+          </>
+        ) : (
+          "pool address unavailable"
+        )}
+      </p>
+      {settingsOpen && (
+        <div className="mb-2 border border-green-500/20 p-2">
+          <div className="mb-1.5 text-[10px] uppercase tracking-widest text-green-600">
+            slippage tolerance
+          </div>
+          <div className="flex flex-wrap items-center gap-1">
+            {SLIPPAGE.map((s) => (
+              <button
+                key={s.bps}
+                type="button"
+                disabled={busy}
+                onClick={() => {
+                  setSlipBps(s.bps);
+                  setCustomSlip("");
+                }}
+                className={`${btn} ${
+                  slipBps === s.bps && !customSlip
+                    ? "border-emerald-500/60 text-emerald-400"
+                    : "border-green-500/30 text-green-500/60"
+                }`}
+              >
+                [{s.label}]
+              </button>
+            ))}
+            <input
+              value={customSlip}
+              onChange={(e) => setCustomSlip(e.target.value)}
+              disabled={busy}
+              placeholder="cust %"
+              className="w-16 rounded-none border border-green-500/30 bg-black px-1.5 text-[11px] text-cyan-300 outline-none focus:border-cyan-400/60 disabled:opacity-30"
+            />
+          </div>
+          {slipError && <div className="mt-1 text-[11px] text-amber-400">{slipError}</div>}
+        </div>
+      )}
+      <div className="mb-2 flex gap-2 text-[11px]">
+        <button
+          type="button"
+          onClick={() => reset("BUY")}
+          disabled={busy}
+          className={`${btn} flex-1 ${isBuy ? "border-emerald-500/60 text-emerald-300" : "border-green-500/30 text-green-500/60"}`}
+        >
+          [BUY]
+        </button>
+        <button
+          type="button"
+          onClick={() => reset("SELL")}
+          disabled={busy}
+          className={`${btn} flex-1 ${!isBuy ? "border-cyan-400/60 text-cyan-300" : "border-green-500/30 text-green-500/60"}`}
+        >
+          [SELL]
+        </button>
+      </div>
+
+      <div className="border border-green-500/20 bg-green-500/5 p-2.5">
+        <div className="flex flex-wrap items-center justify-between gap-1 text-[10px] uppercase tracking-widest text-green-600">
+          <span>
+            you pay · bal {inBal != null ? formatRawAmount(inBal, inDec) : "…"}{" "}
+            {isBuy ? "SOL" : "$HUB"}
+          </span>
+          <span className="flex gap-1">
+            {QUICK.map((q) => (
+              <button
+                key={q.label}
+                type="button"
+                onClick={() => quickAmount(q.frac)}
+                disabled={busy || inBal == null || inBal <= 0n}
+                className={`${btn} border-cyan-400/40 text-cyan-300`}
+              >
+                [{q.label}]
+              </button>
+            ))}
+          </span>
+        </div>
+        <div className="mt-1.5 flex items-center gap-2">
+          <input
+            value={amount}
+            onChange={(e) => {
+              setErr(null);
+              setAmount(e.target.value);
+            }}
+            disabled={busy}
+            inputMode="decimal"
+            aria-label="trade amount"
+            placeholder="0.0"
+            className="min-w-0 flex-1 bg-transparent text-xl font-bold text-green-200 outline-none placeholder:text-green-500/25 disabled:opacity-40"
+          />
+          <span className="shrink-0 text-sm font-bold text-green-300">
+            {isBuy ? "SOL" : "$HUB"}
+          </span>
+        </div>
+        {inputError && <div className="mt-1 text-[11px] text-amber-400">{inputError}</div>}
+      </div>
+
+      <div className="relative z-10 -my-2.5 flex justify-center">
+        <button
+          type="button"
+          onClick={flip}
+          disabled={busy}
+          aria-label="Switch trade direction"
+          className="border border-green-500/50 bg-black px-2 py-1 text-sm leading-none text-green-400 transition-transform hover:border-emerald-400/60 hover:text-emerald-300 active:rotate-180 disabled:opacity-40"
+        >
+          ⇅
+        </button>
+      </div>
+
+      <div className="border border-green-500/20 bg-green-500/5 p-2.5">
+        <div className="flex flex-wrap items-center justify-between gap-1 text-[10px] uppercase tracking-widest text-green-600">
+          <span>
+            you receive · bal {outBal != null ? formatRawAmount(outBal, outDec) : "…"}{" "}
+            {isBuy ? "$HUB" : "SOL"}
+          </span>
+          <span>
+            {reservesQuery.isLoading ? "LOADING RESERVES…" : quoteOut ? "LIVE QUOTE" : "—"}
+          </span>
+        </div>
+        <div className="mt-1.5 flex items-center justify-between gap-2">
+          <span className="min-w-0 break-all text-xl font-bold text-emerald-400">
+            {quoteOut ? formatRawAmount(quoteOut, outDec) : "0.0"}
+          </span>
+          <span className="shrink-0 text-sm font-bold text-green-300">
+            {isBuy ? "$HUB" : "SOL"}
+          </span>
+        </div>
+      </div>
+
+      <button
+        type="button"
+        onClick={doTrade}
+        disabled={busy || !address || !!inputError || !quoteOut}
+        className={`mt-2 w-full rounded-none border py-1.5 text-[13px] font-bold disabled:opacity-30 ${
+          isBuy
+            ? "border-emerald-500/60 text-emerald-300 hover:bg-emerald-500/10"
+            : "border-cyan-400/60 text-cyan-300 hover:bg-cyan-500/10"
+        }`}
+      >
+        {busy
+          ? `${(phase ?? "prep").toUpperCase()}…`
+          : !address
+            ? "[CONNECT A WALLET TO TRADE]"
+            : `[${isBuy ? "BUY" : "SELL"} ON THE POOL]`}
+      </button>
+      {address && !signer && (
+        <div className="mt-1 text-[10px] text-amber-400/80">
+          read-only address — connect the wallet itself (WALLET_CONNECT) to sign trades.
+        </div>
+      )}
+      {err && (
+        <div className="mt-2 border border-amber-500/40 bg-amber-500/5 px-2 py-1 text-[11px] text-amber-400">
+          ERR: {err}
+        </div>
+      )}
+      <TxLogView logs={logs} />
+      <div className="mt-2 text-[10px] text-green-700">
+        Quotes are computed live from the pool's own vault reserves (a 0.25% trade fee applies); the
+        tx is simulated first, so a failing sim aborts before signing (no fee spent).
+      </div>
+    </Panel>
+  );
+}
+
 function GraduatedPanel({
   curve,
   mint,
@@ -136,6 +467,8 @@ function GraduatedPanel({
   address,
   trades,
   solUsd,
+  connection,
+  resolveSigner,
 }: {
   curve: CurveState;
   mint: string;
@@ -143,6 +476,8 @@ function GraduatedPanel({
   address: string | null;
   trades: CurveTrade[];
   solUsd: number | null;
+  connection: Connection;
+  resolveSigner: (a: string) => WalletSigner | null;
 }) {
   const raised = formatRawAmount(BigInt(curve.graduationTargetLamports), SOL_DECIMALS);
   const [revealed, setRevealed] = useState(false);
@@ -199,7 +534,13 @@ function GraduatedPanel({
       >
         <PriceCandles trades={trades} dec={state.supply.decimals} solUsd={solUsd} />
       </Panel>
-      <SwapPanel state={state} address={address} />
+      <DevnetGraduatedSwapPanel
+        state={state}
+        address={address}
+        poolAddress={curve.poolAddress}
+        connection={connection}
+        resolveSigner={resolveSigner}
+      />
     </div>
   );
 }
@@ -663,6 +1004,8 @@ export function HubBondingDashboard({ state, address }: Props) {
           address={address}
           trades={tradesQuery.data?.trades ?? []}
           solUsd={solUsdQuery.data ?? null}
+          connection={connection}
+          resolveSigner={resolveSigner}
         />
       </div>
     );

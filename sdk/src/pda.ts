@@ -115,7 +115,11 @@ export function tierPda(programId: PublicKey, asset: PublicKey) {
  * mint (CRCLx/NVDAx/SPCXx), all of which are Token-2022. Getting this wrong derives the wrong
  * address entirely (the ATA seeds include the token program), not merely a validation failure.
  */
-export function ataPda(owner: PublicKey, mint: PublicKey, tokenProgramId: TokenProgramId = TOKEN_PROGRAM_ID) {
+export function ataPda(
+  owner: PublicKey,
+  mint: PublicKey,
+  tokenProgramId: TokenProgramId = TOKEN_PROGRAM_ID,
+) {
   return PublicKey.findProgramAddressSync(
     [owner.toBuffer(), new PublicKey(tokenProgramId).toBuffer(), mint.toBuffer()],
     new PublicKey(ASSOCIATED_TOKEN_PROGRAM_ID),

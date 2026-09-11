@@ -24,7 +24,13 @@ const LP_RESERVE_BP = 50n; // 0.5%
 const AIRDROP_PER_DESK_UNITS = 10_000n * 10n ** BigInt(HUB_DECIMALS);
 const AIRDROP_DESK_CAP = 2_500n;
 
-async function fundVault(ctx: Ctx, hubMint: PublicKey, dest: PublicKey, amount: bigint, label: string) {
+async function fundVault(
+  ctx: Ctx,
+  hubMint: PublicKey,
+  dest: PublicKey,
+  amount: bigint,
+  label: string,
+) {
   if (amount === 0n) return;
   const source = ata(ctx.payer.publicKey, hubMint);
   const ix = transferCheckedIx(source, hubMint, dest, ctx.payer.publicKey, amount, HUB_DECIMALS);
@@ -49,20 +55,34 @@ async function main() {
   const existing = await ctx.program.account.tokenomicsConfig.fetchNullable(tokenomics);
   if (existing) {
     console.log(`TokenomicsConfig already initialized:`);
-    console.log(`  treasury_lock_vault ${existing.treasuryLockVault.toBase58()} (2% floor, units recorded ${existing.treasuryLockUnits})`);
-    console.log(`  airdrop_vault       ${existing.airdropVault.toBase58()} (cap ${airdropCapUnits} units)`);
-    console.log(`  public_bp ${existing.publicBp} · treasury_lock_bp ${existing.treasuryLockBp} · team_bp ${existing.teamBp}`);
+    console.log(
+      `  treasury_lock_vault ${existing.treasuryLockVault.toBase58()} (2% floor, units recorded ${existing.treasuryLockUnits})`,
+    );
+    console.log(
+      `  airdrop_vault       ${existing.airdropVault.toBase58()} (cap ${airdropCapUnits} units)`,
+    );
+    console.log(
+      `  public_bp ${existing.publicBp} · treasury_lock_bp ${existing.treasuryLockBp} · team_bp ${existing.teamBp}`,
+    );
     return;
   }
 
-  console.log(`carving out §A7.1 genesis 5%: yield ${yieldReserveUnits} · lp ${lpReserveUnits} · airdrop-cap ${airdropCapUnits} (base units)`);
+  console.log(
+    `carving out §A7.1 genesis 5%: yield ${yieldReserveUnits} · lp ${lpReserveUnits} · airdrop-cap ${airdropCapUnits} (base units)`,
+  );
 
   const { account: airdropVault } = await createTokenAccount(ctx, cfg.hubMint, vault);
   console.log(`airdrop_vault        ${airdropVault.toBase58()}`);
   const { account: treasuryLockVault } = await createTokenAccount(ctx, cfg.hubMint, vault);
   console.log(`treasury_lock_vault  ${treasuryLockVault.toBase58()}`);
-  const { account: lpReserveVault } = await createTokenAccount(ctx, cfg.hubMint, ctx.payer.publicKey);
-  console.log(`lp_reserve_vault     ${lpReserveVault.toBase58()} (payer-owned, no program vault yet)`);
+  const { account: lpReserveVault } = await createTokenAccount(
+    ctx,
+    cfg.hubMint,
+    ctx.payer.publicKey,
+  );
+  console.log(
+    `lp_reserve_vault     ${lpReserveVault.toBase58()} (payer-owned, no program vault yet)`,
+  );
 
   const sig = await ctx.program.methods
     .initTokenomics()
@@ -83,8 +103,12 @@ async function main() {
   await fundVault(ctx, cfg.hubMint, airdropVault, airdropCapUnits, "desk airdrop cap (≤2.5%)");
   await fundVault(ctx, cfg.hubMint, lpReserveVault, lpReserveUnits, "LP reserve (0.5%)");
 
-  const payerHub = await ctx.connection.getTokenAccountBalance(ata(ctx.payer.publicKey, cfg.hubMint));
-  console.log(`payer $HUB remaining (public / bonding-curve supply): ${payerHub.value.amount} base units (${payerHub.value.uiAmountString})`);
+  const payerHub = await ctx.connection.getTokenAccountBalance(
+    ata(ctx.payer.publicKey, cfg.hubMint),
+  );
+  console.log(
+    `payer $HUB remaining (public / bonding-curve supply): ${payerHub.value.amount} base units (${payerHub.value.uiAmountString})`,
+  );
 }
 
 if (require.main === module) {
