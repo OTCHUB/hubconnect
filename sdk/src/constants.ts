@@ -138,6 +138,32 @@ export const WSOL_MINT = "So11111111111111111111111111111111111111112";
  * `Config.usdc_mint` at a mock mint instead (see `scripts/mock-jupiter-setup.ts`). */
 export const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 
+/**
+ * `finalize_epoch`'s hop2 (USDC→$HUB) direct-CPI target (mainnet-beta only) — a Raydium CP-Swap
+ * pool the team seeded so hop2 can bypass Jupiter's Metis routing engine entirely, which gates
+ * newly-created/thin pools out of "normal routing" on a liquidity-depth check regardless of the
+ * pool itself being real and swappable on-chain (see `raydium_cpswap::swap_base_input` and
+ * `epochs.rs`'s `finalize_epoch` doc comment). token_0 = $HUB, token_1 = USDC. All addresses are
+ * fixed for this pool's lifetime (Raydium CP-Swap pools cannot change their vaults/config/mints
+ * post-creation).
+ */
+export const HUB_USDC_POOL = {
+  poolState: "BrconjFBxBxTHSJcE93tNteY7usiJQfYDt65SCyEbZmX",
+  ammConfig: "G95xxie3XbkCqtE39GgQ9Ggc7xBC8Uceve7HFDEFApkc",
+  /** Raydium's global `vault_and_lp_mint_auth_seed` PDA — identical across every CP-Swap pool. */
+  authority: "GpMZbSM2GgvTKHJirzeGfMFoaZ8UR2X7F4v8vHTvxFbL",
+  /** token_0_vault — pool-owned $HUB reserve. */
+  hubVault: "3oJ1N54kT255VGDsjbXKcoutxi6ox1KLkdxcQjsSPRgb",
+  /** token_1_vault — pool-owned USDC reserve. */
+  usdcVault: "CQQgaqqSRk15QZgY78SWaJWNzcMRkzeZB5EvLvkFmsdE",
+  observationState: "6s67NAWCGhpzQDsNizxvReo8nVyarM259FTDxb1Ft8Nu",
+  /** `amm_config.trade_fee_rate` / denominator 1_000_000 — 1%, fixed at pool creation. Used only
+   * to floor an off-chain `minimum_amount_out` estimate (`keeper/keeper/src/raydium.ts`); the
+   * on-chain swap itself trusts the post-CPI balance delta, not this estimate. */
+  tradeFeeRate: 10_000,
+  tradeFeeRateDenominator: 1_000_000,
+} as const;
+
 export const MPL_CORE_PROGRAM_ID = "CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d";
 export const HUB_PROGRAM_ID = "7c5oPs9GvX8vrC5jVFketNx1ZLuPs7HeH8Qc4XJx7b7i";
 export const TOKEN_PROGRAM_ID = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";

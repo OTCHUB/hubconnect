@@ -1,20 +1,26 @@
-// Jupiter "Build" (Metis on-chain router) client for the two-hop WSOL→USDC→$HUB leg
-// `finalize_epoch` executes synchronously via two `jupiter_swap::swap_exact_in` CPIs (§
+// Jupiter "Build" (Metis on-chain router) client for `finalize_epoch`'s hop1 (WSOL→USDC) leg,
+// executed synchronously via `jupiter_swap::swap_exact_in` (§
 // programs/hub/src/instructions/epochs.rs / jupiter_swap.rs). Uses `/swap/v2/build`, not `/swap`
 // or `/swap-instructions` — the docs call it out as the CPI-oriented path (raw `swapInstruction`,
 // no assembled/signed transaction, no ALT dependency, which CPI can't use anyway) and it charges
 // no Jupiter platform fee.
 //
-// `wrapAndUnwrapSol=false` + explicit `destinationTokenAccount` for both hops because the vault's
-// WSOL/USDC/$HUB scratch ATAs are pre-provisioned (`init_treasury_float`) and the WSOL leg is
-// wrapped by the program itself (System transfer of the swap amount + `SyncNative`) immediately
-// before hop1's CPI — Jupiter must not try to insert its own wrap/close-native instructions
-// (there is no top-level transaction context for them to run in; these are inner CPIs). There is
-// no explicit "source token account" parameter in the API: Jupiter always derives it as the ATA
-// of (`taker`, `inputMint`), which only resolves to the right account because `vault_wsol`/
-// `vault_usdc` *are* those ATAs.
-import { AccountMeta, PublicKey } from "@solana/web3.js";
-import { JUPITER_PROGRAM_ID, USDC_MINT, WSOL_MINT } from "../../../sdk/src/constants";
+// hop2 (USDC→$HUB) is a **direct Raydium CP-Swap CPI** (see `./raydium.ts`), not a Jupiter route:
+// Jupiter's Metis routing engine gates newly-created/thin pools out of "normal routing" on a
+// liquidity-depth check regardless of the pool itself being real and swappable on-chain, which
+// made the team-seeded HUB/USDC pool unroutable through Jupiter (see `raydium_cpswap::
+// swap_base_input`'s doc comment).
+//
+// `wrapAndUnwrapSol=false` + explicit `destinationTokenAccount` for hop1 because the vault's
+// WSOL/USDC scratch ATAs are pre-provisioned (`init_treasury_float`) and the WSOL leg is wrapped
+// by the program itself (System transfer of the swap amount + `SyncNative`) immediately before
+// hop1's CPI — Jupiter must not try to insert its own wrap/close-native instructions (there is no
+// top-level transaction context for them to run in; this is an inner CPI). There is no explicit
+// "source token account" parameter in the API: Jupiter always derives it as the ATA of (`taker`,
+// `inputMint`), which only resolves to the right account because `vault_wsol` *is* that ATA.
+import { AccountMeta, Connection, PublicKey } from "@solana/web3.js";
+import { USDC_MINT, JUPITER_PROGRAM_ID, WSOL_MINT } from "../../../sdk/src/constants";
+import { fetchHop2Route, type RaydiumHop2Route } from "./raydium";
 
 export type JupiterBuildConfig = {
   apiBase?: string;
@@ -51,10 +57,11 @@ export type JupiterHopRoute = {
 
 /** Both hops of `finalize_epoch`'s two-hop swap, pre-assembled for `program.methods.finalizeEpoch`:
  * `hop1AccountCount = hop1.accounts.length`, `remainingAccounts = [...hop1.accounts,
- * ...hop2.accounts]`. */
+ * ...hop2.accounts]`. hop1 is a Jupiter route; hop2 is a direct Raydium CP-Swap CPI (`./raydium`)
+ * — see this module's doc comment. */
 export type WsolToHubRoute = {
-  hop1: JupiterHopRoute; // WSOL → USDC
-  hop2: JupiterHopRoute; // USDC → $HUB
+  hop1: JupiterHopRoute; // WSOL → USDC (Jupiter)
+  hop2: RaydiumHop2Route; // USDC → $HUB (direct Raydium CP-Swap CPI)
 };
 
 const DEFAULT_API_BASE = "https://api.jup.ag";
@@ -123,13 +130,15 @@ async function fetchHopRoute(
 }
 
 /**
- * Fetches both legs of `finalize_epoch`'s two-hop WSOL→USDC→$HUB swap. `taker` must be the
+ * Fetches both legs of `finalize_epoch`'s two-hop WSOL→USDC→$HUB swap: hop1 via Jupiter, hop2 as
+ * a direct Raydium CP-Swap CPI (see module doc comment / `./raydium.ts`). `taker` must be the
  * `["vault"]` PDA; `vaultUsdc`/`vaultHub` are `TreasuryState.vault_usdc`/`vault_hub`.
  * `amountLamports` is the round's swap-leg SOL input (burn + lp + treasury-float bps of
  * effective inflow) — hop2's input amount is hop1's *actual* quoted `outAmount` (not
  * `minOut`), since that's what hop1 will really deposit into `vault_usdc` for hop2 to consume.
  */
 export async function fetchWsolToHubRoute(
+  connection: Connection,
   taker: PublicKey,
   hubMint: PublicKey,
   vaultUsdc: PublicKey,
@@ -146,6 +155,14 @@ export async function fetchWsolToHubRoute(
     amountLamports,
     cfg,
   );
-  const hop2 = await fetchHopRoute(taker, usdcMint, hubMint, vaultHub, hop1.outAmount, cfg);
+  const hop2 = await fetchHop2Route(
+    connection,
+    taker,
+    vaultUsdc,
+    vaultHub,
+    hubMint,
+    hop1.outAmount,
+    cfg.slippageBps ?? DEFAULT_SLIPPAGE_BPS,
+  );
   return { hop1, hop2 };
 }

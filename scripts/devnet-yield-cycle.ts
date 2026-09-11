@@ -109,13 +109,21 @@ const check = (label: string, ok: boolean, detail = "") => {
 const failures: string[] = [];
 
 /**
- * §A5 two-hop swap-leg builder for `finalize_epoch` — devnet has no real Jupiter liquidity for
- * $HUB, so this sizes two `mock_jupiter` routes instead: `amountIn` for hop1 (WSOL→USDC) is the
- * exact `swap_total` (burn + lp + treasury-float bps of the round's effective inflow, floored
- * leg-by-leg to match the program's own `bps_of` calls); hop1's simulated USDC output (at
- * `usdcPerSol` USDC per SOL) becomes hop2's (USDC→$HUB) `amountIn`, which fills at `hubPerUsdc`
- * $HUB per USDC. `minUsdcOut`/`minHubOut` are set to those same amounts since the mock always
- * delivers exactly `amountOut`.
+ * §A5 two-hop swap-leg builder for `finalize_epoch` — devnet has no real Jupiter/Raydium
+ * liquidity for $HUB, so this sizes two `mock_jupiter` legs instead: `amountIn` for hop1
+ * (WSOL→USDC) is the exact `swap_total` (burn + lp + treasury-float bps of the round's effective
+ * inflow, floored leg-by-leg to match the program's own `bps_of` calls), filling at `usdcPerSol`
+ * USDC per SOL; hop1's simulated USDC output becomes hop2's (USDC→$HUB) `amountIn`, filling at
+ * `hubPerUsdc` $HUB per USDC.
+ *
+ * hop2 (USDC→$HUB) is a **direct Raydium CP-Swap CPI** on-chain (`raydium_cpswap::
+ * swap_base_input`), but `constants::RAYDIUM_CP_SWAP_PROGRAM_ID` redirects to
+ * `programs/mock_jupiter`'s id under the `mock-jupiter` Cargo feature — exactly like
+ * `JUPITER_PROGRAM_ID` does for hop1 — and that crate's `swap_base_input` instruction is named
+ * to match so Anchor's own discriminator hash lands on the bytes hub hardcodes. So `mockRoute`'s
+ * account list (built for hop1's `mock_swap`) is reusable for hop2 too; only its `jupiterData`
+ * is discarded (hub builds hop2's instruction data itself). `minUsdcOut`/`minHubOut` are set to
+ * the sized amounts since the mock always delivers exactly `amountOut`.
  */
 function buildFinalizeSwap(ctx: Ctx, usdcPerSol: number, hubPerUsdc: number): FinalizeSwapBuilder {
   return async (effectiveLamports, cfg) => {
@@ -153,7 +161,6 @@ function buildFinalizeSwap(ctx: Ctx, usdcPerSol: number, hubPerUsdc: number): Fi
       minUsdcOut: usdcOut,
       minHubOut: hubOut,
       hop1Data: hop1.jupiterData,
-      hop2Data: hop2.jupiterData,
       hop1Accounts: hop1.remainingAccounts,
       hop2Accounts: hop2.remainingAccounts,
       jupiterProgram: MOCK_JUPITER_PROGRAM,

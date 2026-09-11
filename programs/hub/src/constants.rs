@@ -217,14 +217,24 @@ const _: () = assert!(
     "creator-fee split (desk_pot + burn + lp + stack + ops) must sum to exactly 100%"
 );
 
-/// §A6.2 phase-2 lock+burn — Raydium CP-Swap (mainnet + devnet, same address). `deposit`
-/// CPI accounts/order per Raydium's published IDL; `remaining_accounts` on `build_lp` are
-/// passed through verbatim as the CPI's account list (client assembles them in IDL order),
-/// mirroring the "adapter-specific, lands once the launch AMM is known" note this instruction
-/// already carried — verify on devnet before mainnet, same discipline as every other external
-/// program this contract touches.
+/// §A6.2 phase-2 lock+burn AND `finalize_epoch`'s hop2 (USDC→$HUB) — Raydium CP-Swap (mainnet +
+/// devnet, same address). `deposit`/`swap_base_input` CPI accounts/order per Raydium's published
+/// IDL; `remaining_accounts` are passed through verbatim as the CPI's account list (client
+/// assembles them in IDL order), mirroring the "adapter-specific, lands once the launch AMM is
+/// known" note `build_lp` already carried — verify on devnet before mainnet, same discipline as
+/// every other external program this contract touches.
+///
+/// `mock-jupiter` swaps this constant for `programs/mock_jupiter`'s program id instead, exactly
+/// like `JUPITER_PROGRAM_ID` above — that crate's `swap_base_input` instruction is named to match
+/// so Anchor's own discriminator hash lands on the same 8 bytes as `RAYDIUM_IX_SWAP_BASE_INPUT`
+/// below, needing no dispatch table. `build_lp`/`build_lp_basket_locked` never reach this target
+/// in any existing localnet test (all gated/negative cases, see `tests/m3-treasury.ts`), so this
+/// only actually changes behavior for `finalize_epoch`'s hop2.
+#[cfg(not(feature = "mock-jupiter"))]
 pub const RAYDIUM_CP_SWAP_PROGRAM_ID: Pubkey =
     pubkey!("CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C");
+#[cfg(feature = "mock-jupiter")]
+pub const RAYDIUM_CP_SWAP_PROGRAM_ID: Pubkey = pubkey!("BvjZ2YNTxKmKKKWUiNNRG83tQr5djiMMPBAGJxiZZn5C");
 /// Raydium's dedicated CP-Swap liquidity-locking program: burns the LP mint outright and mints
 /// back a permanent fee-claim NFT to the caller — the "lock + burn, fees keep accruing, no rug"
 /// primitive this flywheel's LP leg relies on.
@@ -234,6 +244,11 @@ pub const RAYDIUM_LOCK_CP_SWAP_PROGRAM_ID: Pubkey =
 /// not read from a vendored IDL, so no crate dependency is added for this integration.
 pub const RAYDIUM_IX_DEPOSIT: [u8; 8] = [242, 35, 198, 137, 82, 225, 242, 182];
 pub const RAYDIUM_IX_LOCK_CP_LIQUIDITY: [u8; 8] = [216, 157, 29, 78, 38, 51, 31, 26];
+/// `finalize_epoch`'s hop2 (USDC→$HUB) direct-CPI leg — bypasses Jupiter's Metis routing engine,
+/// which gates newly-created/thin pools out of "normal routing" regardless of on-chain liquidity
+/// being real (see `epochs.rs`'s `finalize_epoch` doc comment). `sha256("global:swap_base_input")
+/// [..8]`.
+pub const RAYDIUM_IX_SWAP_BASE_INPUT: [u8; 8] = [143, 190, 90, 218, 196, 30, 51, 222];
 /// Locking program's `collect_cp_fees` — harvests the fee-claim NFT's accrued CP-Swap trading
 /// fees straight into the caller-supplied recipient token accounts (no args). This is the yield
 /// leg of the "lock forever, keep claiming fees" primitive: the deposited LP itself never moves

@@ -298,29 +298,36 @@ export async function roundStatus(ctx: Ctx) {
 }
 
 /**
- * §A5 two-hop Jupiter-route args for the 5%/2.5%/2.5% swap leg inside `finalize_epoch` — hop1
- * WSOL→USDC, hop2 USDC→$HUB. Callers that only exercise the pre-swap gates (e.g. asserting
- * `PotBelowThreshold`) can omit `swap` entirely — the account list below is fixed regardless of
- * whether a route was fetched.
+ * §A5 swap-leg args for the 5%/2.5%/2.5% swap leg inside `finalize_epoch` — hop1 (WSOL→USDC) is
+ * a caller-assembled Jupiter route; hop2 (USDC→$HUB) is a **direct Raydium CP-Swap CPI** (see
+ * `raydium_cpswap::swap_base_input`) that needs no off-chain instruction data, only its account
+ * list (`hop2Accounts`) — Raydium's real 13-account layout against a mainnet build, or
+ * `mock_jupiter`'s `swap_base_input` (`programs/mock_jupiter/src/lib.rs`, same account shape as
+ * its `mock_swap`) against a build carrying the `mock-jupiter` Cargo feature, since
+ * `constants::RAYDIUM_CP_SWAP_PROGRAM_ID` redirects to it exactly like `JUPITER_PROGRAM_ID` does
+ * for hop1 — see `scripts/devnet-yield-cycle.ts`'s `buildFinalizeSwap` for a devnet mock-route
+ * example. Callers that only exercise the pre-swap gates (e.g. asserting `PotBelowThreshold`)
+ * can omit `swap` entirely — the account list below is fixed regardless of whether a route was
+ * fetched.
  */
 export type FinalizeSwapArgs = {
   minUsdcOut?: BN | number | bigint;
   minHubOut?: BN | number | bigint;
   hop1Data?: Buffer;
-  hop2Data?: Buffer;
-  /** hop1's (WSOL→USDC) accounts, then hop2's (USDC→$HUB) — concatenated into
-   * `ctx.remaining_accounts` and split on-chain at `hop1AccountCount` (= `hop1Accounts.length`). */
+  /** hop1's (WSOL→USDC) accounts, then hop2's (USDC→$HUB) fixed Raydium CP-Swap account list —
+   * concatenated into `ctx.remaining_accounts` and split on-chain at `hop1AccountCount`
+   * (= `hop1Accounts.length`). */
   hop1Accounts?: { pubkey: PublicKey; isSigner: boolean; isWritable: boolean }[];
   hop2Accounts?: { pubkey: PublicKey; isSigner: boolean; isWritable: boolean }[];
-  /** Override for the `jupiter_program` account — defaults to the real Jupiter v6 id. Pass
-   * `MOCK_JUPITER_PROGRAM_ID` (see `scripts/lib/mock-jupiter.ts`) when the target `hub` deploy
-   * was built with the `mock-jupiter` Cargo feature, or the on-chain `WrongJupiterProgram` check
-   * rejects the call. */
+  /** Override for the `jupiter_program` account (hop1 only) — defaults to the real Jupiter v6
+   * id. Pass `MOCK_JUPITER_PROGRAM_ID` (see `scripts/lib/mock-jupiter.ts`) when the target `hub`
+   * deploy was built with the `mock-jupiter` Cargo feature, or the on-chain `WrongJupiterProgram`
+   * check rejects the call. */
   jupiterProgram?: PublicKey;
 };
 
-/** Raw `finalize_epoch(idx, min_usdc_out, min_hub_out, hop1_account_count, hop1_data,
- * hop2_data)` — no readiness check, so callers can assert the negative case. */
+/** Raw `finalize_epoch(idx, min_usdc_out, min_hub_out, hop1_account_count, hop1_data)` — no
+ * readiness check, so callers can assert the negative case. */
 export async function finalizeIx(ctx: Ctx, idx: number, swap: FinalizeSwapArgs = {}) {
   const id = ctx.program.programId;
   const [nextEpoch] = epochPda(id, idx + 1);
@@ -337,9 +344,8 @@ export async function finalizeIx(ctx: Ctx, idx: number, swap: FinalizeSwapArgs =
   const hop1Accounts = swap.hop1Accounts ?? [];
   const hop2Accounts = swap.hop2Accounts ?? [];
   const hop1Data = swap.hop1Data ?? Buffer.alloc(0);
-  const hop2Data = swap.hop2Data ?? Buffer.alloc(0);
   return ctx.program.methods
-    .finalizeEpoch(new BN(idx), minUsdcOut, minHubOut, hop1Accounts.length, hop1Data, hop2Data)
+    .finalizeEpoch(new BN(idx), minUsdcOut, minHubOut, hop1Accounts.length, hop1Data)
     .accountsPartial({
       keeper: ctx.payer.publicKey,
       config: ctx.config,

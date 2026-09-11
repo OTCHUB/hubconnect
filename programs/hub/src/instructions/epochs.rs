@@ -6,11 +6,17 @@
 //! mechanic — the $OTC leg's lamport-equivalent value is credited to `Config.acc_per_weight`
 //! and its SOL earmarked in `OtcPotState.otc_pending_lamports` for `record_otc_buy`; `claim_yield`
 //! pays desks in $OTC at the pot's lifetime average buy rate). The other 10% (5% burn / 2.5% LP
-//! / 2.5% treasury) is swapped SOL→$HUB via a **two-hop** *synchronous* on-chain Jupiter CPI
-//! executed right here — WSOL→USDC (hop1) then USDC→$HUB (hop2), routed through
+//! / 2.5% treasury) is swapped SOL→$HUB via a **two-hop** *synchronous* on-chain CPI executed
+//! right here — WSOL→USDC (hop1, via Jupiter) then USDC→$HUB (hop2, via a **direct Raydium
+//! CP-Swap `swap_base_input` CPI** — see `raydium_cpswap::swap_base_input`), routed through
 //! `TreasuryState.vault_usdc` — best rate, real AMM volume/fees, no keeper-reimbursement
-//! round-trip. The two hops exist for a second reason beyond moving the SOL: the realized
-//! USDC/HUB rate they observe (`usdc_received` from hop1, `hub_received` from hop2) is how
+//! round-trip. Hop2 bypasses Jupiter entirely: Jupiter's Metis routing engine gates newly-created
+//! pools out of "normal routing" on a liquidity-depth check (a $500/$1000 price-impact test)
+//! regardless of the pool itself being real and swappable on-chain, which made the
+//! keeper-owned/seeded HUB/USDC pool unroutable through Jupiter — calling Raydium's CP-Swap
+//! program directly for hop2 sidesteps that off-chain gate. The two hops exist for a second
+//! reason beyond moving the SOL: the realized USDC/HUB rate they observe (`usdc_received` from
+//! hop1, `hub_received` from hop2) is how
 //! `Config.tier_hub_cost_units_cached` gets refreshed — see the price-update block below and
 //! `TIER_USD_COST_MICROS`/`PRICE_CLAMP_BP`/`PRICE_UPDATE_MIN_SOL_LAMPORTS`/`PRICE_STALENESS_SECS`.
 //! The received $HUB (from hop2) splits 50/25/25 into: burned immediately; earmarked in
@@ -26,6 +32,7 @@ use crate::events::*;
 use crate::instructions::jupiter_swap;
 use crate::instructions::otc_pay::{burn_checked, transfer_checked};
 use crate::instructions::pot::*;
+use crate::instructions::raydium_cpswap;
 use crate::state::*;
 
 #[derive(Accounts)]
@@ -78,7 +85,9 @@ pub struct FinalizeEpoch<'info> {
     pub treasury_float_vault: UncheckedAccount<'info>,
     /// CHECK: classic SPL Token program, asserted in the token-program helpers.
     pub token_program: UncheckedAccount<'info>,
-    /// CHECK: pinned to `JUPITER_PROGRAM_ID` in `jupiter_swap::swap_exact_in`.
+    /// CHECK: pinned to `JUPITER_PROGRAM_ID` in `jupiter_swap::swap_exact_in`, used for hop1
+    /// (WSOL→USDC) only — hop2 (USDC→$HUB) calls Raydium CP-Swap directly, see
+    /// `raydium_cpswap::swap_base_input`.
     pub jupiter_program: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
 }
@@ -90,7 +99,6 @@ pub fn finalize_epoch<'info>(
     min_hub_out: u64,
     hop1_account_count: u16,
     hop1_data: Vec<u8>,
-    hop2_data: Vec<u8>,
 ) -> Result<()> {
     let now = Clock::get()?.unix_timestamp;
     let config = &mut ctx.accounts.config;
@@ -184,9 +192,14 @@ pub fn finalize_epoch<'info>(
         let vault_bump = ctx.accounts.treasury_state.vault_bump;
         let vault_seeds: &[&[u8]] = &[SEED_VAULT, &[vault_bump]];
 
-        // Two-hop route: split `remaining_accounts` at `hop1_account_count` into hop1's
-        // (WSOL→USDC) and hop2's (USDC→$HUB) account lists — each assembled off-chain against
-        // its own Jupiter quote, so each hop clears at its own best route.
+        // Split `remaining_accounts` at `hop1_account_count`: the first slice is hop1's
+        // (WSOL→USDC) Jupiter route, assembled off-chain against a live quote so it clears at
+        // the best available route; the remainder is hop2's (USDC→$HUB) fixed 13-account
+        // Raydium CP-Swap `swap_base_input` account list (payer, authority, amm_config,
+        // pool_state, input/output token accounts, input/output vaults, input/output token
+        // programs, input/output mints, observation_state — see `raydium_cpswap::
+        // swap_base_input`), which needs no off-chain-assembled instruction data since it's a
+        // direct CPI, not a routed one.
         let hop1_count = hop1_account_count as usize;
         require!(
             hop1_count <= ctx.remaining_accounts.len(),
@@ -202,12 +215,11 @@ pub fn finalize_epoch<'info>(
             min_usdc_out,
             &[vault_seeds],
         )?;
-        let hub_received = jupiter_swap::swap_exact_in(
-            &ctx.accounts.jupiter_program.to_account_info(),
+        let hub_received = raydium_cpswap::swap_base_input(
             hop2_accounts,
-            hop2_data,
-            &ctx.accounts.vault_hub.to_account_info(),
+            usdc_received,
             min_hub_out,
+            &ctx.accounts.vault_hub.to_account_info(),
             &[vault_seeds],
         )?;
 

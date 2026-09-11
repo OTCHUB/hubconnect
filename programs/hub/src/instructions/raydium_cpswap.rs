@@ -32,6 +32,27 @@ fn metas_from(accounts: &[AccountInfo]) -> Vec<AccountMeta> {
         .collect()
 }
 
+/// Same elevation `jupiter_swap::metas_from` uses: forces `is_signer: true` for any account
+/// whose key matches a PDA derivable from `signer_seeds` (here, the vault PDA acting as
+/// `swap_base_input`'s `payer`), since a client can never mark a PDA as signer in the outer
+/// transaction and `invoke_signed` only recognizes the elevation when the meta says so.
+fn metas_from_pda(accounts: &[AccountInfo], signer_seeds: &[&[&[u8]]]) -> Result<Vec<AccountMeta>> {
+    let mut signer_pdas: Vec<Pubkey> = Vec::with_capacity(signer_seeds.len());
+    for seeds in signer_seeds.iter().copied() {
+        let pda = Pubkey::create_program_address(seeds, &crate::ID)
+            .map_err(|_| error!(HubError::MathOverflow))?;
+        signer_pdas.push(pda);
+    }
+    Ok(accounts
+        .iter()
+        .map(|ai| AccountMeta {
+            pubkey: *ai.key,
+            is_signer: ai.is_signer || signer_pdas.contains(ai.key),
+            is_writable: ai.is_writable,
+        })
+        .collect())
+}
+
 fn infos_owned<'info>(accounts: &[AccountInfo<'info>]) -> Vec<AccountInfo<'info>> {
     accounts.to_vec()
 }
@@ -107,4 +128,44 @@ pub fn collect_cp_fees<'info>(
     };
     invoke_signed(&ix, &infos_owned(harvest_accounts), signer_seeds)?;
     Ok(())
+}
+
+/// Raydium CP-Swap `swap_base_input { amount_in, minimum_amount_out }` — `finalize_epoch`'s
+/// direct-CPI replacement for a Jupiter-routed hop2 (USDC→$HUB). Jupiter's Metis routing engine
+/// gates newly-created pools out of "normal routing" on a liquidity-depth check regardless of
+/// whether the on-chain pool itself is real and swappable (see `epochs.rs`'s `finalize_epoch` doc
+/// comment); calling Raydium's CP-Swap program directly sidesteps that off-chain gate entirely.
+/// `pool_accounts` must be exactly Raydium's IDL order for this instruction: payer (the vault
+/// PDA, elevated to signer via `signer_seeds`), authority (Raydium's global
+/// `vault_and_lp_mint_auth_seed` PDA), amm_config, pool_state, input_token_account,
+/// output_token_account, input_vault, output_vault, input_token_program, output_token_program,
+/// input_token_mint, output_token_mint, observation_state — all fixed per-pool addresses, so
+/// unlike Jupiter's hop this needs no off-chain-assembled instruction data. Enforces
+/// `dest.amount_after − dest.amount_before ≥ minimum_amount_out` independently of Raydium's own
+/// slippage check — same "trust the balance, not the CPI" posture as `jupiter_swap::swap_exact_in`.
+pub fn swap_base_input<'info>(
+    pool_accounts: &[AccountInfo<'info>],
+    amount_in: u64,
+    minimum_amount_out: u64,
+    dest: &AccountInfo<'info>,
+    signer_seeds: &[&[&[u8]]],
+) -> Result<u64> {
+    require!(!pool_accounts.is_empty(), HubError::LpAccountsMissing);
+    let before = super::jupiter_swap::read_token_amount(dest)?;
+    let mut data = Vec::with_capacity(24);
+    data.extend_from_slice(&RAYDIUM_IX_SWAP_BASE_INPUT);
+    data.extend_from_slice(&amount_in.to_le_bytes());
+    data.extend_from_slice(&minimum_amount_out.to_le_bytes());
+    let ix = Instruction {
+        program_id: RAYDIUM_CP_SWAP_PROGRAM_ID,
+        accounts: metas_from_pda(pool_accounts, signer_seeds)?,
+        data,
+    };
+    invoke_signed(&ix, &infos_owned(pool_accounts), signer_seeds)?;
+    let after = super::jupiter_swap::read_token_amount(dest)?;
+    let received = after
+        .checked_sub(before)
+        .ok_or_else(|| error!(HubError::MathOverflow))?;
+    require!(received >= minimum_amount_out, HubError::SlippageExceeded);
+    Ok(received)
 }

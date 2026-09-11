@@ -54,12 +54,14 @@ pub mod hub {
 
     /// §B3 #4 / §A5 4-way split — 90% distributed to desks (unchanged mechanic); the other 10%
     /// (5% burn / 2.5% LP / 2.5% treasury float) is swapped SOL→$HUB via a two-hop synchronous
-    /// Jupiter CPI executed inside this instruction: hop1 WSOL→USDC, hop2 USDC→$HUB. `ctx
-    /// .remaining_accounts[..hop1_account_count]`/`hop1_data` are hop1's caller-assembled route;
-    /// the remainder of `remaining_accounts`/`hop2_data` are hop2's (see
-    /// `jupiter_swap::swap_exact_in`). `min_usdc_out`/`min_hub_out` floor each hop's output. The
-    /// realized USDC/HUB rate this observes also refreshes `Config.tier_hub_cost_units_cached`
-    /// when `sol_swapped_lamports` clears `PRICE_UPDATE_MIN_SOL_LAMPORTS` (see `epochs.rs`).
+    /// CPI executed inside this instruction: hop1 WSOL→USDC via Jupiter, hop2 USDC→$HUB via a
+    /// direct Raydium CP-Swap `swap_base_input` CPI (see `raydium_cpswap::swap_base_input`). `ctx
+    /// .remaining_accounts[..hop1_account_count]`/`hop1_data` are hop1's caller-assembled Jupiter
+    /// route; the remainder of `remaining_accounts` is hop2's fixed 13-account Raydium CP-Swap
+    /// list (no off-chain instruction data needed — it's a direct CPI, not a routed one).
+    /// `min_usdc_out`/`min_hub_out` floor each hop's output. The realized USDC/HUB rate this
+    /// observes also refreshes `Config.tier_hub_cost_units_cached` when `sol_swapped_lamports`
+    /// clears `PRICE_UPDATE_MIN_SOL_LAMPORTS` (see `epochs.rs`).
     pub fn finalize_epoch<'info>(
         ctx: Context<'info, FinalizeEpoch<'info>>,
         epoch_index: u64,
@@ -67,7 +69,6 @@ pub mod hub {
         min_hub_out: u64,
         hop1_account_count: u16,
         hop1_data: Vec<u8>,
-        hop2_data: Vec<u8>,
     ) -> Result<()> {
         instructions::epochs::finalize_epoch(
             ctx,
@@ -76,7 +77,6 @@ pub mod hub {
             min_hub_out,
             hop1_account_count,
             hop1_data,
-            hop2_data,
         )
     }
 

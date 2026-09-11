@@ -147,13 +147,13 @@ export async function runCycle(env: KeeperEnv): Promise<void> {
   let minHubOut = new BN(0);
   let hop1AccountCount = 0;
   let hop1Data: Buffer = Buffer.alloc(0);
-  let hop2Data: Buffer = Buffer.alloc(0);
   let remainingAccounts: { pubkey: PublicKey; isSigner: boolean; isWritable: boolean }[] = [];
   let routeLabels: string[] = [];
   let outAmount = "0";
 
   if (swapTotal > 0) {
     const route = await fetchWsolToHubRoute(
+      connection,
       vaultKey,
       hubMint,
       treasury.vaultUsdc,
@@ -170,7 +170,6 @@ export async function runCycle(env: KeeperEnv): Promise<void> {
     minHubOut = new BN(route.hop2.minOut.toString());
     hop1AccountCount = route.hop1.accounts.length;
     hop1Data = route.hop1.data;
-    hop2Data = route.hop2.data;
     remainingAccounts = [...route.hop1.accounts, ...route.hop2.accounts];
     routeLabels = [...route.hop1.routeLabels, ...route.hop2.routeLabels];
     outAmount = route.hop2.outAmount.toString();
@@ -209,7 +208,6 @@ export async function runCycle(env: KeeperEnv): Promise<void> {
         minHubOut,
         hop1AccountCount,
         hop1Data,
-        hop2Data,
       )
       .accountsPartial({
         keeper: keeper.publicKey,

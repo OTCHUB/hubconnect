@@ -336,20 +336,30 @@ export async function inflow(
  * settles the round's $OTC leg (see `settleOtcPending`) so claims never hit `NoOtcPurchased`.
  *
  * §A5: the 5%/2.5%/2.5% burn/lp/treasury-float legs are now swapped SOL→$HUB inside
- * `finalize_epoch` via a **two-hop** synchronous Jupiter CPI (WSOL→USDC via `vault_usdc`, then
- * USDC→$HUB), so the account list grew (vault/hub_mint/vault_wsol/vault_usdc/vault_hub/
- * treasury_float_vault/jupiter_program) and the ix takes `minUsdcOut` + `minHubOut` +
- * `hop1AccountCount` + `hop1Data` + `hop2Data` (+ `remainingAccounts`, the two hops'
- * caller-assembled route accounts concatenated, split on-chain at `hop1AccountCount`).
+ * `finalize_epoch` via a **two-hop** synchronous CPI: hop1 WSOL→USDC via a caller-assembled
+ * Jupiter route, hop2 USDC→$HUB via a **direct Raydium CP-Swap CPI**
+ * (`raydium_cpswap::swap_base_input`) that needs no off-chain instruction data (hub builds its
+ * own `(discriminator, amount_in, minimum_amount_out)` payload), only its fixed 13-account list.
+ * So the account list grew (vault/hub_mint/vault_wsol/vault_usdc/vault_hub/treasury_float_vault/
+ * jupiter_program) and the ix takes `minUsdcOut` + `minHubOut` + `hop1AccountCount` + `hop1Data`
+ * (+ `remainingAccounts`, hop1's caller-assembled route accounts followed by hop2's Raydium
+ * accounts, split on-chain at `hop1AccountCount`).
  *
  * On localnet, unless the caller supplies its own `remainingAccounts`, this auto-assembles both
  * hops against `programs/mock_jupiter` (see `scripts/lib/mock-jupiter.ts`) at a fixed synthetic
- * 1:1:1 fill rate — mirrors `scripts/devnet-yield-cycle.ts`'s `buildFinalizeSwap`. This only
- * works because the local build now always carries hub's `mock-jupiter` Cargo feature (see
- * package.json's `test` script), which repoints `constants::JUPITER_PROGRAM_ID` at
- * `programs/mock_jupiter`'s id, and because `ensureInitialized` pre-funds that mock's USDC/$HUB
- * liquidity reserves. `test:devnet` (HUB_CLUSTER=devnet) is untouched — real Jupiter or a
- * devnet-provisioned mock route only, via explicit `swap` args.
+ * 1:1 fill rate — mirrors `scripts/devnet-yield-cycle.ts`'s `buildFinalizeSwap`. hop2 works
+ * against the *same* mock program as hop1: `constants::RAYDIUM_CP_SWAP_PROGRAM_ID` redirects to
+ * `programs/mock_jupiter`'s id under the `mock-jupiter` Cargo feature exactly like
+ * `JUPITER_PROGRAM_ID` does, and that crate's `swap_base_input` instruction is named to match so
+ * Anchor's own discriminator hash lands on the bytes hub hardcodes — so `mockRoute`'s account
+ * list (built for hop1's `mock_swap`) is byte-for-byte reusable for hop2 too, just without its
+ * `jupiterData` (hub builds hop2's instruction data itself, it never reads a caller-supplied
+ * blob for that leg). This only works because the local build now always carries hub's
+ * `mock-jupiter` Cargo feature (see package.json's `test` script), which repoints both
+ * `constants::JUPITER_PROGRAM_ID` and `constants::RAYDIUM_CP_SWAP_PROGRAM_ID` at
+ * `programs/mock_jupiter`'s id, and because `ensureInitialized` pre-funds that mock's USDC and
+ * $HUB liquidity reserves. `test:devnet` (HUB_CLUSTER=devnet) is untouched — real Jupiter/Raydium
+ * or a devnet-provisioned mock route only, via explicit `swap` args.
  */
 export async function finalizeIdx(
   h: Harness,
@@ -360,7 +370,6 @@ export async function finalizeIdx(
     minHubOut?: number | bigint;
     hop1AccountCount?: number;
     hop1Data?: Buffer;
-    hop2Data?: Buffer;
     remainingAccounts?: { pubkey: PublicKey; isSigner: boolean; isWritable: boolean }[];
     jupiterProgram?: PublicKey;
   } = {},
@@ -376,7 +385,6 @@ export async function finalizeIdx(
     minHubOut: number;
     hop1AccountCount: number;
     hop1Data: Buffer;
-    hop2Data: Buffer;
     remainingAccounts: { pubkey: PublicKey; isSigner: boolean; isWritable: boolean }[];
   }> = {};
   if (h.cluster === "localnet" && swap.remainingAccounts === undefined) {
@@ -398,6 +406,9 @@ export async function finalizeIdx(
         amountIn: swapTotal,
         amountOut: swapTotal,
       });
+      // hop2's account list is the same shape as hop1's mock — see doc comment above — just
+      // targeting vault_usdc → vault_hub instead of vault_wsol → vault_usdc; its `jupiterData` is
+      // discarded, hub builds hop2's own instruction data on-chain.
       const hop2 = mockRoute({
         sourceAuthority: vault,
         sourceAuthorityIsSigner: false,
@@ -413,7 +424,6 @@ export async function finalizeIdx(
         minHubOut: swapTotal,
         hop1AccountCount: hop1.remainingAccounts.length,
         hop1Data: hop1.jupiterData,
-        hop2Data: hop2.jupiterData,
         remainingAccounts: [...hop1.remainingAccounts, ...hop2.remainingAccounts],
       };
     }
@@ -426,7 +436,6 @@ export async function finalizeIdx(
       bn(swap.minHubOut ?? built.minHubOut ?? 0),
       swap.hop1AccountCount ?? built.hop1AccountCount ?? 0,
       swap.hop1Data ?? built.hop1Data ?? Buffer.alloc(0),
-      swap.hop2Data ?? built.hop2Data ?? Buffer.alloc(0),
     )
     .accountsPartial({
       keeper: h.payer.publicKey,

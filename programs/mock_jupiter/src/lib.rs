@@ -126,6 +126,24 @@ pub mod mock_jupiter {
         )?;
         Ok(())
     }
+
+    /// Mock target for `hub`'s `raydium_cpswap::swap_base_input` hop2 CPI
+    /// (`RAYDIUM_CP_SWAP_PROGRAM_ID` redirects here under the `mock-jupiter` feature — see
+    /// `programs/hub/src/constants.rs`). Named `swap_base_input`, not an arbitrary mock name,
+    /// purely so Anchor's own global-instruction-discriminator hash
+    /// (`sha256("global:swap_base_input")[..8]`) lands on the exact same 8 bytes hub hand-rolls
+    /// as `RAYDIUM_IX_SWAP_BASE_INPUT` — no dispatch table needed on either side. Reuses
+    /// `MockSwap`'s account layout/mechanics verbatim (see `mock_swap` above); the only
+    /// difference is the argument name (`minimum_amount_out`, matching Raydium's real
+    /// interface) is treated as the *exact* amount delivered, same "mock has no pool curve, the
+    /// caller states the outcome directly" convention `mock_swap`'s `amount_out` already uses.
+    pub fn swap_base_input(
+        ctx: Context<MockSwap>,
+        amount_in: u64,
+        minimum_amount_out: u64,
+    ) -> Result<()> {
+        mock_swap(ctx, amount_in, minimum_amount_out)
+    }
 }
 
 #[derive(Accounts)]

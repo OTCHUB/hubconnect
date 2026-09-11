@@ -15,6 +15,10 @@ import {
 } from "@solana/web3.js";
 import { AnchorProvider, Program, Wallet } from "@anchor-lang/core";
 import {
+  createAssociatedTokenAccountIdempotentInstruction,
+  getAssociatedTokenAddressSync,
+} from "@solana/spl-token";
+import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
   TOKEN_2022_PROGRAM_ID as TOKEN_2022_PROGRAM_ID_STR,
   TOKEN_PROGRAM_ID as TOKEN_PROGRAM_ID_STR,
@@ -78,6 +82,11 @@ export function loadMainnetKeypair(p = process.env.HUB_MAINNET_WALLET): Keypair 
   return Keypair.fromSecretKey(Uint8Array.from(JSON.parse(fs.readFileSync(expand(p), "utf8"))));
 }
 
+/** Load any other local keypair file (keeper/treasury/ops wallets) — no env fallback. */
+export function loadKeypair(p: string): Keypair {
+  return Keypair.fromSecretKey(Uint8Array.from(JSON.parse(fs.readFileSync(expand(p), "utf8"))));
+}
+
 export const ata = (owner: PublicKey, mint: PublicKey) =>
   PublicKey.findProgramAddressSync(
     [owner.toBuffer(), TOKEN_PROGRAM_ID.toBuffer(), mint.toBuffer()],
@@ -98,6 +107,91 @@ export function createAtaIdempotent(payer: PublicKey, owner: PublicKey, mint: Pu
     ],
     data: Buffer.from([1]),
   });
+}
+
+/**
+ * Token-2022-aware ATA helpers — needed for every mainnet mint the devnet scripts never had to
+ * touch ($HUB, $OTC, CRCLx, NVDAx, SPCXx are all real `TokenzQdBN...` Token-2022 mints, unlike
+ * devnet's plain-SPL stand-ins). Uses the official `@solana/spl-token` derivation/instruction
+ * builders instead of the hand-rolled legacy-only ones above, since the Associated Token
+ * Account program sizes/extends a Token-2022 ATA (e.g. `ImmutableOwner`) differently than a
+ * legacy one — hand-rolling that would risk under-allocating the account.
+ */
+export const ata2022 = (owner: PublicKey, mint: PublicKey) =>
+  getAssociatedTokenAddressSync(mint, owner, true, TOKEN_2022_PROGRAM_ID, ATA_PROGRAM_ID);
+
+export function createAtaIdempotent2022(payer: PublicKey, owner: PublicKey, mint: PublicKey) {
+  return createAssociatedTokenAccountIdempotentInstruction(
+    payer,
+    ata2022(owner, mint),
+    owner,
+    mint,
+    TOKEN_2022_PROGRAM_ID,
+    ATA_PROGRAM_ID,
+  );
+}
+
+/** spl-token(-2022) `TransferChecked` (ix 12): source · mint · dest · owner(signer). Same wire
+ *  layout on both token programs — pass `tokenProgramId` to target whichever one the mint
+ *  actually belongs to. */
+export function transferCheckedIx(
+  source: PublicKey,
+  mint: PublicKey,
+  dest: PublicKey,
+  owner: PublicKey,
+  amount: bigint,
+  decimals: number,
+  tokenProgramId: PublicKey = TOKEN_PROGRAM_ID,
+) {
+  const data = Buffer.alloc(10);
+  data.writeUInt8(12, 0);
+  data.writeBigUInt64LE(amount, 1);
+  data.writeUInt8(decimals, 9);
+  return new TransactionInstruction({
+    programId: tokenProgramId,
+    keys: [
+      { pubkey: source, isSigner: false, isWritable: true },
+      { pubkey: mint, isSigner: false, isWritable: false },
+      { pubkey: dest, isSigner: false, isWritable: true },
+      { pubkey: owner, isSigner: true, isWritable: false },
+    ],
+    data,
+  });
+}
+
+/** Send several instructions in one transaction signed by the payer (+ extra signers). */
+export async function sendIxs(ctx: Ctx, ixs: TransactionInstruction[], signers: Keypair[] = []) {
+  const tx = new Transaction().add(...ixs);
+  return ctx.provider.sendAndConfirm(tx, [ctx.payer, ...signers]);
+}
+
+export type PubkeyField =
+  | "opsWallet"
+  | "hubMint"
+  | "otcMint"
+  | "usdcMint"
+  | "otcDeskPot"
+  | "otcProgram"
+  | "deskCollection"
+  | "treasury"
+  | "authority";
+
+/** `update_config(field, { pubkey })` on mainnet — payer must be `Config.authority`. Mirrors
+ *  `lib/devnet.ts`'s `setConfigPubkey`, pubkey-only (mainnet has no need yet for the bps/u64/bool
+ *  variants devnet uses to tune rates during testing). Returns null if already set to `value`. */
+export async function setConfigPubkey(ctx: Ctx, field: PubkeyField, value: PublicKey) {
+  const cfg = await ctx.program.account.config.fetch(ctx.config);
+  const current = cfg[field as keyof typeof cfg] as PublicKey;
+  if (current.equals(value)) {
+    console.log(`config.${field} already ${value.toBase58()}`);
+    return null;
+  }
+  const sig = await ctx.program.methods
+    .updateConfig({ [field]: {} } as never, { pubkey: [value] } as never)
+    .accountsPartial({ authority: ctx.payer.publicKey, config: ctx.config })
+    .rpc();
+  console.log(`config.${field} → ${value.toBase58()}  (${sig})`);
+  return sig;
 }
 
 /** No `?cluster=` query — mainnet-beta is the explorer's default cluster. */
