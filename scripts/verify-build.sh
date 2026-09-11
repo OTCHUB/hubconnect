@@ -150,8 +150,12 @@ cmd_deploy() {
   # never seen the program gets an initial deploy signed with the program keypair instead.
   if cur=$(solana program show "$PROGRAM_ID" -u "$RPC" --output json 2>/dev/null | jq -r '.dataLen'); then
     if [ "$size" -gt "$cur" ]; then
-      echo "extending program data $cur → $size bytes"
-      solana program extend "$PROGRAM_ID" $((size - cur)) -u "$RPC" -k "$WALLET"
+      # `solana program extend` rejects a request for fewer than 10240 additional bytes (unless
+      # extending to the account's already-known max size) — round the needed delta up to that floor.
+      local need=$((size - cur))
+      [ "$need" -lt 10240 ] && need=10240
+      echo "extending program data $cur → $((cur + need)) bytes (requested +$need, needed +$((size - cur)))"
+      solana program extend "$PROGRAM_ID" "$need" -u "$RPC" -k "$WALLET"
     fi
   else
     echo "initial deploy of $PROGRAM_ID on $CLUSTER"
