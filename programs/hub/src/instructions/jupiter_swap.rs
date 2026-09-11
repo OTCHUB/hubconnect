@@ -20,14 +20,22 @@ use anchor_lang::solana_program::{
 
 use crate::constants::*;
 use crate::errors::HubError;
+use crate::instructions::otc_pay::is_supported_token_program;
 
-/// Also reused by `treasury::harvest_lp_fees` for its balance-delta fee-harvest accounting —
-/// the same "trust the balance, not the CPI's own return value" pattern this module pioneered.
+/// Also reused by `treasury::harvest_lp_fees` for its balance-delta fee-harvest accounting, and
+/// by `raydium_cpswap::swap_base_input` for hop2's before/after read — both classic-Token
+/// (`vault_usdc`, WSOL, $OTC-side legacy mints) and Token-2022 (`vault_hub`/`$HUB`) destinations
+/// pass through here, so this must accept either program, not just classic Token — mirrors
+/// `otc_pay::token_account_amount`'s dispatch (`>=` rather than `==` for the same reason: a
+/// Token-2022 account can carry extension bytes past the base 165-byte layout).
 pub(crate) fn read_token_amount(ai: &AccountInfo) -> Result<u64> {
-    require_keys_eq!(*ai.owner, TOKEN_PROGRAM_ID, HubError::InvalidTokenAccount);
+    require!(
+        is_supported_token_program(ai.owner),
+        HubError::InvalidTokenAccount
+    );
     let data = ai.try_borrow_data()?;
     require!(
-        data.len() == TOKEN_ACCOUNT_LEN,
+        data.len() >= TOKEN_ACCOUNT_LEN,
         HubError::InvalidTokenAccount
     );
     Ok(u64::from_le_bytes(data[64..72].try_into().unwrap()))
