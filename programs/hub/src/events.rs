@@ -154,6 +154,18 @@ pub struct TreasuryFloatCapUpdated {
     pub hub_float_cap_bp: u16,
 }
 
+/// Treasury multisig repoints `vault_wsol`/`vault_usdc` at new vault-PDA-owned token accounts
+/// (migration to canonical ATAs — Jupiter's `/swap/v2/build` always debits the canonical ATA of
+/// (taker, inputMint), so `finalize_epoch`'s hop1 source accounts must be ATAs, not arbitrary
+/// plain spl-token accounts). One-time-per-call, replaces the values `init_treasury_float` set.
+#[event]
+pub struct TreasuryVaultsRepointed {
+    pub old_vault_wsol: Pubkey,
+    pub new_vault_wsol: Pubkey,
+    pub old_vault_usdc: Pubkey,
+    pub new_vault_usdc: Pubkey,
+}
+
 /// Keeper-attested $OTC buy, reimbursed from the pot up to `otc_pending_lamports`.
 /// `otc_bought` is deposited into `otc_vault` in the same tx.
 #[event]

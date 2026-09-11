@@ -122,4 +122,6 @@ pub enum HubError {
     HarvestBalanceUnderflow,
     #[msg("hop1_account_count exceeds the number of accounts supplied in remaining_accounts")]
     HopAccountSplitOutOfRange,
+    #[msg("Vault scratch token account must be drained to zero before it can be repointed")]
+    VaultNotDrained,
 }

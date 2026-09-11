@@ -9,6 +9,9 @@
 //      `scripts/mainnet-set-treasury.ts`.
 //   4. `hub-keeper-sweeper-mainnet` keeps SWEEPER_ENABLED=0 regardless of DRY_RUN — no Magic
 //      Eden/OpenSea client exists yet (`keeper/shared/src/marketplace.ts`).
+//   5. `hub-keeper-epoch-mainnet` carries `HUB_EPOCH_ALT` (see `scripts/
+//      mainnet-create-epoch-alt.ts`) — required for `finalize_epoch`'s tx to fit under the legacy
+//      1232-byte limit; omitting it reproduces the "Transaction too large" crash loop.
 // DRY_RUN is now "0" — keepers submit real transactions against mainnet-beta.
 //
 // RPC precedence (mirrors `scripts/lib/mainnet.ts`): HUB_MAINNET_RPC_URL (raw or with
@@ -53,7 +56,16 @@ module.exports = {
       ...common,
       name: "hub-keeper-epoch-mainnet",
       args: ["-T", "keeper/keeper/src/index.ts"],
-      env: { ...common.env, HUB_KEEPER_KEYPAIR: "keeper/keys/mainnet-epoch-keeper.json" },
+      env: {
+        ...common.env,
+        HUB_KEEPER_KEYPAIR: "keeper/keys/mainnet-epoch-keeper.json",
+        // Address Lookup Table from `scripts/mainnet-create-epoch-alt.ts` — without it,
+        // finalize_epoch's fixed accounts + hop2's fixed Raydium accounts + hop1's Jupiter route
+        // accounts as static keys overflow the legacy 1232-byte tx limit ("Transaction too
+        // large"), crash-looping this process. See `keeper/keeper/src/index.ts`'s
+        // `KeeperEnv.epochAlt` doc comment.
+        HUB_EPOCH_ALT: "GYLVnPTrMGURphi1s8gUFHdmtucXNkGVNS4KDUi9vbrj",
+      },
     },
     {
       ...common,

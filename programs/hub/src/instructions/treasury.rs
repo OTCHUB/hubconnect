@@ -700,3 +700,88 @@ pub fn set_treasury_float_cap_bp(
     emit!(TreasuryFloatCapUpdated { hub_float_cap_bp });
     Ok(())
 }
+
+/// Migrates `TreasuryState.vault_wsol`/`vault_usdc` off the plain-keypair accounts
+/// `mainnet-treasury-float.ts` created onto canonical Associated Token Accounts of the vault PDA.
+/// Needed because Jupiter's `/swap/v2/build` always derives the swap's *source* token account as
+/// the canonical ATA of `(taker, inputMint)` — there is no API parameter to override it — so
+/// `finalize_epoch`'s hop1 (SOL/USDC → $HUB via Jupiter) can never succeed while `vault_wsol`/
+/// `vault_usdc` are arbitrary keypair accounts. `vault_hub`/`treasury_float_vault` are untouched:
+/// they are pure Jupiter *destination* accounts (overridable via `destinationTokenAccount`) and
+/// share (owner, mint), which an ATA can't represent twice — no need for them to move.
+///
+/// Requires the currently-recorded vault to already be drained (balance == 0) before repointing,
+/// so no balance is silently stranded at an address `TreasuryState` no longer references — the
+/// caller must sweep first if either currently holds a nonzero balance. Skips that check for a
+/// field still at `Pubkey::default()` (i.e. before `init_treasury_float` ever ran).
+#[derive(Accounts)]
+pub struct RepointTreasuryVaults<'info> {
+    pub treasury: Signer<'info>,
+    #[account(seeds = [SEED_CONFIG], bump = config.bump, has_one = treasury @ HubError::Unauthorized)]
+    pub config: Account<'info, Config>,
+    #[account(mut, seeds = [SEED_TREASURY], bump = treasury_state.bump)]
+    pub treasury_state: Account<'info, TreasuryState>,
+    /// CHECK: program-signed custody PDA; must own the two new ATAs below.
+    #[account(seeds = [SEED_VAULT], bump = treasury_state.vault_bump)]
+    pub vault: UncheckedAccount<'info>,
+    /// CHECK: must equal `treasury_state.vault_wsol` (verified in handler); read only to confirm
+    /// it is drained before being superseded.
+    pub old_vault_wsol: UncheckedAccount<'info>,
+    /// CHECK: must equal `treasury_state.vault_usdc` (verified in handler); same as above.
+    pub old_vault_usdc: UncheckedAccount<'info>,
+    /// CHECK: new spl-token account, mint = native (WSOL), owner = vault (verified in handler) —
+    /// must be the canonical ATA of (vault, WSOL_MINT), which the migration script derives
+    /// off-chain; on-chain this only checks mint/owner, same as `init_treasury_float`.
+    pub new_vault_wsol: UncheckedAccount<'info>,
+    /// CHECK: new spl-token account, mint = config.usdc_mint, owner = vault (verified in
+    /// handler) — must be the canonical ATA of (vault, config.usdc_mint).
+    pub new_vault_usdc: UncheckedAccount<'info>,
+}
+
+pub fn repoint_treasury_vaults(ctx: Context<RepointTreasuryVaults>) -> Result<()> {
+    let old_vault_wsol = ctx.accounts.treasury_state.vault_wsol;
+    let old_vault_usdc = ctx.accounts.treasury_state.vault_usdc;
+    require_keys_eq!(
+        ctx.accounts.old_vault_wsol.key(),
+        old_vault_wsol,
+        HubError::InvalidTokenAccount
+    );
+    require_keys_eq!(
+        ctx.accounts.old_vault_usdc.key(),
+        old_vault_usdc,
+        HubError::InvalidTokenAccount
+    );
+    if old_vault_wsol != Pubkey::default() {
+        require!(
+            read_token_amount(&ctx.accounts.old_vault_wsol)? == 0,
+            HubError::VaultNotDrained
+        );
+    }
+    if old_vault_usdc != Pubkey::default() {
+        require!(
+            read_token_amount(&ctx.accounts.old_vault_usdc)? == 0,
+            HubError::VaultNotDrained
+        );
+    }
+
+    require_token_account(&ctx.accounts.new_vault_wsol, &WSOL_MINT, ctx.accounts.vault.key)?;
+    require_token_account(
+        &ctx.accounts.new_vault_usdc,
+        &ctx.accounts.config.usdc_mint,
+        ctx.accounts.vault.key,
+    )?;
+
+    let new_vault_wsol = ctx.accounts.new_vault_wsol.key();
+    let new_vault_usdc = ctx.accounts.new_vault_usdc.key();
+    let ts = &mut ctx.accounts.treasury_state;
+    ts.vault_wsol = new_vault_wsol;
+    ts.vault_usdc = new_vault_usdc;
+
+    emit!(TreasuryVaultsRepointed {
+        old_vault_wsol,
+        new_vault_wsol,
+        old_vault_usdc,
+        new_vault_usdc,
+    });
+    Ok(())
+}

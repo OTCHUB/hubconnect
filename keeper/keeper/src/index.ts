@@ -5,7 +5,14 @@
 // `keeper/README.md` for the env contract and gas/gate watermarks this loop enforces every cycle.
 import "dotenv/config";
 import { AnchorProvider, BN, Program, Wallet } from "@anchor-lang/core";
-import { Connection, Keypair, PublicKey, SystemProgram } from "@solana/web3.js";
+import {
+  Connection,
+  Keypair,
+  PublicKey,
+  SystemProgram,
+  TransactionMessage,
+  VersionedTransaction,
+} from "@solana/web3.js";
 import fs from "node:fs";
 import os from "node:os";
 import {
@@ -66,6 +73,13 @@ export type KeeperEnv = {
   jupiterApiKey?: string;
   slippageBps: number;
   maxAccounts: number;
+  /** Address Lookup Table holding `finalize_epoch`'s + hop2's fixed (never-epoch-varying, never
+   * Jupiter-route) accounts — see `scripts/mainnet-create-epoch-alt.ts`. Without it, `keeper`+
+   * `epoch`/`nextEpoch` + those ~22 fixed accounts + hop1's Jupiter route accounts as static keys
+   * overflow the legacy 1232-byte transaction limit ("Transaction too large"). Optional so devnet
+   * (which never got its own table, and only ever runs `DRY_RUN=1` — never reaches the size
+   * limit) keeps using a plain legacy transaction unchanged. */
+  epochAlt?: PublicKey;
 };
 
 export function loadKeeperEnv(): KeeperEnv {
@@ -87,6 +101,7 @@ export function loadKeeperEnv(): KeeperEnv {
     jupiterApiKey: process.env.JUPITER_API_KEY,
     slippageBps: Number(process.env.HUB_SWAP_SLIPPAGE_BPS ?? 100),
     maxAccounts: Number(process.env.HUB_SWAP_MAX_ACCOUNTS ?? 32),
+    epochAlt: process.env.HUB_EPOCH_ALT ? new PublicKey(process.env.HUB_EPOCH_ALT) : undefined,
   };
 }
 
@@ -201,43 +216,68 @@ export async function runCycle(env: KeeperEnv): Promise<void> {
   const [burnKey] = burnPda(id);
   const [otcPotKey] = otcPotPda(id);
 
+  const builder = program.methods
+    .finalizeEpoch(new BN(config.currentEpoch), minUsdcOut, minHubOut, hop1AccountCount, hop1Data)
+    .accountsPartial({
+      keeper: keeper.publicKey,
+      config: configKey,
+      epoch: epochKey,
+      nextEpoch: nextEpochKey,
+      pot: potKey,
+      burn: burnKey,
+      otcPot: otcPotKey,
+      treasuryState: treasuryKey,
+      vault: vaultKey,
+      hubMint,
+      vaultWsol: treasury.vaultWsol,
+      vaultUsdc: treasury.vaultUsdc,
+      vaultHub: treasury.vaultHub,
+      treasuryFloatVault: treasury.treasuryFloatVault,
+      tokenProgram: new PublicKey(TOKEN_PROGRAM_ID),
+      jupiterProgram: new PublicKey(JUPITER_PROGRAM_ID),
+      raydiumProgram: new PublicKey(RAYDIUM_CP_SWAP_PROGRAM_ID),
+      systemProgram: SystemProgram.programId,
+    })
+    .remainingAccounts(remainingAccounts);
+
   try {
-    const sig = await program.methods
-      .finalizeEpoch(
-        new BN(config.currentEpoch),
-        minUsdcOut,
-        minHubOut,
-        hop1AccountCount,
-        hop1Data,
-      )
-      .accountsPartial({
-        keeper: keeper.publicKey,
-        config: configKey,
-        epoch: epochKey,
-        nextEpoch: nextEpochKey,
-        pot: potKey,
-        burn: burnKey,
-        otcPot: otcPotKey,
-        treasuryState: treasuryKey,
-        vault: vaultKey,
-        hubMint,
-        vaultWsol: treasury.vaultWsol,
-        vaultUsdc: treasury.vaultUsdc,
-        vaultHub: treasury.vaultHub,
-        treasuryFloatVault: treasury.treasuryFloatVault,
-        tokenProgram: new PublicKey(TOKEN_PROGRAM_ID),
-        jupiterProgram: new PublicKey(JUPITER_PROGRAM_ID),
-        raydiumProgram: new PublicKey(RAYDIUM_CP_SWAP_PROGRAM_ID),
-        systemProgram: SystemProgram.programId,
-      })
-      .remainingAccounts(remainingAccounts)
-      .rpc();
+    const sig = env.epochAlt
+      ? await sendWithAlt(connection, keeper, builder, env.epochAlt)
+      : await builder.rpc();
     appendJournal({ ...journalBase, status: "sent", signature: sig });
     console.log(`[epoch ${config.currentEpoch}] finalized → ${sig}`);
   } catch (e) {
     appendJournal({ ...journalBase, status: "error", error: String((e as Error)?.message ?? e) });
     throw e;
   }
+}
+
+/** Builds + sends `builder` as a v0 `VersionedTransaction` resolving `alt`'s entries by lookup
+ * instead of embedding them as 32-byte static keys — see `KeeperEnv.epochAlt`'s doc comment for
+ * why this is required on mainnet. `alt` covers `finalize_epoch`'s + hop2's fixed accounts only;
+ * `keeper` (signer) and hop1's Jupiter route accounts always stay in the static key list (a
+ * signer can never be ALT-resolved, and Jupiter's own CPI accounts can't be either — see
+ * `scripts/mainnet-create-epoch-alt.ts`'s doc comment). */
+async function sendWithAlt(
+  connection: Connection,
+  keeper: Keypair,
+  builder: ReturnType<HubProgram["methods"]["finalizeEpoch"]>,
+  alt: PublicKey,
+): Promise<string> {
+  const lookupTable = await connection.getAddressLookupTable(alt);
+  if (!lookupTable.value) throw new Error(`epoch ALT ${alt.toBase58()} not found on-chain`);
+  const ix = await builder.instruction();
+  const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
+  const message = new TransactionMessage({
+    payerKey: keeper.publicKey,
+    recentBlockhash: blockhash,
+    instructions: [ix],
+  }).compileToV0Message([lookupTable.value]);
+  const tx = new VersionedTransaction(message);
+  tx.sign([keeper]);
+  const sig = await connection.sendTransaction(tx, { maxRetries: 3 });
+  await connection.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, "confirmed");
+  return sig;
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));

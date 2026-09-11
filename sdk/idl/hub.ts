@@ -1664,6 +1664,190 @@ export type Hub = {
       ]
     },
     {
+      "name": "devnetCloseEpoch",
+      "docs": [
+        "Devnet-only: closes a single stale `epoch(epoch_index)` PDA left over from an earlier",
+        "test session, without touching `config`/`burn`/`treasury_state`. Compiled only under the",
+        "`mock-jupiter` feature — absent from every mainnet build."
+      ],
+      "discriminator": [
+        125,
+        60,
+        128,
+        235,
+        134,
+        153,
+        174,
+        54
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "epoch",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  112,
+                  111,
+                  99,
+                  104
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "epochIndex"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "epochIndex",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "devnetReset",
+      "docs": [
+        "Devnet-only: closes `config`/`burn`/`treasury_state`/`epoch(epoch_index)` so",
+        "`initialize_config` can re-`init` the same PDAs after a layout change. Compiled only",
+        "under the `mock-jupiter` feature — absent from every mainnet build."
+      ],
+      "discriminator": [
+        52,
+        226,
+        240,
+        25,
+        105,
+        131,
+        41,
+        28
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "burn",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  114,
+                  110
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasuryState",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "epoch",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  112,
+                  111,
+                  99,
+                  104
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "epochIndex"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "epochIndex",
+          "type": "u64"
+        }
+      ]
+    },
+    {
       "name": "distributeAirdrop",
       "docs": [
         "§A7.1 #20b — authority pushes a snapshot allocation straight to the desk's current owner",
@@ -4682,6 +4866,113 @@ export type Hub = {
       ]
     },
     {
+      "name": "repointTreasuryVaults",
+      "docs": [
+        "§A6.3/§A7.1 bridge migration — treasury multisig repoints `vault_wsol`/`vault_usdc` at",
+        "canonical Associated Token Accounts of the vault PDA, since Jupiter's `/swap/v2/build`",
+        "always debits the canonical ATA of `(taker, inputMint)` for hop1's SOL/USDC source legs.",
+        "One-time (per repoint); requires the currently-recorded vault to be drained first."
+      ],
+      "discriminator": [
+        241,
+        237,
+        68,
+        127,
+        187,
+        237,
+        44,
+        186
+      ],
+      "accounts": [
+        {
+          "name": "treasury",
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasuryState",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "oldVaultWsol",
+          "docs": [
+            "it is drained before being superseded."
+          ]
+        },
+        {
+          "name": "oldVaultUsdc"
+        },
+        {
+          "name": "newVaultWsol",
+          "docs": [
+            "must be the canonical ATA of (vault, WSOL_MINT), which the migration script derives",
+            "off-chain; on-chain this only checks mint/owner, same as `init_treasury_float`."
+          ]
+        },
+        {
+          "name": "newVaultUsdc",
+          "docs": [
+            "handler) — must be the canonical ATA of (vault, config.usdc_mint)."
+          ]
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "setAirdropRoot",
       "docs": [
         "§A7.1 #19 — authority publishes the desk-snapshot Merkle root and opens/closes claims."
@@ -6202,6 +6493,19 @@ export type Hub = {
       ]
     },
     {
+      "name": "treasuryVaultsRepointed",
+      "discriminator": [
+        123,
+        85,
+        242,
+        101,
+        62,
+        165,
+        125,
+        244
+      ]
+    },
+    {
       "name": "yieldClaimed",
       "discriminator": [
         177,
@@ -6510,6 +6814,11 @@ export type Hub = {
       "code": 6058,
       "name": "hopAccountSplitOutOfRange",
       "msg": "hop1_account_count exceeds the number of accounts supplied in remaining_accounts"
+    },
+    {
+      "code": 6059,
+      "name": "vaultNotDrained",
+      "msg": "Vault scratch token account must be drained to zero before it can be repointed"
     }
   ],
   "types": [
@@ -9197,6 +9506,36 @@ export type Hub = {
           {
             "name": "vaultBump",
             "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "treasuryVaultsRepointed",
+      "docs": [
+        "Treasury multisig repoints `vault_wsol`/`vault_usdc` at new vault-PDA-owned token accounts",
+        "(migration to canonical ATAs — Jupiter's `/swap/v2/build` always debits the canonical ATA of",
+        "(taker, inputMint), so `finalize_epoch`'s hop1 source accounts must be ATAs, not arbitrary",
+        "plain spl-token accounts). One-time-per-call, replaces the values `init_treasury_float` set."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "oldVaultWsol",
+            "type": "pubkey"
+          },
+          {
+            "name": "newVaultWsol",
+            "type": "pubkey"
+          },
+          {
+            "name": "oldVaultUsdc",
+            "type": "pubkey"
+          },
+          {
+            "name": "newVaultUsdc",
+            "type": "pubkey"
           }
         ]
       }

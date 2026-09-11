@@ -318,6 +318,14 @@ pub mod hub {
         instructions::treasury::set_treasury_float_cap_bp(ctx, hub_float_cap_bp)
     }
 
+    /// §A6.3/§A7.1 bridge migration — treasury multisig repoints `vault_wsol`/`vault_usdc` at
+    /// canonical Associated Token Accounts of the vault PDA, since Jupiter's `/swap/v2/build`
+    /// always debits the canonical ATA of `(taker, inputMint)` for hop1's SOL/USDC source legs.
+    /// One-time (per repoint); requires the currently-recorded vault to be drained first.
+    pub fn repoint_treasury_vaults(ctx: Context<RepointTreasuryVaults>) -> Result<()> {
+        instructions::treasury::repoint_treasury_vaults(ctx)
+    }
+
     /// §A6.3 #23 — authority creates the creator-fee flywheel bookkeeping (one-time, post-init).
     pub fn init_creator_fee_state(
         ctx: Context<InitCreatorFeeState>,
