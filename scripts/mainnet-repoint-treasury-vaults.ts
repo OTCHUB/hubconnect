@@ -23,18 +23,30 @@ import {
   ata,
   createAtaIdempotent,
   explorer,
+  loadKeypair,
   mainnetCtx,
   parseFlags,
   sendIxs,
 } from "./lib/mainnet";
 
 async function main() {
-  const { has } = parseFlags(process.argv.slice(2));
+  const { has, get } = parseFlags(process.argv.slice(2));
   const dryRun = has("--dry-run");
   const ctx = await mainnetCtx();
   const cfg = await ctx.program.account.config.fetch(ctx.config);
   if (cfg.usdcMint.equals(PublicKey.default)) {
     throw new Error("Config.usdc_mint unset — run mainnet-init-config.ts first");
+  }
+
+  // `repoint_treasury_vaults` is `has_one = treasury` on Config, same as `init_treasury_float` —
+  // must be signed by Config.treasury (the dedicated hot wallet mainnet-set-treasury.ts assigns),
+  // not the deployer/upgrade-authority wallet `mainnetCtx()` loads for fee-payer duty.
+  const treasuryKeyPath = get("--treasury-key") ?? "keeper/keys/mainnet-treasury-authority.json";
+  const treasuryKp = loadKeypair(treasuryKeyPath);
+  if (!treasuryKp.publicKey.equals(cfg.treasury)) {
+    throw new Error(
+      `${treasuryKeyPath} pubkey ${treasuryKp.publicKey.toBase58()} != Config.treasury ${cfg.treasury.toBase58()}`,
+    );
   }
 
   const [treasuryState] = treasuryPda(ctx.program.programId);
@@ -90,7 +102,7 @@ async function main() {
     await ctx.program.methods
       .repointTreasuryVaults()
       .accountsPartial({
-        treasury: ctx.payer.publicKey,
+        treasury: treasuryKp.publicKey,
         config: ctx.config,
         treasuryState,
         vault,
@@ -101,7 +113,7 @@ async function main() {
       })
       .instruction(),
   ];
-  const sig = await sendIxs(ctx, ixs);
+  const sig = await sendIxs(ctx, ixs, [treasuryKp]);
   console.log(`repoint_treasury_vaults :: ${explorer(sig, "tx")}`);
 }
 
