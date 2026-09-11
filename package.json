@@ -26,10 +26,15 @@
     "mainnet:treasury-reward": "ts-node -T scripts/mainnet-distribute.ts --reward",
     "idl:copy": "node scripts/copy-idl.mjs",
     "snapshot:ingest": "ts-node -T scripts/hub-snapshot-ingest.ts",
-    "keeper:epoch": "ts-node -T keeper/keeper/src/index.ts"
+    "keeper:epoch": "ts-node -T keeper/keeper/src/index.ts",
+    "keeper:creator-fee": "ts-node -T keeper/creator-fee/src/index.ts",
+    "keeper:lp": "ts-node -T keeper/lp/src/index.ts",
+    "keeper:sweeper": "ts-node -T keeper/sweeper/src/index.ts",
+    "keeper:treasury": "ts-node -T keeper/treasury/src/index.ts"
   },
   "dependencies": {
     "@anchor-lang/core": "^1.2.0",
+    "@solana/spl-token": "^0.4.15",
     "@solana/web3.js": "^1.98.4"
   },
   "devDependencies": {

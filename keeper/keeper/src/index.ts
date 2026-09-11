@@ -48,19 +48,12 @@ export { fetchWsolToHubRoute } from "./jupiter";
 
 import { checkGasFloat } from "../../shared/src/gas";
 import { checkOperationalGate } from "../../shared/src/gate";
+import { isMintAuthoritySealed } from "../../shared/src/mint";
 
 const expand = (p: string) => p.replace(/^~/, os.homedir());
 
 function loadKeeperKeypair(p: string): Keypair {
   return Keypair.fromSecretKey(Uint8Array.from(JSON.parse(fs.readFileSync(expand(p), "utf8"))));
-}
-
-/** spl-token `Mint` layout: `COption<Pubkey>` mint authority at offset 0 (4-byte tag + 32 bytes).
- *  Sealed ⇔ tag == 0 (`None`) — mirrors `scripts/hub-authority.ts`'s `parseMint`. */
-async function isMintAuthoritySealed(connection: Connection, mint: PublicKey): Promise<boolean> {
-  const info = await connection.getAccountInfo(mint);
-  if (!info) throw new Error(`$HUB mint ${mint.toBase58()} not found on this cluster`);
-  return info.data.readUInt32LE(0) !== 1;
 }
 
 export type KeeperEnv = {

@@ -13,5 +13,6 @@ test-ledger
 !web/.env.devnet
 !web/.env.production
 keeper/**/journal/
+keeper/keys/
 *.log
 supabase/.temp/

@@ -1,7 +1,8 @@
+import { Link } from "react-router-dom";
 import { TIER_NAMES, TIER_WEIGHTS_BP, type ProtocolState } from "@hub-sdk";
 import type { DeskLookupResult } from "../hooks/useDeskTier";
 import { fmtNum, fmtSol, fmtWeight } from "../lib/format";
-import { magicEdenItemUrl } from "../lib/marketplace";
+import { magicEdenItemUrl, OFFICIAL_DESKS_URL } from "../lib/marketplace";
 import { UNCLAIMED_WARN_LAMPORTS, yieldBoostPctOverBase } from "../lib/yield";
 import { AddressLink } from "./ui/AddressLink";
 import { Panel, Row } from "./ui/Panel";
@@ -35,18 +36,44 @@ export function DeskCard({ asset, data, state }: Props) {
 
   if (!tier) {
     return (
-      <Panel title="DESK" right={meLink}>
-        <div className="flex gap-3">
-          {thumb}
-          <div className="flex-1">
-            <Row k="asset" v={<AddressLink address={asset} full />} />
-            <div className="mt-2 text-xs text-green-700">
-              <div>No DeskTier account — this desk has not been activated in $HUB.</div>
-              <div>It earns the raw desk baseline only.</div>
+      <div className="space-y-2">
+        <Notice tone="amber">
+          <div className="tracking-widest">[ NOT ACTIVATED — NO NATIVE YIELD ]</div>
+          <div className="mt-1 text-amber-200/80">
+            <div>No DeskTier account — this desk isn't earning $HUB round yield yet.</div>
+            <div className="mt-2 flex flex-wrap items-center gap-3">
+              <Link
+                to=".."
+                relative="route"
+                className="font-bold text-amber-300 underline hover:text-amber-100"
+              >
+                [ACTIVATE ON DASHBOARD →]
+              </Link>
+              <a
+                href={OFFICIAL_DESKS_URL}
+                target="_blank"
+                rel="noreferrer"
+                className="text-amber-300/70 underline hover:text-amber-100"
+                title="official OTC Desks activation platform"
+              >
+                or use official otcdesks.cash ↗
+              </a>
             </div>
           </div>
-        </div>
-      </Panel>
+        </Notice>
+        <Panel title="DESK" right={meLink}>
+          <div className="flex gap-3">
+            {thumb}
+            <div className="flex-1">
+              <Row k="asset" v={<AddressLink address={asset} full />} />
+              <div className="mt-2 text-xs text-green-700">
+                <div>No DeskTier account — this desk has not been activated in $HUB.</div>
+                <div>It earns the raw desk baseline only.</div>
+              </div>
+            </div>
+          </div>
+        </Panel>
+      </div>
     );
   }
 

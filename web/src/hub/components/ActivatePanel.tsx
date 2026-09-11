@@ -28,6 +28,7 @@ import {
   type TierQuote,
 } from "../lib/activate";
 import { fmtSol, fmtUnits, shortKey } from "../lib/format";
+import { OFFICIAL_DESKS_URL } from "../lib/marketplace";
 import type { TxLog } from "../lib/swap";
 import { Panel } from "./ui/Panel";
 import { TxLogView } from "./ui/TxLogView";
@@ -216,6 +217,20 @@ export function ActivatePanel({ address, state, desks, onChanged, selectedAsset 
         collected === null ? "SOL ONLY" : `lifetime $OTC paid (2× swap-burn): ${collected} OTC`
       }
     >
+      <div className="mb-2 text-[10px] text-green-700">
+        native activation works on devnet and mainnet, right here — or use the{" "}
+        <a
+          href={OFFICIAL_DESKS_URL}
+          target="_blank"
+          rel="noreferrer"
+          className="text-cyan-500 underline hover:text-cyan-300"
+          title="official OTC Desks activation platform (mainnet)"
+        >
+          official otcdesks.cash interface ↗
+        </a>{" "}
+        instead, if you prefer it.
+      </div>
+
       {rows.length === 0 ? (
         <div className="text-xs text-green-700">
           {desks.length
