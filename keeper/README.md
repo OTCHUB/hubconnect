@@ -88,3 +88,16 @@ Env contract (all services): `HUB_RPC_URL`, `HUB_PROGRAM_ID`, `HUB_KEEPER_KEYPAI
 `lp`/`sweeper` — the `Config.treasury` co-signer, see above); `SWEEPER_ENABLED`,
 `MARKETPLACE_PROVIDER`, `MAGIC_EDEN_API_KEY`/`OPENSEA_API_KEY` (`sweeper` only, see the
 marketplace gate above).
+
+## Mainnet profile (`keeper/ecosystem.mainnet.config.js`)
+
+Same 5 apps, mirrored 1:1, with `-mainnet` suffixed names so both profiles can coexist under
+one PM2 daemon. Differences from the devnet profile: `HUB_CLUSTER=mainnet-beta`, RPC resolves
+Helius mainnet via `HELIUS_API_KEY` (same precedence as `scripts/lib/mainnet.ts`), and the
+keypairs are `keeper/keys/mainnet-*-keeper.json` / `mainnet-treasury-authority.json` (freshly
+generated, gitignored, **unfunded** — no faucet on mainnet). `DRY_RUN` stays `"1"` in the
+committed file; do not flip it until (1) mainnet `initialize_config` has run — the `Config`
+PDA does not exist on-chain yet, (2) every keeper wallet holds real SOL to the gas-float
+ceiling above, and (3) `Config.treasury` has been reassigned to
+`mainnet-treasury-authority.json` via a mainnet equivalent of `scripts/devnet-set-treasury.ts`
+(not written yet). `SWEEPER_ENABLED` stays `"0"` for the same reason as devnet.
