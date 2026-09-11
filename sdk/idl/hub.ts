@@ -2654,6 +2654,13 @@ export type Hub = {
           ]
         },
         {
+          "name": "raydiumProgram",
+          "docs": [
+            "for hop2 (USDC→$HUB). Must be a distinct account from `jupiter_program` on real",
+            "(non-`mock-jupiter`) builds so the runtime can resolve the hop2 CPI's target program."
+          ]
+        },
+        {
           "name": "systemProgram",
           "address": "11111111111111111111111111111111"
         }

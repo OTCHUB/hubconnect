@@ -12,6 +12,7 @@ import {
   BPS,
   HUB_IDL,
   JUPITER_PROGRAM_ID,
+  RAYDIUM_CP_SWAP_PROGRAM_ID,
   TOKEN_PROGRAM_ID,
   burnPda,
   canFinalize,
@@ -226,6 +227,7 @@ export async function runCycle(env: KeeperEnv): Promise<void> {
         treasuryFloatVault: treasury.treasuryFloatVault,
         tokenProgram: new PublicKey(TOKEN_PROGRAM_ID),
         jupiterProgram: new PublicKey(JUPITER_PROGRAM_ID),
+        raydiumProgram: new PublicKey(RAYDIUM_CP_SWAP_PROGRAM_ID),
         systemProgram: SystemProgram.programId,
       })
       .remainingAccounts(remainingAccounts)

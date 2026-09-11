@@ -89,6 +89,10 @@ pub struct FinalizeEpoch<'info> {
     /// (WSOL→USDC) only — hop2 (USDC→$HUB) calls Raydium CP-Swap directly, see
     /// `raydium_cpswap::swap_base_input`.
     pub jupiter_program: UncheckedAccount<'info>,
+    /// CHECK: pinned to `RAYDIUM_CP_SWAP_PROGRAM_ID` in `raydium_cpswap::swap_base_input`, used
+    /// for hop2 (USDC→$HUB). Must be a distinct account from `jupiter_program` on real
+    /// (non-`mock-jupiter`) builds so the runtime can resolve the hop2 CPI's target program.
+    pub raydium_program: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
 }
 
@@ -216,6 +220,7 @@ pub fn finalize_epoch<'info>(
             &[vault_seeds],
         )?;
         let hub_received = raydium_cpswap::swap_base_input(
+            &ctx.accounts.raydium_program.to_account_info(),
             hop2_accounts,
             usdc_received,
             min_hub_out,

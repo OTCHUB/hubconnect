@@ -143,13 +143,31 @@ pub fn collect_cp_fees<'info>(
 /// unlike Jupiter's hop this needs no off-chain-assembled instruction data. Enforces
 /// `dest.amount_after − dest.amount_before ≥ minimum_amount_out` independently of Raydium's own
 /// slippage check — same "trust the balance, not the CPI" posture as `jupiter_swap::swap_exact_in`.
+/// `raydium_program` is a *separate* named account (mirroring `jupiter_swap::swap_exact_in`'s
+/// `jupiter_program` parameter) — it is deliberately NOT included in `pool_accounts`/the CPI's
+/// own account metas. Solana resolves a CPI's target program from the accounts available to the
+/// *current top-level instruction* (`ctx.accounts` + `ctx.remaining_accounts`), not from
+/// `invoke_signed`'s `account_infos` argument specifically (`jupiter_program` already proves
+/// this: it's never passed into `jupiter_swap::swap_exact_in`'s `invoke_signed` call either).
+/// Without `raydium_program` present here, `RAYDIUM_CP_SWAP_PROGRAM_ID` would never appear
+/// anywhere in the transaction's accounts on a real (non-`mock-jupiter`) build, and the CPI
+/// would fail at the runtime's program-resolution step. Tests never caught this because
+/// `mock-jupiter` aliases both `JUPITER_PROGRAM_ID` and `RAYDIUM_CP_SWAP_PROGRAM_ID` to the same
+/// mock program id, which is already present via the (also-required-there) `jupiter_program`
+/// account.
 pub fn swap_base_input<'info>(
+    raydium_program: &AccountInfo<'info>,
     pool_accounts: &[AccountInfo<'info>],
     amount_in: u64,
     minimum_amount_out: u64,
     dest: &AccountInfo<'info>,
     signer_seeds: &[&[&[u8]]],
 ) -> Result<u64> {
+    require_keys_eq!(
+        *raydium_program.key,
+        RAYDIUM_CP_SWAP_PROGRAM_ID,
+        HubError::WrongJupiterProgram
+    );
     require!(!pool_accounts.is_empty(), HubError::LpAccountsMissing);
     let before = super::jupiter_swap::read_token_amount(dest)?;
     let mut data = Vec::with_capacity(24);

@@ -164,6 +164,7 @@ function buildFinalizeSwap(ctx: Ctx, usdcPerSol: number, hubPerUsdc: number): Fi
       hop1Accounts: hop1.remainingAccounts,
       hop2Accounts: hop2.remainingAccounts,
       jupiterProgram: MOCK_JUPITER_PROGRAM,
+      raydiumProgram: MOCK_JUPITER_PROGRAM,
     };
   };
 }

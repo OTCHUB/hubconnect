@@ -114,12 +114,19 @@ async function fetchHopRoute(
       `Jupiter /build returned unexpected swapInstruction.programId ${ix.programId} (expected ${JUPITER_PROGRAM_ID})`,
     );
   }
+  const takerStr = taker.toBase58();
   return {
     minOut: BigInt(json.otherAmountThreshold),
     data: Buffer.from(ix.data, "base64"),
+    // Jupiter's `/build` response marks `taker` (the vault PDA) `isSigner: true`, since a normal
+    // top-level swap has the taker sign the transaction itself. Here `taker` is a PDA signed only
+    // inside the CPI via `invoke_signed`'s seed-derived elevation (`jupiter_swap.rs`'s
+    // `metas_from`), which re-asserts `is_signer: true` for it internally regardless of what's
+    // passed here. Passing Jupiter's raw flag through would make the *outer* transaction demand
+    // an unobtainable signature from a PDA — force it false, mirroring `raydium.ts`'s hop2 accounts.
     accounts: ix.accounts.map((a) => ({
       pubkey: new PublicKey(a.pubkey),
-      isSigner: a.isSigner,
+      isSigner: a.isSigner && a.pubkey !== takerStr,
       isWritable: a.isWritable,
     })),
     outAmount: BigInt(json.outAmount),

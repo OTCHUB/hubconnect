@@ -372,6 +372,7 @@ export async function finalizeIdx(
     hop1Data?: Buffer;
     remainingAccounts?: { pubkey: PublicKey; isSigner: boolean; isWritable: boolean }[];
     jupiterProgram?: PublicKey;
+    raydiumProgram?: PublicKey;
   } = {},
 ) {
   const [epoch] = epochPda(h.program.programId, idx);
@@ -456,6 +457,11 @@ export async function finalizeIdx(
       jupiterProgram:
         swap.jupiterProgram ??
         (h.cluster === "localnet" ? MOCK_JUPITER_PROGRAM : new PublicKey(K.JUPITER_PROGRAM_ID)),
+      raydiumProgram:
+        swap.raydiumProgram ??
+        (h.cluster === "localnet"
+          ? MOCK_JUPITER_PROGRAM
+          : new PublicKey(K.RAYDIUM_CP_SWAP_PROGRAM_ID)),
     })
     .remainingAccounts(swap.remainingAccounts ?? built.remainingAccounts ?? [])
     .rpc();

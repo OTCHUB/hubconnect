@@ -21,6 +21,7 @@ import {
   ACC_SCALE,
   HUB_IDL,
   JUPITER_PROGRAM_ID,
+  RAYDIUM_CP_SWAP_PROGRAM_ID,
   burnPda,
   configPda,
   epochPda,
@@ -324,6 +325,11 @@ export type FinalizeSwapArgs = {
    * deploy was built with the `mock-jupiter` Cargo feature, or the on-chain `WrongJupiterProgram`
    * check rejects the call. */
   jupiterProgram?: PublicKey;
+  /** Override for the `raydium_program` account (hop2 only) — defaults to the real Raydium
+   * CP-Swap id. Pass `MOCK_JUPITER_PROGRAM_ID` (see `scripts/lib/mock-jupiter.ts`) when the
+   * target `hub` deploy was built with the `mock-jupiter` Cargo feature, or the on-chain
+   * `WrongJupiterProgram` check rejects the call. */
+  raydiumProgram?: PublicKey;
 };
 
 /** Raw `finalize_epoch(idx, min_usdc_out, min_hub_out, hop1_account_count, hop1_data)` — no
@@ -363,6 +369,7 @@ export async function finalizeIx(ctx: Ctx, idx: number, swap: FinalizeSwapArgs =
       treasuryFloatVault: treasury.treasuryFloatVault,
       tokenProgram: TOKEN_PROGRAM_ID,
       jupiterProgram: swap.jupiterProgram ?? new PublicKey(JUPITER_PROGRAM_ID),
+      raydiumProgram: swap.raydiumProgram ?? new PublicKey(RAYDIUM_CP_SWAP_PROGRAM_ID),
       systemProgram: SystemProgram.programId,
     })
     .remainingAccounts([...hop1Accounts, ...hop2Accounts])
