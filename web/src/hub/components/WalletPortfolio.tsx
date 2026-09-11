@@ -122,6 +122,11 @@ export function WalletPortfolio({ address, state, onClear, onActivate }: Props) 
     ) ?? 0;
   const lifetimeEarningsLamports =
     data?.desks.reduce((s, d) => s + (d.tier?.totalClaimedLamports ?? 0), 0) ?? 0;
+  // Dual view: every desk NFT owned is "native" OTC Desks inventory; only the ones with a live
+  // (non-voided) tier are $HUB-activated earning positions — the two other metric blocks below
+  // (activation/tier list + earnings) are scoped to that activated subset.
+  const activatedDesks = data?.desks.filter((d) => d.tier && !d.tier.voided) ?? [];
+  const nativeCount = (data?.desks.length ?? 0) - activatedDesks.length;
 
   // EST_DAILY_YIELD: this wallet's share of Σw against the same round-size + cadence basis as the
   // EARNING PREVIEW calculator (../lib/yield.ts) — an estimate, not a promise.
@@ -166,7 +171,7 @@ export function WalletPortfolio({ address, state, onClear, onActivate }: Props) 
 
       {data && (
         <>
-          <div className="grid grid-cols-2 gap-2 md:grid-cols-3 lg:grid-cols-5">
+          <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
             <Metric label="SOL_BALANCE" value={fmtSol(data.solLamports)} accent="text-green-300" />
             <Metric
               label="HUB_BALANCE"
@@ -192,40 +197,71 @@ export function WalletPortfolio({ address, state, onClear, onActivate }: Props) 
               }
               accent="text-amber-300"
             />
-            <Metric
-              label="DESKS_OWNED"
-              value={fmtNum(data.desks.length)}
-              sub={`${data.desks.filter((d) => d.tier && !d.tier.voided).length} activated`}
-              accent="text-cyan-400"
-            />
-            <Metric
-              label="Σ_WEIGHT"
-              value={`${fmtWeight(activeWeightBp)}`}
-              sub={
-                state.config.totalWeightBp > 0
-                  ? `${((activeWeightBp / state.config.totalWeightBp) * 100).toFixed(2)}% of cohort`
-                  : "cohort empty"
-              }
-              accent="text-amber-400"
-            />
-            <Metric
-              label="LIFETIME_EARNINGS"
-              value={fmtSol(lifetimeEarningsLamports, 4)}
-              sub="total paid by claim_yield"
-              accent="text-green-300"
-            />
-            <Metric
-              label="EST_DAILY_YIELD"
-              value={estDailyYieldLamports === null ? "—" : fmtSol(estDailyYieldLamports, 4)}
-              sub={
-                activeWeightBp === 0
-                  ? "no active tiers"
-                  : perDay === null
-                    ? "no closed round yet"
-                    : "estimate — scales with Σw"
-              }
-              accent="text-cyan-400"
-            />
+          </div>
+
+          {/* Dual view: raw OTC Desks NFT ownership (native, independent of $HUB) vs. the subset
+              of those desks actually staked into the $HUB protocol and earning yield. */}
+          <div className="grid gap-2 sm:grid-cols-2">
+            <div className="border border-green-500/20 p-2">
+              <div className="mb-1.5 text-[10px] uppercase tracking-widest text-green-500/50">
+                OTC DESKS · NATIVE OWNERSHIP
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <Metric
+                  label="DESKS_OWNED"
+                  value={fmtNum(data.desks.length)}
+                  sub="in configured collection"
+                  accent="text-cyan-400"
+                />
+                <Metric
+                  label="UNACTIVATED"
+                  value={fmtNum(nativeCount)}
+                  sub={nativeCount > 0 ? "idle — no $HUB tier" : "all activated"}
+                  accent="text-green-500/70"
+                />
+              </div>
+            </div>
+            <div className="border border-green-500/20 p-2">
+              <div className="mb-1.5 text-[10px] uppercase tracking-widest text-green-500/50">
+                $HUB-ACTIVATED POSITIONS
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <Metric
+                  label="ACTIVATED"
+                  value={fmtNum(activatedDesks.length)}
+                  sub={
+                    state.config.totalWeightBp > 0
+                      ? `${((activeWeightBp / state.config.totalWeightBp) * 100).toFixed(2)}% of cohort`
+                      : "cohort empty"
+                  }
+                  accent="text-cyan-400"
+                />
+                <Metric
+                  label="Σ_WEIGHT"
+                  value={`${fmtWeight(activeWeightBp)}`}
+                  sub="active tier weight"
+                  accent="text-amber-400"
+                />
+                <Metric
+                  label="EST_DAILY_YIELD"
+                  value={estDailyYieldLamports === null ? "—" : fmtSol(estDailyYieldLamports, 4)}
+                  sub={
+                    activeWeightBp === 0
+                      ? "no active tiers"
+                      : perDay === null
+                        ? "no closed round yet"
+                        : "estimate — scales with Σw"
+                  }
+                  accent="text-cyan-400"
+                />
+                <Metric
+                  label="LIFETIME_EARNINGS"
+                  value={fmtSol(lifetimeEarningsLamports, 4)}
+                  sub="total paid by claim_yield"
+                  accent="text-green-300"
+                />
+              </div>
+            </div>
           </div>
 
           <div className="border border-green-500/20 p-2">
