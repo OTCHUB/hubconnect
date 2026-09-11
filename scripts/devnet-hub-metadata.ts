@@ -11,7 +11,7 @@ import { TOKEN_PROGRAM_ID, devnetCtx, explorer, sendIxs, type Ctx } from "./lib/
 
 export const METADATA_PROGRAM_ID = new PublicKey("metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s");
 const MINT_SIZE = 82;
-const DEFAULT_URI = "https://gateway.irys.xyz/G11gFw42HH62B6PacZFHkXD4CcuP4gyFbPKGRxDiEJJZ";
+const DEFAULT_URI = "https://gateway.irys.xyz/DFUN5GyvCAzXwAy72HhW85Vc9Rd5xfTHbHuk4G3w8qkG";
 // Metaplex string limits (bytes, before the u32 length prefix).
 const LIMITS = { name: 32, symbol: 10, uri: 200 };
 
@@ -105,12 +105,15 @@ async function main() {
     throw new Error(`Config.hub_mint ${mint.toBase58()} is not a Token-program mint`);
   }
   const mintAuthority = new PublicKey(info.data.subarray(4, 36));
-  if (!mintAuthority.equals(ctx.payer.publicKey)) {
-    throw new Error(`payer is not the mint authority (${mintAuthority.toBase58()})`);
-  }
 
   const pda = metadataPda(mint);
   const exists = !!(await ctx.connection.getAccountInfo(pda));
+  // Update path checks the on-chain update authority (enforced by the program itself), not the
+  // mint authority — mirrors mainnet-hub-metadata.ts. Only creation requires the payer to hold
+  // mint authority.
+  if (!exists && !mintAuthority.equals(ctx.payer.publicKey)) {
+    throw new Error(`payer is not the mint authority (${mintAuthority.toBase58()})`);
+  }
   const ix = exists
     ? updateMetadataV2(mint, ctx.payer.publicKey, name, symbol, uri)
     : createMetadataV3(mint, ctx.payer.publicKey, name, symbol, uri);

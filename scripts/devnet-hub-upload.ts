@@ -1,11 +1,13 @@
-// One-off: pin the refreshed $HUB logo + assets/hub-token.json on Irys (permanent Arweave-backed
+// One-off: pin the $HUB mint logo + assets/hub-token.json on Irys (permanent Arweave-backed
 // storage; payloads under 100 KiB upload for free, no funding tx required) and print the resulting
-// metadata URI to feed into `npm run devnet:metadata -- --uri <uri>`.
+// metadata URI. This upload is cluster-agnostic — the same permanent URI is fed into BOTH
+// `npm run devnet:metadata -- --uri <uri>` and (once $HUB has a mainnet mint) `mainnet:metadata`;
+// no need to re-upload per cluster since the identical logo/JSON content is being registered.
 //   npx ts-node -T scripts/devnet-hub-upload.ts
 //
-// assets/hub.png is the 1408x1408 master and exceeds the 100 KiB free-tier limit, so this script
-// downsamples it to assets/hub-icon-512.png (512x512, the canonical size for token-list logos)
-// before uploading. Re-run any time assets/hub.png changes.
+// assets/hub-mint.png is the 1024x1024 canonical $HUB mint logo and exceeds the 100 KiB free-tier
+// limit, so this script downsamples it to assets/hub-icon-512.png (512x512, the canonical size for
+// token-list logos) before uploading. Re-run any time assets/hub-mint.png changes.
 import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
@@ -14,7 +16,7 @@ import { Solana } from "@irys/upload-solana";
 import { loadKeypair } from "./lib/devnet";
 
 const ASSETS = path.join(__dirname, "..", "assets");
-const MASTER_LOGO = path.join(ASSETS, "hub.png");
+const MASTER_LOGO = path.join(ASSETS, "hub-mint.png");
 const ICON_LOGO = path.join(ASSETS, "hub-icon-512.png");
 const TOKEN_JSON_PATH = path.join(ASSETS, "hub-token.json");
 const FREE_TIER_BYTES = 100 * 1024;

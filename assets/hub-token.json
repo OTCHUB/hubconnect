@@ -2,7 +2,8 @@
   "name": "HUB Protocol",
   "symbol": "HUB",
   "description": "$HUB Protocol — Yield optimizer layer for OTC desk NFTs and RWA Earnings.",
-  "image": "https://gateway.irys.xyz/5gC3LJt2TRfDcQ1mnAotEG85V7AX61LNjZgCfmKXQfZC",
+  "manifesto": "$HUB is the yield layer for OTC Desk holders. We don't gatekeep alpha — we compound it on-chain, in the open, epoch after epoch. Every desk that activates feeds the pot; every pot feeds the desks that hold it down. No custodians, no black boxes: the treasury, the tokenomics, and the payouts all live on Solana where anyone can verify them. $HUB exists so that holding an OTC Desk means more than holding a picture — it means owning a claim on real, RWA-backed yield, distributed transparently to the people who showed up first. Unhinged by name, disciplined by code.",
+  "image": "https://gateway.irys.xyz/ExaAaEw415rS1N2wf1ALietg82SK8Bb7BVXeYBFGihyW",
   "external_url": "https://github.com/OTCHUB/hubconnect",
   "extensions": {
     "twitter": "https://x.com/otchubdev"
