@@ -10,6 +10,11 @@
 // after it, before any desk changes hands. Pass --slot <N> (the launch block) to record/verify
 // this; the script aborts if run too early and warns loudly if too much slot drift has passed.
 //
+// Don't have the launch slot memorized? Derive it exactly, after the fact, from chain history:
+//   npx ts-node -T scripts/mainnet-hub-genesis-slot.ts --hub-mint <pubkey>
+// which walks the $HUB mint's full signature history back to its InitializeMint tx and prints
+// the slot to pass here — no need to be watching at the exact moment of launch.
+//
 //   npx ts-node -T scripts/mainnet-airdrop-snapshot.ts --slot 123456789 --out genesis-snapshot.json
 //   npx ts-node -T scripts/mainnet-airdrop-snapshot.ts --slot 123456789 --tolerance 900
 import "dotenv/config";
