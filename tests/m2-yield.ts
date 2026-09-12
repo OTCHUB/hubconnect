@@ -18,6 +18,7 @@ import {
   mintTo,
   ata,
   tokenBalance,
+  TOKEN_PROGRAM_ID,
 } from "./harness";
 import {
   activate,
@@ -41,6 +42,7 @@ import {
   setConfig,
   balance,
   big,
+  bn,
 } from "./flows";
 import { epochPda, tierPda, otcPayPda } from "../sdk/src/pda";
 import * as K from "../sdk/src/constants";
@@ -522,5 +524,79 @@ describe("M2 — $OTC payment path (§A4.1)", () => {
     const p = await otcPayState();
     expect(p.enabled).to.eq(false);
     await assertSolvent(h, f);
+  });
+});
+
+describe("M2 — set_otc_pot_keeper (§A5 #23 rotation)", () => {
+  let h: Harness;
+  let f: Fixture;
+
+  before(async function () {
+    this.timeout(180_000);
+    h = await setup();
+    f = await ensureInitialized(h);
+  });
+
+  it("authority-only; rotates OtcPotState.authority; old keeper loses record_otc_buy access, new keeper gains it", async () => {
+    const intruder = Keypair.generate();
+    await expectFail(
+      h.program.methods
+        .setOtcPotKeeper(intruder.publicKey)
+        .accountsPartial({ authority: intruder.publicKey, config: f.config, otcPot: f.otcPot })
+        .signers([intruder])
+        .rpc(),
+      "Unauthorized",
+    );
+
+    const before = await h.program.account.otcPotState.fetch(f.otcPot);
+    expect(before.authority.toBase58()).to.eq(h.payer.publicKey.toBase58());
+
+    const newKeeper = Keypair.generate();
+    await h.program.methods
+      .setOtcPotKeeper(newKeeper.publicKey)
+      .accountsPartial({ authority: h.payer.publicKey, config: f.config, otcPot: f.otcPot })
+      .rpc();
+    const after = await h.program.account.otcPotState.fetch(f.otcPot);
+    expect(after.authority.toBase58()).to.eq(newKeeper.publicKey.toBase58());
+
+    // otc_pending_lamports is still 0 in this fresh fixture, so any positive record_otc_buy
+    // call fails on the pending check — but the *old* keeper must never reach that check at
+    // all, since `otc_pot.authority == keeper.key()` is validated first (Anchor field order).
+    const sig = Array.from(Keypair.generate().secretKey);
+    await expectFail(
+      h.program.methods
+        .recordOtcBuy(bn(1), bn(1), sig)
+        .accountsPartial({
+          keeper: h.payer.publicKey,
+          config: f.config,
+          otcPot: f.otcPot,
+          otcMint: f.otcMint,
+          keeperOtc: f.keeperOtc,
+          otcVault: f.otcVault,
+          pot: f.pot,
+          tokenProgram: TOKEN_PROGRAM_ID,
+        })
+        .rpc(),
+      "Unauthorized",
+    );
+    // The rotated-in keeper passes the authority gate — it now fails one step further in,
+    // on the pending-balance check, proving the rotation actually took effect.
+    await expectFail(
+      h.program.methods
+        .recordOtcBuy(bn(1), bn(1), sig)
+        .accountsPartial({
+          keeper: newKeeper.publicKey,
+          config: f.config,
+          otcPot: f.otcPot,
+          otcMint: f.otcMint,
+          keeperOtc: Keypair.generate().publicKey,
+          otcVault: f.otcVault,
+          pot: f.pot,
+          tokenProgram: TOKEN_PROGRAM_ID,
+        })
+        .signers([newKeeper])
+        .rpc(),
+      "OtcBuyExceedsPending",
+    );
   });
 });

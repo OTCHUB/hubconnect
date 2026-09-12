@@ -19,8 +19,18 @@ import path from "node:path";
  *  but keeps the shape future-proof if journals are ever consolidated). */
 export type JournalEntry = {
   ts: string;
-  service: "epoch" | "sweeper" | "lp" | "treasury-exit" | "creator-fee";
-  status: "waited" | "would-act" | "blocked" | "dry-run" | "sent" | "confirm-error" | "error";
+  service: "epoch" | "sweeper" | "lp" | "treasury-exit" | "creator-fee" | "otc-buy";
+  /** `swap-sent` is `otc-buy`-specific: the Jupiter swap landed $OTC in the keeper's own ATA but
+   *  `record_otc_buy` has not yet confirmed — see `keeper/otc-buy/src/index.ts`'s resume logic. */
+  status:
+    | "waited"
+    | "would-act"
+    | "blocked"
+    | "dry-run"
+    | "swap-sent"
+    | "sent"
+    | "confirm-error"
+    | "error";
   /** Free-form summary of the decision (threshold check, planned legs, gate reason, etc). */
   detail: string;
   signature?: string;

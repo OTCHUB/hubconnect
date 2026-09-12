@@ -48,6 +48,32 @@ pub fn init_otc_pot(ctx: Context<InitOtcPot>, keeper: Pubkey) -> Result<()> {
 }
 
 #[derive(Accounts)]
+pub struct SetOtcPotKeeper<'info> {
+    /// `Config.authority` (admin), not `otc_pot.authority` itself — a compromised or retired
+    /// keeper key can never rotate itself out from under the admin, and the admin can always
+    /// move the pot to a fresh dedicated hot key without touching `Config`.
+    pub authority: Signer<'info>,
+    #[account(seeds = [SEED_CONFIG], bump = config.bump, has_one = authority @ HubError::Unauthorized)]
+    pub config: Account<'info, Config>,
+    #[account(mut, seeds = [SEED_OTC_POT], bump = otc_pot.bump)]
+    pub otc_pot: Account<'info, OtcPotState>,
+}
+
+/// Admin-gated rotation of `OtcPotState.authority` — e.g. onboarding a dedicated low-privilege
+/// `otc-buy` keeper hot wallet in place of the master deployer key `init_otc_pot` originally set.
+/// Mirrors the key-custody pattern already used for `Config.treasury` (`update_config`'s
+/// `ConfigField::Treasury`), just scoped to this one PDA instead of a `Config` field.
+pub fn set_otc_pot_keeper(ctx: Context<SetOtcPotKeeper>, new_keeper: Pubkey) -> Result<()> {
+    let old_keeper = ctx.accounts.otc_pot.authority;
+    ctx.accounts.otc_pot.authority = new_keeper;
+    emit!(OtcPotKeeperUpdated {
+        old_keeper,
+        new_keeper,
+    });
+    Ok(())
+}
+
+#[derive(Accounts)]
 pub struct RecordOtcBuy<'info> {
     /// Must be `otc_pot.authority`: fronts SOL for the market buy, reimbursed here on proof of
     /// deposit (the deposit itself is enforced on-chain below, not merely attested).

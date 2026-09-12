@@ -177,6 +177,14 @@ pub struct OtcBuyRecorded {
     pub total_lamports_spent: u64,
 }
 
+/// `Config.authority` rotated `OtcPotState.authority` (`set_otc_pot_keeper`) — e.g. moving the
+/// pot from the master deployer key to a dedicated `otc-buy` keeper hot wallet.
+#[event]
+pub struct OtcPotKeeperUpdated {
+    pub old_keeper: Pubkey,
+    pub new_keeper: Pubkey,
+}
+
 /// `lamports` is the gross amount the treasury moved; `to_ops` (the `Config.protocol_fee_bp`
 /// skim, taken before this became pot inflow) already left for `ops_wallet` — only
 /// `lamports - to_ops` was booked as epoch inflow.

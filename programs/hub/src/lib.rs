@@ -209,6 +209,13 @@ pub mod hub {
         instructions::otc_pot::record_otc_buy(ctx, otc_bought, lamports_spent, buy_tx)
     }
 
+    /// §A5 #23 — `Config.authority` rotates `OtcPotState.authority` to a new keeper key (e.g.
+    /// onboarding a dedicated low-privilege `otc-buy` hot wallet in place of the master
+    /// deployer key `init_otc_pot` originally set).
+    pub fn set_otc_pot_keeper(ctx: Context<SetOtcPotKeeper>, new_keeper: Pubkey) -> Result<()> {
+        instructions::otc_pot::set_otc_pot_keeper(ctx, new_keeper)
+    }
+
     /// §A6.2 phase-2 — Raydium CP-Swap `deposit` + `lock_cp_liquidity` for the HUB/OTC pair:
     /// deposits, then burns the LP mint in the same tx while retaining a permanent fee claim.
     pub fn build_lp_otc_locked(

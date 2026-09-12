@@ -5141,6 +5141,82 @@ export type Hub = {
       ]
     },
     {
+      "name": "setOtcPotKeeper",
+      "docs": [
+        "§A5 #23 — `Config.authority` rotates `OtcPotState.authority` to a new keeper key (e.g.",
+        "onboarding a dedicated low-privilege `otc-buy` hot wallet in place of the master",
+        "deployer key `init_otc_pot` originally set)."
+      ],
+      "discriminator": [
+        109,
+        203,
+        110,
+        0,
+        247,
+        30,
+        131,
+        166
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "docs": [
+            "`Config.authority` (admin), not `otc_pot.authority` itself — a compromised or retired",
+            "keeper key can never rotate itself out from under the admin, and the admin can always",
+            "move the pot to a fresh dedicated hot key without touching `Config`."
+          ],
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "otcPot",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  111,
+                  116,
+                  99,
+                  95,
+                  112,
+                  111,
+                  116
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "newKeeper",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
       "name": "setTreasuryFloatCapBp",
       "docs": [
         "§A6.3/§A7.1 bridge — treasury multisig retunes the experimental treasury-float cap",
@@ -6386,6 +6462,19 @@ export type Hub = {
         104,
         88,
         53
+      ]
+    },
+    {
+      "name": "otcPotKeeperUpdated",
+      "discriminator": [
+        254,
+        154,
+        38,
+        47,
+        80,
+        97,
+        20,
+        73
       ]
     },
     {
@@ -8689,6 +8778,26 @@ export type Hub = {
           {
             "name": "enabled",
             "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "otcPotKeeperUpdated",
+      "docs": [
+        "`Config.authority` rotated `OtcPotState.authority` (`set_otc_pot_keeper`) — e.g. moving the",
+        "pot from the master deployer key to a dedicated `otc-buy` keeper hot wallet."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "oldKeeper",
+            "type": "pubkey"
+          },
+          {
+            "name": "newKeeper",
+            "type": "pubkey"
           }
         ]
       }
