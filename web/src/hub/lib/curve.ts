@@ -162,10 +162,36 @@ async function sendAndConfirmDeposit(opts: {
   onLog({ type: "ok", msg: `deposit sent ${sig.slice(0, 8)}…`, sig });
 
   onPhase?.("confirm");
-  const conf = await connection.confirmTransaction({ signature: sig, ...bh }, "confirmed");
-  if (conf.value.err) throw new Error(`FAILED_ON_CHAIN: ${JSON.stringify(conf.value.err)}`);
+  await confirmWithRecheck(connection, sig, "deposit");
   onLog({ type: "ok", msg: "deposit confirmed — redeeming on the curve…", sig });
   return sig;
+}
+
+/** Confirms `sig`, re-fetching the blockhash right before polling (not whatever was current
+ *  before the wallet-approval pause above — that may already be stale by now, and
+ *  `confirmTransaction` reports an immediate, false "expired" the instant it's called against a
+ *  `lastValidBlockHeight` that's already behind, even when the tx lands moments later). Mirrors
+ *  swap.ts's own confirm, which already re-fetches for this reason.
+ *
+ *  On top of that: a block-height-exceeded (or any) confirm error doesn't guarantee the deposit
+ *  never landed — client-side height tracking and network confirmation can race. Before telling
+ *  the user their SOL/$HUB went nowhere (and abandoning the redeem step, stranding a deposit that
+ *  actually succeeded), do one last direct status check and only surface the error if the
+ *  signature truly never confirmed. */
+async function confirmWithRecheck(connection: Connection, sig: string, label: string) {
+  const confirmBh = await connection.getLatestBlockhash("confirmed");
+  try {
+    const conf = await connection.confirmTransaction({ signature: sig, ...confirmBh }, "confirmed");
+    if (conf.value.err) throw new Error(`FAILED_ON_CHAIN: ${JSON.stringify(conf.value.err)}`);
+  } catch (e) {
+    const status = await connection.getSignatureStatus(sig, { searchTransactionHistory: true });
+    const landed =
+      status.value != null &&
+      status.value.err == null &&
+      (status.value.confirmationStatus === "confirmed" ||
+        status.value.confirmationStatus === "finalized");
+    if (!landed) throw e instanceof Error ? e : new Error(`${label} confirm failed: ${String(e)}`);
+  }
 }
 
 /** Buy leg: deposit real SOL to the curve wallet, then redeem it for $HUB at the curve's current

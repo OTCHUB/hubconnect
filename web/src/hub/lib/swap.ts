@@ -232,10 +232,23 @@ export async function executeSwap(opts: {
     onPhase?.("confirm");
     onLog({ type: "info", msg: "Confirming landing…" });
     const bh = await connection.getLatestBlockhash("confirmed");
-    const conf = await connection.confirmTransaction({ signature: sig, ...bh }, "confirmed");
-    if (conf.value.err) {
-      onLog({ type: "err", msg: `FAILED_ON_CHAIN: ${JSON.stringify(conf.value.err)}`, sig });
-      return { ok: false, reason: "failed_on_chain" };
+    try {
+      const conf = await connection.confirmTransaction({ signature: sig, ...bh }, "confirmed");
+      if (conf.value.err) throw new Error(`FAILED_ON_CHAIN: ${JSON.stringify(conf.value.err)}`);
+    } catch (e) {
+      // A confirm error (block-height-exceeded in particular) doesn't guarantee the swap never
+      // landed — client-side height tracking and network confirmation can race. Check the
+      // signature directly before telling the user it aborted when it actually went through.
+      const status = await connection.getSignatureStatus(sig, { searchTransactionHistory: true });
+      const landed =
+        status.value != null &&
+        status.value.err == null &&
+        (status.value.confirmationStatus === "confirmed" ||
+          status.value.confirmationStatus === "finalized");
+      if (!landed) {
+        onLog({ type: "err", msg: (e as Error).message, sig });
+        return { ok: false, reason: "failed_on_chain" };
+      }
     }
     onLog({ type: "ok", msg: "SWAP CONFIRMED", sig });
     return { ok: true, sig };
