@@ -272,6 +272,20 @@ export async function tokenAmount(ctx: Ctx, tokenAccount: PublicKey) {
   return info ? info.data.readBigUInt64LE(64) : null;
 }
 
+/**
+ * Decodes an spl-token Mint account's `mint_authority` COption + `decimals` — used by scripts
+ * that top up liquidity vaults to decide whether `MintTo` (payer *is* the authority) or a plain
+ * `Transfer` from the payer's own balance (payer is *not*, e.g. an orphaned devnet mint whose
+ * original authority keypair was never persisted) is the correct instruction to send. Returns
+ * null when `mint` doesn't exist.
+ */
+export async function mintInfo(ctx: Ctx, mint: PublicKey) {
+  const info = await ctx.connection.getAccountInfo(mint);
+  if (!info) return null;
+  const authority = info.data.readUInt32LE(0) === 1 ? new PublicKey(info.data.subarray(4, 36)) : null;
+  return { authority, supply: info.data.readBigUInt64LE(36), decimals: info.data.readUInt8(44) };
+}
+
 export async function openEpoch(ctx: Ctx) {
   const cfg = await ctx.program.account.config.fetch(ctx.config);
   const [key] = epochPda(ctx.program.programId, cfg.currentEpoch);

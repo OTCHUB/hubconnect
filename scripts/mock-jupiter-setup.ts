@@ -8,19 +8,25 @@
 //   npx ts-node -T scripts/mock-jupiter-setup.ts [--hub-supply 500000000] [--otc-supply 500000000] [--usdc-supply 500000000] [--wsol-sol 50]
 //
 // Requires: Config.hub_mint / Config.otc_mint already created (devnet-hub-mint.ts /
-// devnet-otc-mint.ts) with the devnet payer as mint authority — this script mints straight from
-// that authority into the mock's reserve; it never touches real mainnet mints or Jupiter itself.
+// devnet-otc-mint.ts). When the devnet payer is still that mint's authority this script mints
+// the shortfall straight into the mock's reserve; if not (e.g. an earlier devnet mint whose
+// authority keypair was never persisted) it instead transfers from the payer's own balance —
+// see `fundSplLiquidity` / `mintInfo` (scripts/lib/devnet.ts). It never touches real mainnet
+// mints or Jupiter itself.
 // There is no real USDC on devnet/localnet (see `sdk/src/constants.ts`'s `USDC_MINT` doc
 // comment), so if `Config.usdc_mint` is unset this script also creates a fresh devnet-only mock
 // USDC mint (payer as mint authority, 6 decimals) and points `Config.usdc_mint` at it — mirroring
 // `devnet-hub-mint.ts`/`devnet-otc-mint.ts`'s own stub-mint pattern.
 import { PublicKey, SystemProgram, TransactionInstruction } from "@solana/web3.js";
 import {
+  ata,
   devnetCtx,
   explorer,
+  mintInfo,
   sendIxs,
   setConfigPubkey,
   tokenAmount,
+  transferCheckedIx,
   TOKEN_PROGRAM_ID,
   type Ctx,
 } from "./lib/devnet";
@@ -63,6 +69,15 @@ function arg(name: string, dflt: string) {
   return i > 0 && process.argv[i + 1] ? process.argv[i + 1] : dflt;
 }
 
+/**
+ * Tops `mockLiquidityAta(mint)` up to `targetUnits`. Mints the shortfall when the payer is
+ * `mint`'s authority (the normal case for a stub mint this same wallet created); otherwise falls
+ * back to a plain `Transfer` out of the payer's own ATA (e.g. `hub`/`otc` on devnet, whose
+ * original mint-authority keypair from an earlier setup pass was never persisted — see
+ * scripts/lib/devnet.ts's `mintInfo`). The transfer path is capped at the payer's own balance and
+ * logs a clear shortfall warning instead of failing outright when that's not enough to reach
+ * `targetUnits` — devnet liquidity only needs to be "enough for test cycles", not exactly on target.
+ */
 async function fundSplLiquidity(ctx: Ctx, mint: PublicKey, targetUnits: bigint, label: string) {
   const vault = mockLiquidityAta(mint);
   const createIx = ensureMockLiquidityAtaIx(ctx.payer.publicKey, mint);
@@ -72,8 +87,40 @@ async function fundSplLiquidity(ctx: Ctx, mint: PublicKey, targetUnits: bigint, 
     return;
   }
   const top = targetUnits - have;
-  const sig = await sendIxs(ctx, [createIx, mintTo(mint, vault, ctx.payer.publicKey, top)]);
-  console.log(`${label} liquidity ${vault.toBase58()} topped up +${top} → ${targetUnits} units`);
+  const info = await mintInfo(ctx, mint);
+  if (info?.authority?.equals(ctx.payer.publicKey)) {
+    const sig = await sendIxs(ctx, [createIx, mintTo(mint, vault, ctx.payer.publicKey, top)]);
+    console.log(`${label} liquidity ${vault.toBase58()} topped up +${top} → ${targetUnits} units`);
+    console.log(`  ${explorer(sig, "tx")}`);
+    return;
+  }
+  const payerAta = ata(ctx.payer.publicKey, mint);
+  const payerBal = (await tokenAmount(ctx, payerAta)) ?? 0n;
+  const sendAmount = top < payerBal ? top : payerBal;
+  if (sendAmount === 0n) {
+    console.log(
+      `${label}: payer is not mint authority (${info?.authority?.toBase58() ?? "none"}) and ` +
+        `holds 0 units — cannot top up ${vault.toBase58()} (stuck at ${have}/${targetUnits})`,
+    );
+    return;
+  }
+  const decimals = info?.decimals ?? 6;
+  const sig = await sendIxs(ctx, [
+    createIx,
+    transferCheckedIx(payerAta, mint, vault, ctx.payer.publicKey, sendAmount, decimals),
+  ]);
+  const newTotal = have + sendAmount;
+  console.log(
+    `${label} liquidity ${vault.toBase58()} topped up +${sendAmount} (transferred from payer ` +
+      `balance — not mint authority) → ${newTotal} units`,
+  );
+  if (newTotal < targetUnits) {
+    console.log(
+      `  WARNING: ${label} still short of target ${targetUnits} by ${targetUnits - newTotal} ` +
+        `units — payer's own balance exhausted; top up the payer or recreate the mint (e.g. ` +
+        `\`npx ts-node -T scripts/devnet-hub-mint.ts --force\`) to fully reach target`,
+    );
+  }
   console.log(`  ${explorer(sig, "tx")}`);
 }
 

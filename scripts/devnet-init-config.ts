@@ -51,7 +51,11 @@ async function resetIfPresent(ctx: Ctx) {
   const [burn] = burnPda(ctx.program.programId);
   const [treasuryState] = treasuryPda(ctx.program.programId);
   const [epoch] = epochPda(ctx.program.programId, epochIndex);
-  const sig = await ctx.program.methods
+  // `devnet_reset` is `#[cfg(feature = "mock-jupiter")]`-gated and absent from every mainnet
+  // build, so it's never part of the canonical (mainnet) IDL the SDK's `HubProgram` type is
+  // generated from — the runtime IDL loaded by `devnetCtx()` still has it (built with
+  // `--features mock-jupiter`), only the TS type doesn't know about it.
+  const sig = await (ctx.program.methods as any)
     .devnetReset(epochIndex)
     .accountsPartial({
       authority: ctx.payer.publicKey,

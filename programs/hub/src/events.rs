@@ -186,6 +186,14 @@ pub struct OtcPotKeeperUpdated {
     pub new_keeper: Pubkey,
 }
 
+/// `Config.authority` repointed `OtcPotState.otc_vault` (`set_otc_vault`) — the recovery path
+/// when the vault's mint (fixed at `init_otc_pot` time) drifts from a later `Config.otc_mint`.
+#[event]
+pub struct OtcVaultUpdated {
+    pub old_vault: Pubkey,
+    pub new_vault: Pubkey,
+}
+
 /// `Config.authority` retuned one tier's `TierFeeConfig.tier_step_fee_lamports` entry
 /// (`set_tier_step_fee`).
 #[event]

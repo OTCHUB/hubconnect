@@ -5152,6 +5152,83 @@ export type Hub = {
       ]
     },
     {
+      "name": "setOtcVault",
+      "docs": [
+        "§A5 admin recovery lever — `Config.authority` repoints `OtcPotState.otc_vault` to a fresh",
+        "token account for the *current* `Config.otc_mint`. Only ever needed if `otc_vault`'s mint",
+        "(fixed forever at `init_otc_pot` time) drifts from a later `Config.otc_mint` change; see",
+        "`set_otc_vault`'s doc comment."
+      ],
+      "discriminator": [
+        173,
+        175,
+        129,
+        129,
+        2,
+        125,
+        206,
+        74
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "docs": [
+            "`Config.authority` (admin) — same rationale as `SetOtcPotKeeper`: a migration lever that",
+            "never depends on the (possibly compromised/retired) `otc_pot.authority` keeper key."
+          ],
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "otcPot",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  111,
+                  116,
+                  99,
+                  95,
+                  112,
+                  111,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "newOtcVault",
+          "docs": [
+            "shape/validation to `init_otc_pot`'s `otc_vault` (see `require_token_account` below)."
+          ]
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "setTierStepFee",
       "docs": [
         "§A4 revised #23c — authority retunes one tier's flat SOL fee without a program upgrade."
@@ -6543,6 +6620,19 @@ export type Hub = {
         97,
         20,
         73
+      ]
+    },
+    {
+      "name": "otcVaultUpdated",
+      "discriminator": [
+        136,
+        61,
+        166,
+        120,
+        54,
+        161,
+        183,
+        128
       ]
     },
     {
@@ -8946,6 +9036,26 @@ export type Hub = {
           {
             "name": "bump",
             "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "otcVaultUpdated",
+      "docs": [
+        "`Config.authority` repointed `OtcPotState.otc_vault` (`set_otc_vault`) — the recovery path",
+        "when the vault's mint (fixed at `init_otc_pot` time) drifts from a later `Config.otc_mint`."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "oldVault",
+            "type": "pubkey"
+          },
+          {
+            "name": "newVault",
+            "type": "pubkey"
           }
         ]
       }

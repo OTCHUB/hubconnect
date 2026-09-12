@@ -39,6 +39,7 @@
 // treasury-owned desks already exist.
 import { Keypair, LAMPORTS_PER_SOL, PublicKey, SystemProgram } from "@solana/web3.js";
 import { BN } from "@anchor-lang/core";
+import { randomBytes } from "node:crypto";
 import {
   createSignerFromKeypair,
   generateSigner,
@@ -389,6 +390,12 @@ async function main() {
   );
   const e0 = await openEpoch(ctx);
   const inflowB = deskRound * swept.length;
+  // §A5 revenue-model extension: `register_treasury_inflow` skims `bps_of(lamports,
+  // protocol_fee_bp)` to `ops_wallet` *before* booking the rest as epoch inflow / pot liability
+  // (see epochs.rs) — floored per call, so B and C are netted independently, not on their sum.
+  const protocolFeeBp = e0.cfg.protocolFeeBp;
+  const netOfProtocolFee = (lamports: number) =>
+    lamports - Math.floor((lamports * protocolFeeBp) / 10_000);
   const registerTreasury = async (source: "b" | "c", lamports: number) => {
     const sig = await registerInflow(ctx, source, lamports);
     console.log(`  source ${source.toUpperCase()} ${sol(lamports)} (${sig})`);
@@ -396,14 +403,16 @@ async function main() {
   if (inflowB > 0) await registerTreasury("b", inflowB);
   if (inflowC > 0) await registerTreasury("c", inflowC);
   const e1 = await openEpoch(ctx);
-  const pool = BigInt(inflowB + inflowC);
+  const pool = BigInt(
+    (inflowB > 0 ? netOfProtocolFee(inflowB) : 0) + (inflowC > 0 ? netOfProtocolFee(inflowC) : 0),
+  );
   check(
-    "epoch inflow += B + C",
+    `epoch inflow += net-of-${protocolFeeBp}bp-protocol-fee(B + C)`,
     big(e1.epoch.inflowLamports) - big(e0.epoch.inflowLamports) === pool,
     `${sol(e0.epoch.inflowLamports)} → ${sol(e1.epoch.inflowLamports)}`,
   );
   check(
-    "pot liability += B + C",
+    `pot liability += net-of-${protocolFeeBp}bp-protocol-fee(B + C)`,
     big(e1.cfg.potLiabilityLamports) - big(e0.cfg.potLiabilityLamports) === pool,
     `${sol(e0.cfg.potLiabilityLamports)} → ${sol(e1.cfg.potLiabilityLamports)}`,
   );
@@ -534,8 +543,13 @@ async function main() {
       `keeper holds ${keeperOtc} $OTC units but the mock buy needs ${otcUnits} — fund the ATA (devnet:otc-mint)`,
     );
   }
-  const buyTxBytes = new Array(64).fill(0);
-  buyTxBytes[0] = idx + 1; // unique per round so `last_buy_tx` never collides across cycle runs
+  // Random, not epoch-index-derived: `last_buy_tx` persists across script runs (unlike the
+  // Config/Epoch/BurnState/TreasuryState PDAs `devnet_reset` wipes), and epoch indices restart
+  // from 0 after every reset — so a single `idx`-derived byte collides with whatever index some
+  // earlier devnet session already used the moment the two overlap. A real market-buy's actual
+  // tx signature (this field's mainnet purpose) never repeats either, so a random nonce is the
+  // more faithful stand-in anyway.
+  const buyTxBytes = Array.from(randomBytes(64));
   const liabBeforeBuy = (await ctx.program.account.config.fetch(ctx.config)).potLiabilityLamports;
   const buySig = await ctx.program.methods
     .recordOtcBuy(new BN(otcUnits.toString()), new BN(otcPending.toString()), buyTxBytes)

@@ -74,6 +74,43 @@ pub fn set_otc_pot_keeper(ctx: Context<SetOtcPotKeeper>, new_keeper: Pubkey) -> 
 }
 
 #[derive(Accounts)]
+pub struct SetOtcVault<'info> {
+    /// `Config.authority` (admin) — same rationale as `SetOtcPotKeeper`: a migration lever that
+    /// never depends on the (possibly compromised/retired) `otc_pot.authority` keeper key.
+    pub authority: Signer<'info>,
+    #[account(seeds = [SEED_CONFIG], bump = config.bump, has_one = authority @ HubError::Unauthorized)]
+    pub config: Account<'info, Config>,
+    #[account(mut, seeds = [SEED_OTC_POT], bump = otc_pot.bump)]
+    pub otc_pot: Account<'info, OtcPotState>,
+    /// CHECK: spl-token account, mint = config.otc_mint, owner = `["pot"]` PDA — identical
+    /// shape/validation to `init_otc_pot`'s `otc_vault` (see `require_token_account` below).
+    pub new_otc_vault: UncheckedAccount<'info>,
+}
+
+/// Admin-gated repoint of `OtcPotState.otc_vault` to a freshly created token account for the
+/// *current* `Config.otc_mint` — the only recovery path when `otc_vault`'s mint (fixed forever at
+/// `init_otc_pot` time) has drifted from a later `Config.otc_mint` change (e.g. a devnet stub
+/// mint recreated with `--force`, or a genuine mainnet token migration). Does not move any
+/// balance already sitting in the old vault — callers should drain it first if it still holds
+/// value; `record_otc_buy`'s `TransferChecked` would simply reject deposits into the stale vault
+/// once `Config.otc_mint` and the vault's own mint disagree, so this exists to restore that
+/// invariant without a program upgrade.
+pub fn set_otc_vault(ctx: Context<SetOtcVault>) -> Result<()> {
+    require_token_account(
+        &ctx.accounts.new_otc_vault,
+        &ctx.accounts.config.otc_mint,
+        &ctx.accounts.config.pot,
+    )?;
+    let old_vault = ctx.accounts.otc_pot.otc_vault;
+    ctx.accounts.otc_pot.otc_vault = ctx.accounts.new_otc_vault.key();
+    emit!(OtcVaultUpdated {
+        old_vault,
+        new_vault: ctx.accounts.new_otc_vault.key(),
+    });
+    Ok(())
+}
+
+#[derive(Accounts)]
 pub struct RecordOtcBuy<'info> {
     /// Must be `otc_pot.authority`: fronts SOL for the market buy, reimbursed here on proof of
     /// deposit (the deposit itself is enforced on-chain below, not merely attested).

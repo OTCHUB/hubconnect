@@ -216,6 +216,14 @@ pub mod hub {
         instructions::otc_pot::set_otc_pot_keeper(ctx, new_keeper)
     }
 
+    /// §A5 admin recovery lever — `Config.authority` repoints `OtcPotState.otc_vault` to a fresh
+    /// token account for the *current* `Config.otc_mint`. Only ever needed if `otc_vault`'s mint
+    /// (fixed forever at `init_otc_pot` time) drifts from a later `Config.otc_mint` change; see
+    /// `set_otc_vault`'s doc comment.
+    pub fn set_otc_vault(ctx: Context<SetOtcVault>) -> Result<()> {
+        instructions::otc_pot::set_otc_vault(ctx)
+    }
+
     /// §A4 revised #23b — authority creates the ascending per-tier SOL fee PDA (one-time,
     /// post-`initialize_config`), seeded from `TIER_STEP_FEE_LAMPORTS` (T1 0.2 / T2 0.3 / T3 0.4
     /// / T4 0.5 SOL). Required before any `activate_tier` / `upgrade_tier` / `activate_tier_otc`

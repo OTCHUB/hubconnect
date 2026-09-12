@@ -20,6 +20,8 @@
     "devnet:desks": "ts-node -T scripts/devnet-mock-desks.ts",
     "devnet:faucet-authority": "ts-node -T scripts/devnet-faucet-authority.ts",
     "devnet:cycle": "ts-node -T scripts/devnet-yield-cycle.ts",
+    "devnet:init-tier-fee": "ts-node -T scripts/devnet-init-tier-fee.ts",
+    "devnet:mock-jupiter-setup": "ts-node -T scripts/mock-jupiter-setup.ts",
     "authority": "ts-node -T scripts/hub-authority.ts",
     "mainnet:metadata": "ts-node -T scripts/mainnet-hub-metadata.ts",
     "mainnet:airdrop-snapshot": "ts-node -T scripts/mainnet-airdrop-snapshot.ts",
