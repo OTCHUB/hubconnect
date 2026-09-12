@@ -16,6 +16,7 @@
     "devnet:mint": "ts-node -T scripts/devnet-hub-mint.ts",
     "devnet:metadata": "ts-node -T scripts/devnet-hub-metadata.ts",
     "devnet:upload-metadata": "ts-node -T scripts/devnet-hub-upload.ts",
+    "devnet:mock-token-metadata": "ts-node -T scripts/devnet-mock-token-metadata.ts",
     "orquestra:idl": "ts-node -T scripts/orquestra-idl.ts",
     "orquestra:send": "ts-node -T scripts/orquestra-send.ts",
     "devnet:desks": "ts-node -T scripts/devnet-mock-desks.ts",
