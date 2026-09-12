@@ -31,6 +31,8 @@ import {
   type Ctx,
 } from "./lib/mainnet";
 
+const json = (v: unknown) => JSON.stringify(v, (_k, val) => (typeof val === "bigint" ? val.toString() : val), 2);
+
 async function ensureOpsAta2022(ctx: Ctx, opsWallet: PublicKey, mint: PublicKey, label: string) {
   const acc = ata2022(opsWallet, mint);
   if (await ctx.connection.getAccountInfo(acc)) return acc;
@@ -111,7 +113,7 @@ async function main() {
   }
 
   const after = await fetchHubPot(ctx.program);
-  console.log("HubPotConfig (after):", JSON.stringify(after, null, 2));
+  console.log("HubPotConfig (after):", json(after));
 }
 
 if (require.main === module) {

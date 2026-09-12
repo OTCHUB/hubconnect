@@ -10,6 +10,8 @@
 import { fetchHubPotInflow, hubPotInflowPda } from "../sdk/src";
 import { explorer, mainnetCtx, parseFlags } from "./lib/mainnet";
 
+const json = (v: unknown) => JSON.stringify(v, (_k, val) => (typeof val === "bigint" ? val.toString() : val), 2);
+
 async function main() {
   const { has } = parseFlags(process.argv.slice(2));
   const ctx = await mainnetCtx();
@@ -17,7 +19,7 @@ async function main() {
 
   const existing = await fetchHubPotInflow(ctx.program);
   if (existing) {
-    console.log("HubPotInflowState already initialized:", JSON.stringify(existing, null, 2));
+    console.log("HubPotInflowState already initialized:", json(existing));
     return;
   }
 
@@ -34,7 +36,7 @@ async function main() {
   console.log(`init_hub_pot_inflow :: ${explorer(sig, "tx")}`);
 
   const state = await fetchHubPotInflow(ctx.program);
-  console.log("HubPotInflowState:", JSON.stringify(state, null, 2));
+  console.log("HubPotInflowState:", json(state));
 }
 
 if (require.main === module) {
