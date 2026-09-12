@@ -102,10 +102,16 @@ export function DeploymentsPage() {
   const programDeployed = hub.address[cluster] !== null || liveOnViewedCluster;
   const showLive = cluster === active && programDeployed;
   const config = status.kind === "ready" ? status.state.config : null;
+  const tierFee = status.kind === "ready" ? status.state.tierFee : null;
   const { pdas, fromConfig } = liveDeployments(
     showLive ? programId : null,
     showLive ? config : null,
   );
+  const tierStepFee = tierFee
+    ? tierFee.tierStepFeeLamports.map((v) => fmtSol(v)).join(" · ")
+    : config
+      ? `${fmtSol(config.stepFeeLamports)} (legacy default)`
+      : null;
   const hubProgramAddress = liveOnViewedCluster ? programId.toBase58() : hub.address[cluster];
   const hubProgramStatus: DeploymentStatus = liveOnViewedCluster ? "live" : hub.status[cluster];
 
@@ -207,7 +213,7 @@ export function DeploymentsPage() {
               <Row k="lp split (round)" v={fmtBp(config.lpPctBp, 2)} />
               <Row k="ops split (step fee)" v={fmtBp(config.opsPctBp, 2)} />
               <Row k="round-close threshold" v={fmtSol(config.minPotThresholdLamports)} />
-              <Row k="tier step fee" v={fmtSol(config.stepFeeLamports)} />
+              <Row k="tier step fee (T1-T4)" v={tierStepFee ?? fmtSol(config.stepFeeLamports)} />
               <Row k="lp target (phase-2)" v={fmtSol(config.lpTargetSolLamports)} />
               <Row
                 k="lp phase-2 opens"

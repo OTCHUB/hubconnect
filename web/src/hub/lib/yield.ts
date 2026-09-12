@@ -9,6 +9,7 @@ import {
   liveHubCostUnits,
   type ConfigView,
   type EpochView,
+  type TierFeeView,
 } from "@hub-sdk";
 
 export type RoundInputs = {
@@ -92,11 +93,12 @@ export function buildTierRows(
   perDay: number | null,
   config: ConfigView,
   nowTs: number,
+  tierFee?: TierFeeView | null,
 ): TierRow[] {
   return TIER_WEIGHTS_BP.map((weightBp, i) => {
     const tier = i + 1;
     const roundLamports = tierPayoutLamports(tier, inputs);
-    const fee = cumulativeFeeLamports(tier);
+    const fee = tierFee?.tierStepFeeLamports[tier - 1] ?? cumulativeFeeLamports(tier);
     return {
       tier,
       weightBp,

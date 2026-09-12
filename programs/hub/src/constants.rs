@@ -11,12 +11,27 @@ pub const LAMPORTS_PER_SOL: u64 = 1_000_000_000;
 pub const TIER_COUNT: usize = 4;
 pub const TIER_WEIGHTS_BP: [u16; TIER_COUNT] = [10_000, 12_500, 16_000, 20_000];
 
-/// ACTIVATION_FEE = 0.5 SOL, paid FLAT once per `activate_tier` / `upgrade_tier` call (90% pot /
-/// 10% ops) — independent of how many tier-steps the call crosses. A fresh activation into any
-/// tier (T1..T4) pays this once; a later upgrade to a higher tier pays it again, once, regardless
-/// of the size of the jump — never `(to - from) × fee`. (Named STEP_FEE for historical/layout
-/// reasons; see `Config::step_fee`, which no longer scales with the step count.)
+/// Legacy flat ACTIVATION_FEE (0.5 SOL) — superseded by `TIER_STEP_FEE_LAMPORTS` below. Kept only
+/// as the value `initialize_config` still writes into `Config.step_fee_lamports`, a dead-but-
+/// byte-layout-stable field: `Config` is the already-initialized mainnet genesis account, and
+/// removing or resizing a field in place would shift every later field's offset and break Borsh
+/// deserialization of that live account. See `TIER_STEP_FEE_LAMPORTS`/`TierFeeConfig` (a new PDA,
+/// same no-migration pattern as `OtcPotState`/`OtcPayConfig`) for the value actually charged.
 pub const STEP_FEE_LAMPORTS: u64 = LAMPORTS_PER_SOL / 2;
+/// TIER_STEP_FEE_LAMPORTS: ascending per-tier flat SOL fee (§A4, revised) — T1 0.2 SOL, T2 0.3
+/// SOL, T3 0.4 SOL, T4 0.5 SOL. Paid once per `activate_tier` / `upgrade_tier` (or the $OTC-path
+/// equivalents `activate_tier_otc` / `upgrade_tier_otc`) call, indexed by the *target* tier
+/// reached (`to`) — never the tier being left (`from`) nor the number of steps crossed, so a
+/// direct T1→T4 upgrade costs exactly T4's fee once, the same as a fresh T4 activation. Lives on
+/// `TierFeeConfig` (`["tier_fee"]`), not `Config`, so it can be admin-retuned per tier
+/// (`set_tier_step_fee`) without any `Config` layout migration. 90% pot / 10% ops, same split as
+/// the old flat fee.
+pub const TIER_STEP_FEE_LAMPORTS: [u64; TIER_COUNT] = [
+    LAMPORTS_PER_SOL * 2 / 10, // T1 0.2 SOL
+    LAMPORTS_PER_SOL * 3 / 10, // T2 0.3 SOL
+    LAMPORTS_PER_SOL * 4 / 10, // T3 0.4 SOL
+    LAMPORTS_PER_SOL * 5 / 10, // T4 0.5 SOL
+];
 pub const OPS_PCT_BP: u16 = 1_000;
 
 /// Protocol-fee skim, taken at the source of *treasury-controlled* revenue only — never off the
@@ -160,8 +175,9 @@ pub const LP_COMPOUND_MIN_HUB_UNITS: u64 = 100 * HUB_UNIT;
 pub const TREASURY_HUB_FLOAT_CAP_BP: u16 = 500;
 
 /// $OTC payment path (§A4.1, revised): `activate_tier_otc` / `upgrade_tier_otc` charge the same
-/// flat 0.5 SOL activation fee as the SOL path (90% pot / 10% ops, `book_inflow`'d into the same
-/// epoch — see `Config::step_fee`) *plus* an $OTC-denominated premium that replaces the tier's
+/// ascending per-tier SOL fee as the SOL path (T1 0.2 / T2 0.3 / T3 0.4 / T4 0.5 SOL; 90% pot /
+/// 10% ops, `book_inflow`'d into the same epoch — see `TierFeeConfig`/`TIER_STEP_FEE_LAMPORTS`)
+/// *plus* an $OTC-denominated premium that replaces the tier's
 /// direct $HUB burn. The premium is no longer priced off a static authority-refreshed rate —
 /// it's a real synchronous on-chain Jupiter OTC→$HUB swap, so it's dynamic as $HUB's market price
 /// moves. Caller (payer/keeper) supplies `otc_swap_amount`, the $OTC input for the swap leg
@@ -314,6 +330,9 @@ pub const SEED_POT: &[u8] = b"pot";
 pub const SEED_BURN: &[u8] = b"burn";
 /// $OTC yield-vault bookkeeping (§A5): otc_pending_lamports budget + lifetime avg buy rate.
 pub const SEED_OTC_POT: &[u8] = b"otc_pot";
+/// Ascending per-tier `activate_tier`/`upgrade_tier` SOL fee (§A4, revised) — see
+/// `TIER_STEP_FEE_LAMPORTS`/`TierFeeConfig`.
+pub const SEED_TIER_FEE: &[u8] = b"tier_fee";
 /// §A6.3 creator-fee flywheel bookkeeping: pending $OTC + per-leg earmarks.
 pub const SEED_CREATOR_FEE: &[u8] = b"creator_fee";
 pub const SEED_TREASURY: &[u8] = b"treasury";

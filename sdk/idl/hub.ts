@@ -17,7 +17,7 @@ export type Hub = {
       "name": "activateTier",
       "docs": [
         "§B3 #2 — fresh activation (or re-activation of a voided tier) straight into `target_tier`;",
-        "flat `step_fee` SOL + the full $HUB cost of `target_tier`, burned."
+        "ascending per-tier `TierFeeConfig.step_fee` SOL + the full $HUB cost of `target_tier`, burned."
       ],
       "discriminator": [
         2,
@@ -128,6 +128,29 @@ export type Hub = {
               {
                 "kind": "account",
                 "path": "deskAsset"
+              }
+            ]
+          }
+        },
+        {
+          "name": "tierFee",
+          "docs": [
+            "Ascending per-tier SOL fee (§A4, revised) — see `TierFeeConfig`."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  105,
+                  101,
+                  114,
+                  95,
+                  102,
+                  101,
+                  101
+                ]
               }
             ]
           }
@@ -364,6 +387,29 @@ export type Hub = {
               {
                 "kind": "account",
                 "path": "deskAsset"
+              }
+            ]
+          }
+        },
+        {
+          "name": "tierFee",
+          "docs": [
+            "Ascending per-tier SOL fee (§A4, revised) — see `TierFeeConfig`."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  105,
+                  101,
+                  114,
+                  95,
+                  102,
+                  101,
+                  101
+                ]
               }
             ]
           }
@@ -1660,190 +1706,6 @@ export type Hub = {
         {
           "name": "withMetadata",
           "type": "bool"
-        }
-      ]
-    },
-    {
-      "name": "devnetCloseEpoch",
-      "docs": [
-        "Devnet-only: closes a single stale `epoch(epoch_index)` PDA left over from an earlier",
-        "test session, without touching `config`/`burn`/`treasury_state`. Compiled only under the",
-        "`mock-jupiter` feature — absent from every mainnet build."
-      ],
-      "discriminator": [
-        125,
-        60,
-        128,
-        235,
-        134,
-        153,
-        174,
-        54
-      ],
-      "accounts": [
-        {
-          "name": "authority",
-          "writable": true,
-          "signer": true,
-          "relations": [
-            "config"
-          ]
-        },
-        {
-          "name": "config",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  99,
-                  111,
-                  110,
-                  102,
-                  105,
-                  103
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "epoch",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  101,
-                  112,
-                  111,
-                  99,
-                  104
-                ]
-              },
-              {
-                "kind": "arg",
-                "path": "epochIndex"
-              }
-            ]
-          }
-        }
-      ],
-      "args": [
-        {
-          "name": "epochIndex",
-          "type": "u64"
-        }
-      ]
-    },
-    {
-      "name": "devnetReset",
-      "docs": [
-        "Devnet-only: closes `config`/`burn`/`treasury_state`/`epoch(epoch_index)` so",
-        "`initialize_config` can re-`init` the same PDAs after a layout change. Compiled only",
-        "under the `mock-jupiter` feature — absent from every mainnet build."
-      ],
-      "discriminator": [
-        52,
-        226,
-        240,
-        25,
-        105,
-        131,
-        41,
-        28
-      ],
-      "accounts": [
-        {
-          "name": "authority",
-          "writable": true,
-          "signer": true
-        },
-        {
-          "name": "config",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  99,
-                  111,
-                  110,
-                  102,
-                  105,
-                  103
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "burn",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  98,
-                  117,
-                  114,
-                  110
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "treasuryState",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  116,
-                  114,
-                  101,
-                  97,
-                  115,
-                  117,
-                  114,
-                  121
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "epoch",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  101,
-                  112,
-                  111,
-                  99,
-                  104
-                ]
-              },
-              {
-                "kind": "arg",
-                "path": "epochIndex"
-              }
-            ]
-          }
-        }
-      ],
-      "args": [
-        {
-          "name": "epochIndex",
-          "type": "u64"
         }
       ]
     },
@@ -3682,6 +3544,79 @@ export type Hub = {
       ]
     },
     {
+      "name": "initTierFeeConfig",
+      "docs": [
+        "§A4 revised #23b — authority creates the ascending per-tier SOL fee PDA (one-time,",
+        "post-`initialize_config`), seeded from `TIER_STEP_FEE_LAMPORTS` (T1 0.2 / T2 0.3 / T3 0.4",
+        "/ T4 0.5 SOL). Required before any `activate_tier` / `upgrade_tier` / `activate_tier_otc`",
+        "/ `upgrade_tier_otc` call."
+      ],
+      "discriminator": [
+        176,
+        93,
+        30,
+        47,
+        132,
+        248,
+        202,
+        148
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "tierFee",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  105,
+                  101,
+                  114,
+                  95,
+                  102,
+                  101,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "initTokenomics",
       "docs": [
         "§A7.1 #18 — authority records the supply plan + the vault $HUB account funding the airdrop."
@@ -5217,6 +5152,80 @@ export type Hub = {
       ]
     },
     {
+      "name": "setTierStepFee",
+      "docs": [
+        "§A4 revised #23c — authority retunes one tier's flat SOL fee without a program upgrade."
+      ],
+      "discriminator": [
+        123,
+        137,
+        121,
+        115,
+        42,
+        63,
+        219,
+        21
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "tierFee",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  105,
+                  101,
+                  114,
+                  95,
+                  102,
+                  101,
+                  101
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "tier",
+          "type": "u8"
+        },
+        {
+          "name": "lamports",
+          "type": "u64"
+        }
+      ]
+    },
+    {
       "name": "setTreasuryFloatCapBp",
       "docs": [
         "§A6.3/§A7.1 bridge — treasury multisig retunes the experimental treasury-float cap",
@@ -5554,8 +5563,8 @@ export type Hub = {
     {
       "name": "upgradeTier",
       "docs": [
-        "§B3 #3 — flat `step_fee` SOL (never scales with the step size) + the $HUB cost",
-        "difference for `current → target_tier`, burned."
+        "§B3 #3 — ascending per-tier `TierFeeConfig.step_fee` SOL, indexed by the target tier",
+        "reached (never the step size) + the $HUB cost difference for `current → target_tier`, burned."
       ],
       "discriminator": [
         122,
@@ -5666,6 +5675,29 @@ export type Hub = {
               {
                 "kind": "account",
                 "path": "deskAsset"
+              }
+            ]
+          }
+        },
+        {
+          "name": "tierFee",
+          "docs": [
+            "Ascending per-tier SOL fee (§A4, revised) — see `TierFeeConfig`."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  105,
+                  101,
+                  114,
+                  95,
+                  102,
+                  101,
+                  101
+                ]
               }
             ]
           }
@@ -5904,6 +5936,29 @@ export type Hub = {
           }
         },
         {
+          "name": "tierFee",
+          "docs": [
+            "Ascending per-tier SOL fee (§A4, revised) — see `TierFeeConfig`."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  105,
+                  101,
+                  114,
+                  95,
+                  102,
+                  101,
+                  101
+                ]
+              }
+            ]
+          }
+        },
+        {
           "name": "tokenomics",
           "writable": true,
           "pda": {
@@ -6122,6 +6177,19 @@ export type Hub = {
         208,
         47,
         98
+      ]
+    },
+    {
+      "name": "tierFeeConfig",
+      "discriminator": [
+        71,
+        97,
+        149,
+        64,
+        250,
+        119,
+        2,
+        163
       ]
     },
     {
@@ -6501,6 +6569,19 @@ export type Hub = {
         116,
         255,
         145
+      ]
+    },
+    {
+      "name": "tierStepFeeUpdated",
+      "discriminator": [
+        67,
+        153,
+        154,
+        136,
+        30,
+        242,
+        125,
+        162
       ]
     },
     {
@@ -7163,6 +7244,11 @@ export type Hub = {
           },
           {
             "name": "stepFeeLamports",
+            "docs": [
+              "Legacy flat activation/upgrade SOL fee — no longer read (see `TierFeeConfig` /",
+              "`TIER_STEP_FEE_LAMPORTS`, a separate PDA holding the live ascending per-tier fee). Kept in",
+              "place, unused, so this already-initialized account's byte layout never shifts."
+            ],
             "type": "u64"
           },
           {
@@ -8995,10 +9081,40 @@ export type Hub = {
       }
     },
     {
+      "name": "tierFeeConfig",
+      "docs": [
+        "§A4 revised — `[\"tier_fee\"]`. Ascending per-tier flat SOL activation/upgrade fee, admin-",
+        "retunable via `set_tier_step_fee`. Lives on its own PDA rather than a `Config` field: `Config`",
+        "is the already-initialized mainnet genesis account, and appending or resizing a field there",
+        "would require an in-place layout migration (Borsh reads the account's exact current byte",
+        "length); a brand-new PDA needs none — same no-migration pattern as `OtcPotState`/",
+        "`OtcPayConfig`. Created once by the authority after `initialize_config` (`init_tier_fee_config`)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "tierStepFeeLamports",
+            "type": {
+              "array": [
+                "u64",
+                4
+              ]
+            }
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
       "name": "tierPaidOtc",
       "docs": [
-        "§A4.1 (revised) — step(s) paid in $OTC: the flat 0.5 SOL activation fee (90% pot / 10% ops,",
-        "same as the SOL path — `fee_lamports`/`to_pot`/`to_ops`) plus the $OTC 2× premium, split into",
+        "§A4.1 (revised) — step(s) paid in $OTC: the target tier's ascending SOL fee (T1 0.2 / T2 0.3 /",
+        "T3 0.4 / T4 0.5 SOL; 90% pot / 10% ops, same as the SOL path — `fee_lamports`/`to_pot`/",
+        "`to_ops`) plus the $OTC 2× premium, split into",
         "a swap-burn leg (real on-chain Jupiter OTC→$HUB, burned in full — this *is* the tier's $HUB",
         "cost burn, no separate direct debit from the payer's own $HUB wallet) and an equal-sized",
         "desk-pot leg (raises `OtcPotState`'s lifetime average buy rate). `from_tier == 0` is a fresh",
@@ -9073,6 +9189,30 @@ export type Hub = {
             "docs": [
               "Total $OTC charged (`otc_swap_amount + to_otc_pot`), i.e. the \"2× premium\"."
             ],
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "tierStepFeeUpdated",
+      "docs": [
+        "`Config.authority` retuned one tier's `TierFeeConfig.tier_step_fee_lamports` entry",
+        "(`set_tier_step_fee`)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "tier",
+            "type": "u8"
+          },
+          {
+            "name": "oldLamports",
+            "type": "u64"
+          },
+          {
+            "name": "newLamports",
             "type": "u64"
           }
         ]

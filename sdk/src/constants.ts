@@ -5,12 +5,27 @@ export const LAMPORTS_PER_SOL = 1_000_000_000;
 export const TIER_WEIGHTS_BP = [10_000, 12_500, 16_000, 20_000] as const;
 export const TIER_WEIGHTS = TIER_WEIGHTS_BP.map((w) => w / BPS); // [1.00,1.25,1.60,2.00]
 /**
- * Flat activation/upgrade SOL fee (90% pot / 10% ops) — paid once per `activate_tier` /
- * `upgrade_tier` call, independent of how many tier-steps it crosses. A fresh activation into
- * any tier (T1..T4) pays this once; a later upgrade to a higher tier pays it again, once,
- * regardless of the size of the jump.
+ * Legacy flat activation/upgrade SOL fee (0.5 SOL) — superseded by `TIER_STEP_FEE_LAMPORTS`
+ * below. Kept only because `ConfigView.stepFeeLamports` still mirrors the on-chain `Config`'s
+ * dead-but-layout-stable field; the fee actually charged now comes from `TierFeeConfig`
+ * (`tierFeePda`), fetched live via `fetchTierFee` (`./reader`) — prefer that (or
+ * `cumulativeFeeLamports`/`stepFeeLamports` below, updated to read it) over this constant.
  */
 export const STEP_FEE_LAMPORTS = LAMPORTS_PER_SOL / 2;
+/**
+ * TIER_STEP_FEE_LAMPORTS: ascending per-tier flat SOL fee (§A4, revised) — T1 0.2 SOL, T2 0.3
+ * SOL, T3 0.4 SOL, T4 0.5 SOL. Mirrors `TIER_STEP_FEE_LAMPORTS` in constants.rs — the genesis
+ * default `init_tier_fee_config` seeds `TierFeeConfig` with; the live, admin-retunable value is
+ * `TierFeeView.tierStepFeeLamports` (`./reader`). Paid once per `activate_tier` / `upgrade_tier`
+ * (or the $OTC-path equivalents), indexed by the *target* tier reached — never the tier being
+ * left nor the number of steps crossed.
+ */
+export const TIER_STEP_FEE_LAMPORTS = [
+  (LAMPORTS_PER_SOL * 2) / 10, // T1 0.2 SOL
+  (LAMPORTS_PER_SOL * 3) / 10, // T2 0.3 SOL
+  (LAMPORTS_PER_SOL * 4) / 10, // T3 0.4 SOL
+  (LAMPORTS_PER_SOL * 5) / 10, // T4 0.5 SOL
+] as [number, number, number, number];
 export const OPS_PCT_BP = 1_000;
 /**
  * §A5 round split (unrelated to the flat-fee 90/10 above, 4-way): 90% buys $OTC and is
@@ -95,7 +110,8 @@ export const TREASURY_HUB_FLOAT_CAP_BP = 500;
 
 /**
  * §A4.1 $OTC payment path (revised): `activate_tier_otc` / `upgrade_tier_otc` charge the same
- * flat 0.5 SOL activation fee as the SOL path (90% pot / 10% ops) **plus** an $OTC-denominated
+ * ascending per-tier SOL fee as the SOL path (90% pot / 10% ops — see `TIER_STEP_FEE_LAMPORTS`)
+ * **plus** an $OTC-denominated
  * 2× premium that replaces the tier's direct $HUB burn. Pricing is no longer a static
  * authority-refreshed rate — it's a real synchronous on-chain Jupiter OTC→$HUB swap, so it's
  * dynamic as $HUB's market price moves. The caller supplies `otcSwapAmount` (sized off-chain via
@@ -360,13 +376,19 @@ export function tokenomicsPlan(
 export const TIER_NAMES = ["TRADER", "BROKER", "DEALER", "MARKET MAKER"] as const;
 
 /**
- * Flat SOL fee for any `activate_tier` / `upgrade_tier` call, regardless of `tier` or how many
- * steps it crosses (§A4) — kept as a function of `tier` for API stability, but the fee no longer
- * scales with it.
+ * Ascending per-tier SOL fee for a fresh activation into `tier` (§A4, revised), off the
+ * *genesis default* table only (`TIER_STEP_FEE_LAMPORTS`) — ignores any live admin retune via
+ * `set_tier_step_fee`. Prefer `TierFeeView.tierStepFeeLamports[tier - 1]` (`./reader`) wherever a
+ * live `TierFeeView` is available; this remains correct only as the known genesis default.
  */
-export const cumulativeFeeLamports = (_tier: number) => STEP_FEE_LAMPORTS;
-/** Flat SOL fee to move `from` → `to` (from = 0 is a fresh activation) — same value every time. */
-export const stepFeeLamports = (_from: number, _to: number) => STEP_FEE_LAMPORTS;
+export const cumulativeFeeLamports = (tier: number) => TIER_STEP_FEE_LAMPORTS[tier - 1] ?? 0;
+/**
+ * SOL fee to move `from` → `to` (`from = 0` is a fresh activation), off the genesis default
+ * table — indexed by the *target* tier `to` reached, never `from` nor `to - from`: a fresh T1
+ * activation, a fresh T4 activation, and a T1→T4 upgrade each cost exactly `to`'s fee, once. See
+ * `cumulativeFeeLamports`'s caveat above re: live vs. genesis-default values.
+ */
+export const stepFeeLamports = (_from: number, to: number) => cumulativeFeeLamports(to);
 
 /** $HUB base units required to reach `tier` from scratch, off the *genesis/ceiling* table only
  *  (§A4, cumulative table lookup) — ignores the live price cache entirely. Prefer `liveHubCostUnits`

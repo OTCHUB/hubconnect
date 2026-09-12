@@ -46,6 +46,9 @@ pub struct ActivateTier<'info> {
         seeds = [SEED_TIER, desk_asset.key().as_ref()], bump
     )]
     pub desk_tier: Account<'info, DeskTier>,
+    /// Ascending per-tier SOL fee (§A4, revised) — see `TierFeeConfig`.
+    #[account(seeds = [SEED_TIER_FEE], bump = tier_fee.bump)]
+    pub tier_fee: Account<'info, TierFeeConfig>,
     #[account(mut, seeds = [SEED_TOKENOMICS], bump = tokenomics.bump)]
     pub tokenomics: Account<'info, TokenomicsConfig>,
     /// CHECK: recorded on TokenomicsConfig at init; holds the genesis floor + reward deposits —
@@ -57,7 +60,8 @@ pub struct ActivateTier<'info> {
 }
 
 /// Fresh activation into any tier `target_tier`, or re-activation of a voided tier (full price,
-/// §B5 wash-transfer): flat `step_fee(0, target_tier)` SOL (90% pot / 10% ops) + the full $HUB
+/// §B5 wash-transfer): flat, tier-indexed `tier_fee.step_fee(0, target_tier)` SOL (90% pot / 10%
+/// ops — T1 0.2 / T2 0.3 / T3 0.4 / T4 0.5 SOL) + the full $HUB
 /// cost of `target_tier`, split `tier_cost_burn_bp` burned / remainder into the active-desk
 /// reward pool (`TokenomicsConfig.reward_pending_units`, same mechanism `fund_treasury_reward`
 /// feeds — paid out pro-rata by `distribute_treasury_reward` the next round it opens).
@@ -82,7 +86,7 @@ pub fn activate_tier(ctx: Context<ActivateTier>, target_tier: u8) -> Result<()> 
         ctx.accounts.payer.key,
     )?;
     let now = Clock::get()?.unix_timestamp;
-    let fee = config.step_fee(0, target_tier)?;
+    let fee = ctx.accounts.tier_fee.step_fee(0, target_tier)?;
     let hub_cost = config.hub_cost_delta(0, target_tier, now)?;
     let hub_burn = bps_of(hub_cost, config.tier_cost_burn_bp)?;
     let hub_reward = sub(hub_cost, hub_burn)?;
@@ -177,6 +181,9 @@ pub struct UpgradeTier<'info> {
         constraint = !desk_tier.voided @ HubError::TierVoided
     )]
     pub desk_tier: Account<'info, DeskTier>,
+    /// Ascending per-tier SOL fee (§A4, revised) — see `TierFeeConfig`.
+    #[account(seeds = [SEED_TIER_FEE], bump = tier_fee.bump)]
+    pub tier_fee: Account<'info, TierFeeConfig>,
     #[account(mut, seeds = [SEED_TOKENOMICS], bump = tokenomics.bump)]
     pub tokenomics: Account<'info, TokenomicsConfig>,
     /// CHECK: recorded on TokenomicsConfig at init; holds the genesis floor + reward deposits —
@@ -187,10 +194,10 @@ pub struct UpgradeTier<'info> {
     pub system_program: Program<'info, System>,
 }
 
-/// Pay the flat `step_fee` once (90% pot / 10% ops, regardless of the step size) + the $HUB cost
-/// difference for `from → target_tier`, split `tier_cost_burn_bp` burned / remainder into the
-/// active-desk reward pool (see `activate_tier`'s doc comment). Ownership change → void, no
-/// charge.
+/// Pay `tier_fee.step_fee` once, indexed by the target tier reached (never the step size, §A4
+/// revised — 90% pot / 10% ops) + the $HUB cost difference for `from → target_tier`, split
+/// `tier_cost_burn_bp` burned / remainder into the active-desk reward pool (see `activate_tier`'s
+/// doc comment). Ownership change → void, no charge.
 pub fn upgrade_tier(ctx: Context<UpgradeTier>, target_tier: u8) -> Result<()> {
     let asset = require_desk(
         &ctx.accounts.desk_asset,
@@ -215,7 +222,7 @@ pub fn upgrade_tier(ctx: Context<UpgradeTier>, target_tier: u8) -> Result<()> {
     let from = settle_for_upgrade(config, t)?;
 
     let now = Clock::get()?.unix_timestamp;
-    let fee = config.step_fee(from, target_tier)?;
+    let fee = ctx.accounts.tier_fee.step_fee(from, target_tier)?;
     let hub_cost = config.hub_cost_delta(from, target_tier, now)?;
     let hub_burn = bps_of(hub_cost, config.tier_cost_burn_bp)?;
     let hub_reward = sub(hub_cost, hub_burn)?;
@@ -456,6 +463,57 @@ pub(crate) fn void_tier(
         tier: t.tier,
         epoch: config.current_epoch,
         forfeited_lamports: forfeited,
+    });
+    Ok(())
+}
+
+#[derive(Accounts)]
+pub struct InitTierFeeConfig<'info> {
+    #[account(mut)]
+    pub authority: Signer<'info>,
+    #[account(seeds = [SEED_CONFIG], bump = config.bump, has_one = authority @ HubError::Unauthorized)]
+    pub config: Account<'info, Config>,
+    #[account(init, payer = authority, space = 8 + TierFeeConfig::INIT_SPACE, seeds = [SEED_TIER_FEE], bump)]
+    pub tier_fee: Account<'info, TierFeeConfig>,
+    pub system_program: Program<'info, System>,
+}
+
+/// Creates the ascending per-tier SOL fee PDA (one-time, post-`initialize_config`), seeded from
+/// `TIER_STEP_FEE_LAMPORTS` (T1 0.2 / T2 0.3 / T3 0.4 / T4 0.5 SOL). Required before any
+/// `activate_tier` / `upgrade_tier` / `activate_tier_otc` / `upgrade_tier_otc` call — all four
+/// read this PDA for the flat SOL fee.
+pub fn init_tier_fee_config(ctx: Context<InitTierFeeConfig>) -> Result<()> {
+    let f = &mut ctx.accounts.tier_fee;
+    f.tier_step_fee_lamports = TIER_STEP_FEE_LAMPORTS;
+    f.bump = ctx.bumps.tier_fee;
+    Ok(())
+}
+
+#[derive(Accounts)]
+pub struct SetTierStepFee<'info> {
+    pub authority: Signer<'info>,
+    #[account(seeds = [SEED_CONFIG], bump = config.bump, has_one = authority @ HubError::Unauthorized)]
+    pub config: Account<'info, Config>,
+    #[account(mut, seeds = [SEED_TIER_FEE], bump = tier_fee.bump)]
+    pub tier_fee: Account<'info, TierFeeConfig>,
+}
+
+/// Admin-gated retune of one tier's flat SOL fee — e.g. rebalancing the ladder without a program
+/// upgrade. `tier` is 1..=4; `lamports` must be > 0.
+pub fn set_tier_step_fee(ctx: Context<SetTierStepFee>, tier: u8, lamports: u64) -> Result<()> {
+    require!(
+        (1..=TIER_COUNT as u8).contains(&tier),
+        HubError::InvalidTier
+    );
+    require!(lamports > 0, HubError::ZeroAmount);
+    let idx = (tier - 1) as usize;
+    let f = &mut ctx.accounts.tier_fee;
+    let old_lamports = f.tier_step_fee_lamports[idx];
+    f.tier_step_fee_lamports[idx] = lamports;
+    emit!(TierStepFeeUpdated {
+        tier,
+        old_lamports,
+        new_lamports: lamports,
     });
     Ok(())
 }

@@ -27,6 +27,7 @@ export const SEEDS = {
   hubPot: Buffer.from("hub_pot"),
   hubPotRound: Buffer.from("hub_pot_round"),
   hubPotClaim: Buffer.from("hub_pot_claim"),
+  tierFee: Buffer.from("tier_fee"),
 } as const;
 
 const u64le = (n: BN | number | bigint) => new BN(n.toString()).toArrayLike(Buffer, "le", 8);
@@ -44,6 +45,11 @@ export function burnPda(programId: PublicKey) {
 /** §A5 90% leg — $OTC yield-vault bookkeeping (otc_pending_lamports + lifetime avg buy rate). */
 export function otcPotPda(programId: PublicKey) {
   return PublicKey.findProgramAddressSync([SEEDS.otcPot], programId);
+}
+/** §A4 revised — ascending per-tier `activate_tier`/`upgrade_tier` SOL fee (T1 0.2 / T2 0.3 /
+ *  T3 0.4 / T4 0.5 SOL), admin-retunable via `set_tier_step_fee`. */
+export function tierFeePda(programId: PublicKey) {
+  return PublicKey.findProgramAddressSync([SEEDS.tierFee], programId);
 }
 export function treasuryPda(programId: PublicKey) {
   return PublicKey.findProgramAddressSync([SEEDS.treasury], programId);

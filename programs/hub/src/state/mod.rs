@@ -22,6 +22,9 @@ pub struct Config {
     /// Admin-updatable (`ConfigField::UsdcMint`).
     pub usdc_mint: Pubkey,
     pub tier_weights_bp: [u16; TIER_COUNT],
+    /// Legacy flat activation/upgrade SOL fee — no longer read (see `TierFeeConfig` /
+    /// `TIER_STEP_FEE_LAMPORTS`, a separate PDA holding the live ascending per-tier fee). Kept in
+    /// place, unused, so this already-initialized account's byte layout never shifts.
     pub step_fee_lamports: u64,
     /// Fixed USD target per tier, in micro-USDC (6 decimals) — see `TIER_USD_COST_MICROS`. Never
     /// changes at runtime (no `ConfigField` variant); the token-unit equivalent that moves with
@@ -160,6 +163,33 @@ pub struct OtcPotState {
     pub total_otc_bought_units: u64,
     pub last_buy_tx: [u8; 64],
     pub bump: u8,
+}
+
+/// §A4 revised — `["tier_fee"]`. Ascending per-tier flat SOL activation/upgrade fee, admin-
+/// retunable via `set_tier_step_fee`. Lives on its own PDA rather than a `Config` field: `Config`
+/// is the already-initialized mainnet genesis account, and appending or resizing a field there
+/// would require an in-place layout migration (Borsh reads the account's exact current byte
+/// length); a brand-new PDA needs none — same no-migration pattern as `OtcPotState`/
+/// `OtcPayConfig`. Created once by the authority after `initialize_config` (`init_tier_fee_config`).
+#[account]
+#[derive(InitSpace)]
+pub struct TierFeeConfig {
+    pub tier_step_fee_lamports: [u64; TIER_COUNT],
+    pub bump: u8,
+}
+
+impl TierFeeConfig {
+    /// Flat SOL fee for an `activate_tier` / `upgrade_tier` (or $OTC-path equivalent) call
+    /// targeting `to` from `from` (`from = 0` means fresh activation). Indexed by `to` — the tier
+    /// being reached — never `from` nor `to - from`: a fresh T1 activation, a fresh T4
+    /// activation, and a T1→T4 upgrade each pay exactly the target tier's fee, once.
+    pub fn step_fee(&self, from: u8, to: u8) -> Result<u64> {
+        require!(
+            to > from && to as usize <= TIER_COUNT,
+            crate::errors::HubError::InvalidTierStep
+        );
+        Ok(self.tier_step_fee_lamports[(to - 1) as usize])
+    }
 }
 
 /// §A6.3 second flywheel — `["creator_fee"]`. Created by the authority after `initialize_config`
@@ -483,17 +513,6 @@ impl Config {
             crate::errors::HubError::InvalidTier
         );
         Ok(self.tier_weights_bp[(tier - 1) as usize] as u64)
-    }
-
-    /// Flat SOL fee for an `activate_tier` / `upgrade_tier` call targeting `to` from `from`
-    /// (`from = 0` means fresh activation). Does not scale with `to - from` — every call pays
-    /// this once, whether it's a fresh T1 activation, a fresh T4 activation, or a T1→T4 upgrade.
-    pub fn step_fee(&self, from: u8, to: u8) -> Result<u64> {
-        require!(
-            to > from && to as usize <= TIER_COUNT,
-            crate::errors::HubError::InvalidTierStep
-        );
-        Ok(self.step_fee_lamports)
     }
 
     /// $HUB base units required to reach `tier` from scratch — the live-priced cache

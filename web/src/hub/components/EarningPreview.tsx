@@ -50,8 +50,8 @@ export function EarningPreview({ state, rawDeskDailyLamports }: Props) {
   // §HUB burn tracks the live on-chain price cache (cheaper than the genesis ceiling once fresh
   // — see `liveHubCostUnits`), not a static lookup, so `state.config` + a fresh `now` feed in.
   const rows = useMemo(
-    () => buildTierRows(inputs, perDay, state.config, Math.floor(Date.now() / 1000)),
-    [inputs, perDay, state.config],
+    () => buildTierRows(inputs, perDay, state.config, Math.floor(Date.now() / 1000), state.tierFee),
+    [inputs, perDay, state.config, state.tierFee],
   );
   const selected = rows[selectedTier - 1] ?? rows[0];
 

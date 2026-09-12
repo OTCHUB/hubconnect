@@ -216,17 +216,25 @@ mod tests {
         }
     }
 
-    /// Flat fee: every activate/upgrade call pays 0.5 SOL once, independent of the step size —
-    /// a fresh T1 activation, a fresh T4 activation, and a T1→T4 upgrade all cost the same.
+    fn tier_fee_cfg() -> TierFeeConfig {
+        TierFeeConfig {
+            tier_step_fee_lamports: TIER_STEP_FEE_LAMPORTS,
+            bump: 0,
+        }
+    }
+
+    /// Ascending per-tier fee: indexed by the *target* tier reached, never the step size — a
+    /// fresh T1 activation, a fresh T4 activation, and a T1→T4 upgrade each pay exactly the
+    /// target tier's fee (T1 0.2 / T2 0.3 / T3 0.4 / T4 0.5 SOL), once.
     #[test]
-    fn step_fees_are_flat_regardless_of_step_size() {
-        let c = cfg();
-        assert_eq!(c.step_fee(0, 1).unwrap(), 500_000_000);
-        assert_eq!(c.step_fee(0, 4).unwrap(), 500_000_000);
-        assert_eq!(c.step_fee(1, 4).unwrap(), 500_000_000);
-        assert_eq!(c.step_fee(2, 3).unwrap(), 500_000_000);
-        assert!(c.step_fee(2, 2).is_err());
-        assert!(c.step_fee(3, 5).is_err());
+    fn step_fees_are_ascending_and_indexed_by_target_tier() {
+        let f = tier_fee_cfg();
+        assert_eq!(f.step_fee(0, 1).unwrap(), 200_000_000);
+        assert_eq!(f.step_fee(0, 4).unwrap(), 500_000_000);
+        assert_eq!(f.step_fee(1, 4).unwrap(), 500_000_000);
+        assert_eq!(f.step_fee(2, 3).unwrap(), 400_000_000);
+        assert!(f.step_fee(2, 2).is_err());
+        assert!(f.step_fee(3, 5).is_err());
     }
 
     /// $HUB tier cost table (§A4 ceiling / genesis fallback): with `last_price_update_ts == 0`

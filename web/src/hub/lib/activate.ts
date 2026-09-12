@@ -1,9 +1,11 @@
-// Desk activate / upgrade (§A4): one tx per desk, paid in SOL (`activate_tier` / `upgrade_tier`,
-// flat step fee, 90% pot / 10% ops) or in $OTC (`activate_tier_otc` / `upgrade_tier_otc`) — either
-// way, `target_tier` is reached directly in ONE call: a fresh activation into T4 pays the flat
-// step fee once, exactly like a fresh T1 activation. The SOL path burns the $HUB tier cost
-// directly from the payer's wallet; the $OTC path (§otc_pay.rs, revised) charges the *same* flat
-// SOL fee **plus** a live-quoted Jupiter $OTC→$HUB swap that both produces the tier's $HUB burn
+// Desk activate / upgrade (§A4, revised): one tx per desk, paid in SOL (`activate_tier` /
+// `upgrade_tier`, ascending per-tier fee — T1 0.2 / T2 0.3 / T3 0.4 / T4 0.5 SOL, 90% pot / 10%
+// ops) or in $OTC (`activate_tier_otc` / `upgrade_tier_otc`) — either way, `target_tier` is
+// reached directly in ONE call: a fresh activation into T4 pays T4's fee once, exactly like a
+// fresh T1 activation pays T1's fee once — indexed by the *target* tier reached, never the step
+// size. The SOL path burns the $HUB tier cost directly from the payer's wallet; the $OTC path
+// (§otc_pay.rs, revised) charges the *same* ascending per-tier SOL fee **plus** a live-quoted
+// Jupiter $OTC→$HUB swap that both produces the tier's $HUB burn
 // (`min_out = liveHubCostDeltaUnits`, enforced on-chain via balance-delta) and — at an equal-scaled
 // amount injected straight into `OtcPotState.otc_vault` (see `otcPotLeg`) — pays roughly 2× that
 // swap's $OTC cost in total. Pricing is no longer a static authority-refreshed rate: the caller
@@ -22,6 +24,7 @@ import BN from "bn.js";
 import {
   BPS,
   JUPITER_PROGRAM_ID,
+  TIER_STEP_FEE_LAMPORTS,
   TOKEN_2022_PROGRAM_ID,
   TOKEN_PROGRAM_ID,
   ataPda,
@@ -33,12 +36,14 @@ import {
   otcPayable,
   otcPotPda,
   potPda,
+  tierFeePda,
   tierPda,
   tokenomicsPda,
   type ConfigView,
   type HubProgram,
   type OtcPayView,
   type OtcPotView,
+  type TierFeeView,
   type TokenomicsView,
 } from "@hub-sdk";
 import { buildClaimYieldIx } from "./claim";
@@ -106,18 +111,21 @@ export function otcUnavailableReason(p: OtcPayView | null): string | undefined {
 export function quoteTierChange(opts: {
   config: ConfigView;
   otcPay: OtcPayView | null;
+  /** Live `TierFeeConfig` (§A4, revised); `null` falls back to the genesis default
+   *  (`TIER_STEP_FEE_LAMPORTS`) — same fallback the on-chain `init_tier_fee_config` seeds with. */
+  tierFee: TierFeeView | null;
   fromTier: number;
   toTier: number;
 }): TierQuote {
-  const { config, otcPay, fromTier, toTier } = opts;
+  const { config, otcPay, tierFee, fromTier, toTier } = opts;
   assertTierRange(fromTier, toTier);
   const steps = toTier - fromTier;
   const reason = otcUnavailableReason(otcPay);
   return {
     steps,
-    // Flat: one `activate_tier`/`upgrade_tier` call always costs one step fee, regardless of
-    // how many tiers it crosses.
-    solLamports: config.stepFeeLamports,
+    // Ascending, indexed by the *target* tier reached: one `activate_tier`/`upgrade_tier` call
+    // always costs exactly `toTier`'s fee, regardless of how many tiers it crosses.
+    solLamports: tierFee?.tierStepFeeLamports[toTier - 1] ?? TIER_STEP_FEE_LAMPORTS[toTier - 1],
     otcAvailable: !reason && otcPayable(otcPay),
     otcUnavailableReason: reason,
     hubBurnUnits: liveHubCostDeltaUnits(fromTier, toTier, Math.floor(Date.now() / 1000), config),
@@ -256,6 +264,7 @@ export async function buildTierChangeIxs(opts: {
     pot: potPda(id)[0],
     opsWallet: new PublicKey(config.opsWallet),
     deskTier: tierPda(id, deskAsset)[0],
+    tierFee: tierFeePda(id)[0],
     hubMint,
     payerHub: ataPda(payer, hubMint)[0],
     tokenomics: tokenomicsPda(id)[0],

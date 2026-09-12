@@ -36,8 +36,9 @@ pub struct TierUpgraded {
     pub hub_reward_units: u64,
 }
 
-/// §A4.1 (revised) — step(s) paid in $OTC: the flat 0.5 SOL activation fee (90% pot / 10% ops,
-/// same as the SOL path — `fee_lamports`/`to_pot`/`to_ops`) plus the $OTC 2× premium, split into
+/// §A4.1 (revised) — step(s) paid in $OTC: the target tier's ascending SOL fee (T1 0.2 / T2 0.3 /
+/// T3 0.4 / T4 0.5 SOL; 90% pot / 10% ops, same as the SOL path — `fee_lamports`/`to_pot`/
+/// `to_ops`) plus the $OTC 2× premium, split into
 /// a swap-burn leg (real on-chain Jupiter OTC→$HUB, burned in full — this *is* the tier's $HUB
 /// cost burn, no separate direct debit from the payer's own $HUB wallet) and an equal-sized
 /// desk-pot leg (raises `OtcPotState`'s lifetime average buy rate). `from_tier == 0` is a fresh
@@ -183,6 +184,15 @@ pub struct OtcBuyRecorded {
 pub struct OtcPotKeeperUpdated {
     pub old_keeper: Pubkey,
     pub new_keeper: Pubkey,
+}
+
+/// `Config.authority` retuned one tier's `TierFeeConfig.tier_step_fee_lamports` entry
+/// (`set_tier_step_fee`).
+#[event]
+pub struct TierStepFeeUpdated {
+    pub tier: u8,
+    pub old_lamports: u64,
+    pub new_lamports: u64,
 }
 
 /// `lamports` is the gross amount the treasury moved; `to_ops` (the `Config.protocol_fee_bp`

@@ -41,13 +41,13 @@ pub mod hub {
     }
 
     /// §B3 #2 — fresh activation (or re-activation of a voided tier) straight into `target_tier`;
-    /// flat `step_fee` SOL + the full $HUB cost of `target_tier`, burned.
+    /// ascending per-tier `TierFeeConfig.step_fee` SOL + the full $HUB cost of `target_tier`, burned.
     pub fn activate_tier(ctx: Context<ActivateTier>, target_tier: u8) -> Result<()> {
         instructions::tiers::activate_tier(ctx, target_tier)
     }
 
-    /// §B3 #3 — flat `step_fee` SOL (never scales with the step size) + the $HUB cost
-    /// difference for `current → target_tier`, burned.
+    /// §B3 #3 — ascending per-tier `TierFeeConfig.step_fee` SOL, indexed by the target tier
+    /// reached (never the step size) + the $HUB cost difference for `current → target_tier`, burned.
     pub fn upgrade_tier(ctx: Context<UpgradeTier>, target_tier: u8) -> Result<()> {
         instructions::tiers::upgrade_tier(ctx, target_tier)
     }
@@ -214,6 +214,19 @@ pub mod hub {
     /// deployer key `init_otc_pot` originally set).
     pub fn set_otc_pot_keeper(ctx: Context<SetOtcPotKeeper>, new_keeper: Pubkey) -> Result<()> {
         instructions::otc_pot::set_otc_pot_keeper(ctx, new_keeper)
+    }
+
+    /// §A4 revised #23b — authority creates the ascending per-tier SOL fee PDA (one-time,
+    /// post-`initialize_config`), seeded from `TIER_STEP_FEE_LAMPORTS` (T1 0.2 / T2 0.3 / T3 0.4
+    /// / T4 0.5 SOL). Required before any `activate_tier` / `upgrade_tier` / `activate_tier_otc`
+    /// / `upgrade_tier_otc` call.
+    pub fn init_tier_fee_config(ctx: Context<InitTierFeeConfig>) -> Result<()> {
+        instructions::tiers::init_tier_fee_config(ctx)
+    }
+
+    /// §A4 revised #23c — authority retunes one tier's flat SOL fee without a program upgrade.
+    pub fn set_tier_step_fee(ctx: Context<SetTierStepFee>, tier: u8, lamports: u64) -> Result<()> {
+        instructions::tiers::set_tier_step_fee(ctx, tier, lamports)
     }
 
     /// §A6.2 phase-2 — Raydium CP-Swap `deposit` + `lock_cp_liquidity` for the HUB/OTC pair:

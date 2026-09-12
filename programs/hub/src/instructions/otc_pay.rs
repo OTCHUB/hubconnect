@@ -2,9 +2,9 @@
 //! Jupiter swap-burn leg instead of a static authority-refreshed rate.
 //!
 //! `init_otc_payments` (authority) creates `OtcPayConfig`; `set_otc_payments_enabled` toggles
-//! it on/off. `activate_tier_otc` / `upgrade_tier_otc` charge the *same* flat 0.5 SOL activation
-//! fee as the SOL path (90% pot / 10% ops, `book_inflow`'d into the same epoch — see
-//! `Config::step_fee`), **plus** a $OTC-denominated 2× premium that replaces the tier's direct
+//! it on/off. `activate_tier_otc` / `upgrade_tier_otc` charge the *same* ascending per-tier SOL
+//! activation fee as the SOL path (90% pot / 10% ops, `book_inflow`'d into the same epoch — see
+//! `TierFeeConfig::step_fee`), **plus** a $OTC-denominated 2× premium that replaces the tier's direct
 //! $HUB burn entirely (no `payer_hub` debit beyond what the swap itself produces):
 //!
 //!   - caller supplies `otc_swap_amount` (the $OTC input, sized off-chain via a live Jupiter
@@ -25,8 +25,9 @@
 //! cannot credit `Pot`/`Epoch` directly — `pot` is a system-owned lamport PDA and `book_inflow`
 //! books *lamports*, so crediting it from a token transfer that deposits no real lamports would
 //! create liability the pot never received, breaking `assert_pot_solvent` for every other desk's
-//! yield claim. Only the flat SOL fee (real lamports) is booked as pot inflow; the $OTC premium's
-//! desk-pot leg is the direct, swap-free `OtcPotState` injection described above.
+//! yield claim. Only the target tier's ascending SOL fee (real lamports) is booked as pot inflow;
+//! the $OTC premium's desk-pot leg is the direct, swap-free `OtcPotState` injection described
+//! above.
 //!
 //! This module also hosts `transfer_checked` / `burn_checked`, the raw spl-token helpers this
 //! module's $OTC-priced path, `tiers.rs`'s SOL-priced path, and `epochs.rs`'s synchronous
@@ -275,10 +276,10 @@ pub struct ActivateTierOtc<'info> {
     pub config: Box<Account<'info, Config>>,
     #[account(mut, seeds = [SEED_EPOCH, &config.current_epoch.to_le_bytes()], bump = epoch.bump)]
     pub epoch: Box<Account<'info, Epoch>>,
-    /// CHECK: system-owned lamport vault PDA. Destination of the flat 0.5 SOL fee's pot leg.
+    /// CHECK: system-owned lamport vault PDA. Destination of the tier-fee's pot leg.
     #[account(mut, seeds = [SEED_POT], bump = config.pot_bump)]
     pub pot: UncheckedAccount<'info>,
-    /// CHECK: matched against config.ops_wallet. Destination of the flat fee's ops leg.
+    /// CHECK: matched against config.ops_wallet. Destination of the tier-fee's ops leg.
     #[account(mut, address = config.ops_wallet @ HubError::Unauthorized)]
     pub ops_wallet: UncheckedAccount<'info>,
     #[account(seeds = [SEED_OTC_PAY], bump = otc_pay.bump)]
@@ -318,6 +319,9 @@ pub struct ActivateTierOtc<'info> {
         seeds = [SEED_TIER, desk_asset.key().as_ref()], bump
     )]
     pub desk_tier: Box<Account<'info, DeskTier>>,
+    /// Ascending per-tier SOL fee (§A4, revised) — see `TierFeeConfig`.
+    #[account(seeds = [SEED_TIER_FEE], bump = tier_fee.bump)]
+    pub tier_fee: Box<Account<'info, TierFeeConfig>>,
     #[account(mut, seeds = [SEED_TOKENOMICS], bump = tokenomics.bump)]
     pub tokenomics: Box<Account<'info, TokenomicsConfig>>,
     /// CHECK: recorded on TokenomicsConfig at init — the 50%-of-received-$HUB "reward" leg of
@@ -329,7 +333,8 @@ pub struct ActivateTierOtc<'info> {
 }
 
 /// `activate_tier` paid in $OTC (§A4.1, revised) into any tier `target_tier` (fresh activation,
-/// exactly like the SOL path): the same flat 0.5 SOL fee (90% pot / 10% ops) **plus** the $OTC
+/// exactly like the SOL path): the same ascending per-tier SOL fee (90% pot / 10% ops — T1 0.2 /
+/// T2 0.3 / T3 0.4 / T4 0.5 SOL) **plus** the $OTC
 /// 2× premium — `otc_swap_amount` swapped $OTC→$HUB via Jupiter (`min_out = hub_cost_delta`,
 /// received $HUB burned in full) and an equal-scaled amount injected into the desk-pot (see
 /// module doc). `jupiter_data`/`ctx.remaining_accounts` are the caller-assembled Jupiter route;
@@ -366,7 +371,7 @@ pub fn activate_tier_otc<'info>(
 
     let config = &mut ctx.accounts.config;
     let now = Clock::get()?.unix_timestamp;
-    let fee = config.step_fee(0, target_tier)?;
+    let fee = ctx.accounts.tier_fee.step_fee(0, target_tier)?;
     let hub_cost = config.hub_cost_delta(0, target_tier, now)?;
     let to_ops = bps_of(fee, config.ops_pct_bp)?;
     let to_pot = sub(fee, to_ops)?;
@@ -468,10 +473,10 @@ pub struct UpgradeTierOtc<'info> {
     pub config: Box<Account<'info, Config>>,
     #[account(mut, seeds = [SEED_EPOCH, &config.current_epoch.to_le_bytes()], bump = epoch.bump)]
     pub epoch: Box<Account<'info, Epoch>>,
-    /// CHECK: system-owned lamport vault PDA. Destination of the flat 0.5 SOL fee's pot leg.
+    /// CHECK: system-owned lamport vault PDA. Destination of the tier-fee's pot leg.
     #[account(mut, seeds = [SEED_POT], bump = config.pot_bump)]
     pub pot: UncheckedAccount<'info>,
-    /// CHECK: matched against config.ops_wallet. Destination of the flat fee's ops leg.
+    /// CHECK: matched against config.ops_wallet. Destination of the tier-fee's ops leg.
     #[account(mut, address = config.ops_wallet @ HubError::Unauthorized)]
     pub ops_wallet: UncheckedAccount<'info>,
     #[account(seeds = [SEED_OTC_PAY], bump = otc_pay.bump)]
@@ -510,6 +515,9 @@ pub struct UpgradeTierOtc<'info> {
         constraint = !desk_tier.voided @ HubError::TierVoided
     )]
     pub desk_tier: Box<Account<'info, DeskTier>>,
+    /// Ascending per-tier SOL fee (§A4, revised) — see `TierFeeConfig`.
+    #[account(seeds = [SEED_TIER_FEE], bump = tier_fee.bump)]
+    pub tier_fee: Box<Account<'info, TierFeeConfig>>,
     #[account(mut, seeds = [SEED_TOKENOMICS], bump = tokenomics.bump)]
     pub tokenomics: Box<Account<'info, TokenomicsConfig>>,
     /// CHECK: recorded on TokenomicsConfig at init — the 50%-of-received-$HUB "reward" leg of
@@ -519,8 +527,8 @@ pub struct UpgradeTierOtc<'info> {
     pub system_program: Program<'info, System>,
 }
 
-/// `upgrade_tier` paid in $OTC (§A4.1, revised): the same flat `step_fee` (90% pot / 10% ops)
-/// **plus** the $OTC 2× premium priced off `hub_cost_delta` for `from → target_tier` (see
+/// `upgrade_tier` paid in $OTC (§A4.1, revised): the same ascending per-tier SOL fee (90% pot /
+/// 10% ops) **plus** the $OTC 2× premium priced off `hub_cost_delta` for `from → target_tier` (see
 /// `activate_tier_otc` and the module doc for the swap-burn/desk-pot split). Ownership change →
 /// void, no charge — identical to the SOL path.
 pub fn upgrade_tier_otc<'info>(
@@ -558,7 +566,7 @@ pub fn upgrade_tier_otc<'info>(
     let from = settle_for_upgrade(config, t)?;
 
     let now = Clock::get()?.unix_timestamp;
-    let fee = config.step_fee(from, target_tier)?;
+    let fee = ctx.accounts.tier_fee.step_fee(from, target_tier)?;
     let hub_cost = config.hub_cost_delta(from, target_tier, now)?;
     let to_ops = bps_of(fee, config.ops_pct_bp)?;
     let to_pot = sub(fee, to_ops)?;

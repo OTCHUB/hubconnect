@@ -14,7 +14,7 @@ export const CYCLE_DIAGRAM = `flowchart LR
 
 export const ACTIVATION_DIAGRAM = `flowchart TD
     A["Desk owner holds Desk NFT\\n(Metaplex Core asset)"] --> B["activate_tier / upgrade_tier\\ntarget_tier (1..4)"]
-    B --> C["Flat step fee: 0.5 SOL, every call\\n90% -> Pot (round inflow, source A)\\n10% -> ops_wallet"]
+    B --> C["Ascending step fee: 0.2-0.5 SOL by target_tier, every call\\n90% -> Pot (round inflow, source A)\\n10% -> ops_wallet"]
     C --> D{"Which leg pays the HUB burn?"}
     D -->|"SOL direct"| E["BurnChecked: burn cumulative\\ntier-cost delta (100k-200k HUB)"]
     D -->|"$OTC (activate_tier_otc / upgrade_tier_otc)"| F["otcSwapAmount sized off a live\\nJupiter OTC->HUB quote"]
@@ -34,7 +34,7 @@ export const ACTIVATION_DIAGRAM = `flowchart TD
 
 export const FEE_FLOW_DIAGRAM = `flowchart TD
     subgraph SOURCES["SOL pot inflow sources (book to Epoch.inflow_lamports)"]
-        A1["A - Activation fees\\nFlat 0.5 SOL per step (90% pot / 10% ops)"]
+        A1["A - Activation fees\\nAscending 0.2-0.5 SOL per step, by target tier (90% pot / 10% ops)"]
         D1["D - Discount-exit SOL leg\\n50% of every treasury desk sale"]
         F1["F - LP swap fees\\nharvested HUB/SOL + HUB/OTC fees"]
     end

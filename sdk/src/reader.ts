@@ -13,6 +13,7 @@ import {
   creatorFeePda,
   potPda,
   tierPda,
+  tierFeePda,
   treasuryPda,
   vaultPda,
   otcPayPda,
@@ -368,12 +369,22 @@ export type SupplyView = SupplyBreakdown & {
   ledgerDrift: boolean;
 };
 
+/** §A4 revised — live, admin-retunable ascending per-tier `activate_tier`/`upgrade_tier` SOL fee
+ *  (`TierFeeConfig`, `["tier_fee"]`). Indexed `[T1, T2, T3, T4]`; genesis default is
+ *  `TIER_STEP_FEE_LAMPORTS` (`./constants`). */
+export type TierFeeView = {
+  tierStepFeeLamports: number[];
+};
+
 export type ProtocolState = {
   config: ConfigView;
   currentEpoch: EpochView;
   previousEpoch: EpochView | null;
   potLamports: number;
   burn: { totalHubBurned: number };
+  /** `null` until the authority calls `init_tier_fee_config` — `activate_tier`/`upgrade_tier`
+   *  (and their $OTC-path equivalents) all require this PDA to exist. */
+  tierFee: TierFeeView | null;
   treasury: {
     desksOwned: number;
     totalExits: number;
@@ -491,6 +502,12 @@ export function toDeskTierView(
   };
 }
 
+export function toTierFeeView(
+  f: Awaited<ReturnType<HubProgram["account"]["tierFeeConfig"]["fetch"]>>,
+): TierFeeView {
+  return { tierStepFeeLamports: f.tierStepFeeLamports.map((v: { toNumber(): number } | number) => n(v)) };
+}
+
 export async function fetchProtocolState(program: HubProgram): Promise<ProtocolState> {
   const id = program.programId;
   const [configKey] = configPda(id);
@@ -504,20 +521,23 @@ export async function fetchProtocolState(program: HubProgram): Promise<ProtocolS
   const [tresKey] = treasuryPda(id);
   const [vaultKey] = vaultPda(id);
   const [tokenomicsKey] = tokenomicsPda(id);
+  const [tierFeeKey] = tierFeePda(id);
   const connection = program.provider.connection;
 
-  const [cur, prev, potInfo, burn, otcPot, creatorFee, tres, tokenomics] = await Promise.all([
-    program.account.epoch.fetch(curKey),
-    config.currentEpoch > 0
-      ? program.account.epoch.fetchNullable(prevKey)
-      : Promise.resolve(null),
-    connection.getAccountInfo(potKey),
-    program.account.burnState.fetch(burnKey),
-    program.account.otcPotState.fetchNullable(otcPotKey),
-    program.account.creatorFeeState.fetchNullable(creatorFeeKey),
-    program.account.treasuryState.fetch(tresKey),
-    program.account.tokenomicsConfig.fetchNullable(tokenomicsKey),
-  ]);
+  const [cur, prev, potInfo, burn, otcPot, creatorFee, tres, tokenomics, tierFee] =
+    await Promise.all([
+      program.account.epoch.fetch(curKey),
+      config.currentEpoch > 0
+        ? program.account.epoch.fetchNullable(prevKey)
+        : Promise.resolve(null),
+      connection.getAccountInfo(potKey),
+      program.account.burnState.fetch(burnKey),
+      program.account.otcPotState.fetchNullable(otcPotKey),
+      program.account.creatorFeeState.fetchNullable(creatorFeeKey),
+      program.account.treasuryState.fetch(tresKey),
+      program.account.tokenomicsConfig.fetchNullable(tokenomicsKey),
+      program.account.tierFeeConfig.fetchNullable(tierFeeKey),
+    ]);
 
   // §C6 treasury transparency: the multisig's float ATA + the LP-custody vault are always
   // locked; once `init_tokenomics` has run, the immutable 2% genesis floor
@@ -552,6 +572,7 @@ export async function fetchProtocolState(program: HubProgram): Promise<ProtocolS
     otcPot: otcPot ? toOtcPotView(otcPot) : null,
     creatorFee: creatorFee ? toCreatorFeeView(creatorFee) : null,
     tokenomics: tokenomics ? toTokenomicsView(tokenomics) : null,
+    tierFee: tierFee ? toTierFeeView(tierFee) : null,
     treasury: {
       desksOwned: tres.desksOwned,
       totalExits: tres.totalExits,

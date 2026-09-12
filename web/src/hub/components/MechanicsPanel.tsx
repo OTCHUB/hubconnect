@@ -132,7 +132,9 @@ function MintMockDeskButton() {
  * technical detail (instructions, PDAs, accumulator math) is intentionally left out here; see
  * docs/hubconnect-spec.md §A4-A7 for that level of detail. */
 export function MechanicsPanel({ state }: { state: ProtocolState }) {
-  const { config } = state;
+  const { config, tierFee } = state;
+  const tierFeeLamports = (tier: number) =>
+    tierFee?.tierStepFeeLamports[tier - 1] ?? cumulativeFeeLamports(tier);
   const { programId, marketplaceCollectionUrl, cluster } = useHub();
   return (
     <div className="space-y-2">
@@ -207,7 +209,8 @@ export function MechanicsPanel({ state }: { state: ProtocolState }) {
                 is hotter. Both pages show live pricing.
               </li>
               <li className={li}>
-                Either way, activating what you bought costs a flat 0.5 SOL on top — see section 2.
+                Either way, activating what you bought costs a SOL fee on top that rises with the
+                tier you target (0.2 – 0.5 SOL) — see section 2.
               </li>
             </>
           )}
@@ -231,12 +234,12 @@ export function MechanicsPanel({ state }: { state: ProtocolState }) {
             most transfers reset it.
           </li>
           <li className={li}>
-            Every activation or upgrade pays the same flat SOL fee into the reward pool either way.
-            The $HUB burn leg for your target tier can instead be paid in $OTC: the app quotes a
-            live Jupiter route, swaps half of it to $HUB and burns it, and sends an equal amount of
-            $OTC straight into the desk-pot vault — a dynamic ~2.00x premium priced fresh every
-            call, never a stored rate. Either way the $HUB burned is permanently destroyed, not sent
-            to the pool.
+            Every activation or upgrade pays a SOL fee into the reward pool that rises with the
+            tier reached (T1 0.2 / T2 0.3 / T3 0.4 / T4 0.5 SOL). The $HUB burn leg for your target
+            tier can instead be paid in $OTC: the app quotes a live Jupiter route, swaps half of it
+            to $HUB and burns it, and sends an equal amount of $OTC straight into the desk-pot
+            vault — a dynamic ~2.00x premium priced fresh every call, never a stored rate. Either
+            way the $HUB burned is permanently destroyed, not sent to the pool.
           </li>
           <li className={li}>
             Rewards start accruing the instant you activate — only reward rounds closed after that
@@ -244,10 +247,10 @@ export function MechanicsPanel({ state }: { state: ProtocolState }) {
           </li>
           <li className={li}>
             One call reaches any tier directly — a fresh desk can activate straight into MARKET
-            MAKER for the same flat SOL fee as a TRADER activation, paid once. Upgrading later pays
-            that flat SOL fee again (once per call, regardless of the size of the jump), plus only
-            the $HUB difference between your current and target tier — you never burn the same $HUB
-            twice.
+            MAKER for that tier's SOL fee, paid once, exactly like a fresh TRADER activation pays
+            T1's fee once. Upgrading later pays the *target* tier's fee again (once per call,
+            indexed by the tier you land on — never the size of the jump), plus only the $HUB
+            difference between your current and target tier — you never burn the same $HUB twice.
           </li>
         </ul>
         <div className="mt-3 overflow-x-auto">
@@ -266,7 +269,7 @@ export function MechanicsPanel({ state }: { state: ProtocolState }) {
                 return (
                   <tr key={tier} className="border-b border-green-500/10 last:border-0">
                     <td className="py-1 pr-3 text-green-300">{TIER_NAMES[i]}</td>
-                    <td className="py-1 pr-3">{fmtSol(cumulativeFeeLamports(tier))}</td>
+                    <td className="py-1 pr-3">{fmtSol(tierFeeLamports(tier))}</td>
                     <td className="py-1 pr-3 text-cyan-300">
                       {fmtUnits(
                         BigInt(liveHubCostUnits(tier, Math.floor(Date.now() / 1000), config)),
@@ -285,11 +288,13 @@ export function MechanicsPanel({ state }: { state: ProtocolState }) {
             </tbody>
           </table>
           <div className="mt-1 text-[10px] text-green-700">
-            SOL fee is flat — paid once per activate/upgrade call, the same whether it's a fresh T1
-            or a fresh T4. $HUB burn is cumulative — an upgrade only burns the difference from the
-            tier you're already at — and targets a fixed USD price per tier, so the token amount
-            shown here tracks $HUB's live market price; only {(config.tierCostBurnBp / 100).toFixed(0)}
-            % of it is destroyed, the rest funds the active-desk reward pool.
+            SOL fee is ascending — paid once per activate/upgrade call, indexed by the tier you
+            reach: a fresh T1 pays T1's fee, a fresh T4 pays T4's fee, an upgrade to T4 pays T4's
+            fee once regardless of your starting tier. $HUB burn is cumulative — an upgrade only
+            burns the difference from the tier you're already at — and targets a fixed USD price
+            per tier, so the token amount shown here tracks $HUB's live market price; only{" "}
+            {(config.tierCostBurnBp / 100).toFixed(0)}% of it is destroyed, the rest funds the
+            active-desk reward pool.
           </div>
         </div>
         <MermaidBlock source={ACTIVATION_DIAGRAM} title="activation flow (technical detail)" />

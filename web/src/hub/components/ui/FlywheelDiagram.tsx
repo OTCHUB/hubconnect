@@ -47,7 +47,7 @@ const NODES: DNode[] = [
     ring: true,
     title: "2 · Activate a Tier",
     body: [
-      "Pick a tier (Trader → Market Maker), pay a flat SOL fee once (or 2x in $OTC), and burn $HUB for the target tier.",
+      "Pick a tier (Trader → Market Maker), pay that tier's SOL fee once (0.2–0.5 SOL, or 2x in $OTC), and burn $HUB for the target tier.",
       "on-chain: activate_tier / activate_tier_otc / upgrade_tier",
     ],
   },

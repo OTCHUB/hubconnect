@@ -29,13 +29,15 @@ function classify(raw: string): { query: Query | null; error: string | null } {
     : { query: null, error: "not a numeric desk id or a valid wallet address" };
 }
 
-/** §A4 / instructions::pot::round_credit — every activation/upgrade step books 90% of the 0.5
- *  SOL fee into the pot (10% to ops); a desk's tier weight (10,000–20,000 bp) then determines its
- *  share of that pot each round. This is the "extra boosted yield" a higher tier earns over T1. */
+/** §A4 / instructions::pot::round_credit — every activation/upgrade step books 90% of that
+ *  tier's ascending SOL fee (T1 0.2 / T2 0.3 / T3 0.4 / T4 0.5 SOL) into the pot (10% to ops); a
+ *  desk's tier weight (10,000–20,000 bp) then determines its share of that pot each round. This
+ *  is the "extra boosted yield" a higher tier earns over T1. */
 const BOOST_NOTE =
-  "extra boosted yield = tier weight vs the T1 baseline. Each 0.5 SOL activation/upgrade step " +
-  "pays 90% into the pot (10% to ops, §A4); higher tiers carry more weight, so they earn a " +
-  "proportionally larger share of every round's payout.";
+  "extra boosted yield = tier weight vs the T1 baseline. Each activation/upgrade step pays 90% " +
+  "of that tier's SOL fee (0.2\u20130.5 SOL, ascending by tier) into the pot (10% to ops, §A4); " +
+  "higher tiers carry more weight, so they earn a proportionally larger share of every round's " +
+  "payout.";
 
 function DeskIdResult({ deskNumber, state }: { deskNumber: number; state: ProtocolState }) {
   const q = useDeskByNumber(deskNumber, state.config);
