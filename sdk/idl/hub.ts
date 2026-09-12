@@ -187,6 +187,28 @@ export type Hub = {
           "writable": true
         },
         {
+          "name": "burn",
+          "docs": [
+            "Lifetime $HUB-burned ledger — bumped by `hub_burn` below so `total_hub_burned` reflects",
+            "every real `burn_checked` call the protocol makes, not just `finalize_epoch`'s round",
+            "buyback and the creator-fee flywheel leg (the two sites that originally wired this up)."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  114,
+                  110
+                ]
+              }
+            ]
+          }
+        },
+        {
           "name": "systemProgram",
           "address": "11111111111111111111111111111111"
         }
@@ -444,6 +466,27 @@ export type Hub = {
             "structurally cheaper or more punitive)."
           ],
           "writable": true
+        },
+        {
+          "name": "burn",
+          "docs": [
+            "Lifetime $HUB-burned ledger — see `tiers::ActivateTier::burn`'s doc comment; bumped here",
+            "too so the $OTC-paid activation path's burn is tracked identically to the SOL path."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  114,
+                  110
+                ]
+              }
+            ]
+          }
         },
         {
           "name": "systemProgram",
@@ -4582,6 +4625,76 @@ export type Hub = {
       "args": []
     },
     {
+      "name": "reconcileBurnState",
+      "docs": [
+        "One-time historical backfill for the pre-fix burn-ledger gap: `activate_tier` /",
+        "`upgrade_tier` / `activate_tier_otc` / `upgrade_tier_otc` never bumped",
+        "`BurnState.total_hub_burned` before this program version added the `burn` account to",
+        "those four instructions. Reconciles the ledger once to `HUB_MAX_SUPPLY_UNITS -",
+        "Mint.supply` (the on-chain source of truth for cumulative burns since $HUB's mint",
+        "authority was revoked after genesis). Authority-gated; reverts with",
+        "`BurnAlreadyReconciled` once the ledger already reflects that total."
+      ],
+      "discriminator": [
+        104,
+        187,
+        205,
+        157,
+        223,
+        87,
+        110,
+        71
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "burn",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  114,
+                  110
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "hubMint"
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "recordCreatorFee",
       "docs": [
         "§A6.3 #24 — treasury deposits its claimed launcher holder-leg $OTC (enforced deposit)."
@@ -6152,6 +6265,26 @@ export type Hub = {
           "writable": true
         },
         {
+          "name": "burn",
+          "docs": [
+            "Lifetime $HUB-burned ledger — see `ActivateTier::burn`'s doc comment."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  114,
+                  110
+                ]
+              }
+            ]
+          }
+        },
+        {
           "name": "systemProgram",
           "address": "11111111111111111111111111111111"
         }
@@ -6405,6 +6538,27 @@ export type Hub = {
             "the burn split lands here (mirrors `tiers.rs`'s SOL path)."
           ],
           "writable": true
+        },
+        {
+          "name": "burn",
+          "docs": [
+            "Lifetime $HUB-burned ledger — see `tiers::ActivateTier::burn`'s doc comment; bumped here",
+            "too so the $OTC-paid upgrade path's burn is tracked identically to the SOL path."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  114,
+                  110
+                ]
+              }
+            ]
+          }
         },
         {
           "name": "systemProgram",
@@ -6688,6 +6842,19 @@ export type Hub = {
         232,
         157,
         123
+      ]
+    },
+    {
+      "name": "burnStateReconciled",
+      "discriminator": [
+        84,
+        152,
+        235,
+        39,
+        70,
+        129,
+        172,
+        153
       ]
     },
     {
@@ -7464,6 +7631,11 @@ export type Hub = {
       "code": 6060,
       "name": "noHubPotInflow",
       "msg": "No HUB Pot bucket vault holds any unrecognized inflow above its recognized history"
+    },
+    {
+      "code": 6061,
+      "name": "burnAlreadyReconciled",
+      "msg": "BurnState is already reconciled to (or past) the mint-supply-implied total"
     }
   ],
   "types": [
@@ -7639,6 +7811,31 @@ export type Hub = {
           {
             "name": "bump",
             "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "burnStateReconciled",
+      "docs": [
+        "One-time historical backfill (`reconcile_burn_state`) for the pre-fix gap between",
+        "`BurnState.total_hub_burned` and the mint-supply-implied lifetime total — see that",
+        "instruction's doc comment."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "oldTotal",
+            "type": "u64"
+          },
+          {
+            "name": "newTotal",
+            "type": "u64"
+          },
+          {
+            "name": "hubSupply",
+            "type": "u64"
           }
         ]
       }
