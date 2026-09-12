@@ -16,8 +16,13 @@
 //                                then mints it an unactivated Mock OTC Desk Core asset (see
 //                                mintDeskAsset below). Requires the wallet to already hold native
 //                                devnet SOL to pay for its own follow-up txs (activate_tier's step
-//                                fee, claim_yield, etc.) — the faucet only ever pays its own gas,
-//                                never the recipient's; get devnet SOL from faucet.solana.com.
+//                                fee, claim_yield, etc.) — see /api/faucet/sol below, or
+//                                faucet.solana.com for more than a starter amount.
+//   POST /api/faucet/sol        { wallet } -> small native-SOL top-up (SOL_DRIP_LAMPORTS, own
+//                                cooldown mirroring /drip's) so a brand-new devnet wallet can
+//                                exist as a fee-payer and cover its first few tx fees / the T1
+//                                activate_tier step fee without leaving the app. Not a full
+//                                faucet — testers who want more should use faucet.solana.com.
 //   POST /api/faucet/mint-desk  { wallet } -> standalone extra Mock OTC Desk mint (own 8h cooldown,
 //                                independent of /drip) for a wallet that already has tokens and
 //                                just wants another desk to activate. Same NOT-pre-activated
@@ -36,6 +41,7 @@ import {
   Connection,
   Keypair,
   PublicKey,
+  SystemProgram,
   Transaction,
   TransactionInstruction,
 } from "@solana/web3.js";
@@ -55,6 +61,9 @@ import {
   DRIP_COOLDOWN_SECONDS,
   DRIP_UNITS,
   IP_LIMIT_PER_HOUR,
+  SOL_COOLDOWN_SECONDS,
+  SOL_DRIP_LAMPORTS,
+  SOL_FAUCET_RESERVE_LAMPORTS,
 } from "./faucet-config";
 import { coreCreateV1Ix, mintToIx } from "./faucet-ix";
 import { routeCurveRequest, type CurveEnv } from "./bonding-curve";
@@ -85,6 +94,11 @@ const json = (data: unknown, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json" } });
 
 const explorerTx = (sig: string) => `https://explorer.solana.com/tx/${sig}?cluster=devnet`;
+
+/** Official Solana faucet — pointed to whenever a tester needs more devnet SOL than this app's
+ *  own minimal /api/faucet/sol top-up provides (its own cooldown/reserve limits how much this
+ *  faucet can hand out). */
+const SOLANA_OFFICIAL_FAUCET_URL = "https://faucet.solana.com";
 
 function parsePubkey(v: unknown): PublicKey | null {
   if (typeof v !== "string") return null;
@@ -221,6 +235,12 @@ export default {
           return withCors(json({ error: "too many requests" }, 429), allowedOrigin);
         }
         return withCors(await handleDrip(request, env), allowedOrigin);
+      }
+      if (url.pathname === "/api/faucet/sol" && request.method === "POST") {
+        if (!(await checkIpLimit(env, request))) {
+          return withCors(json({ error: "too many requests" }, 429), allowedOrigin);
+        }
+        return withCors(await handleSolDrip(request, env), allowedOrigin);
       }
       if (url.pathname === "/api/faucet/mint-desk" && request.method === "POST") {
         if (!(await checkIpLimit(env, request))) {
@@ -390,6 +410,62 @@ async function handleDrip(request: Request, env: Env): Promise<Response> {
       mints.map(([label]) => [label, (DRIP_UNITS[label] / 1_000_000n).toString()]),
     ),
     desk,
+  });
+}
+
+/**
+ * §Gas top-up — a minimal native-SOL send (SOL_DRIP_LAMPORTS) so a brand-new devnet wallet (0
+ * lamports = the account doesn't exist on-chain yet, see ActivateFlow's `SIM_FAIL:
+ * AccountNotFound`) can become a real fee-payer without leaving the app. Own cooldown key/bucket
+ * from `/drip`'s so claiming tokens and claiming gas don't share (or reset) each other's timer.
+ * Refuses to drain the faucet below SOL_FAUCET_RESERVE_LAMPORTS, which it needs for its own
+ * gas across every other route — callers should fall back to SOLANA_OFFICIAL_FAUCET_URL then.
+ */
+async function handleSolDrip(request: Request, env: Env): Promise<Response> {
+  const body = await safeJson(request);
+  const wallet = parsePubkey(body?.wallet);
+  if (!wallet) return json({ error: "wallet must be a base58 Solana public key" }, 400);
+  const turnstileErr = await verifyTurnstile(body?.turnstileToken, env, request);
+  if (turnstileErr) return json({ error: turnstileErr }, 403);
+
+  const rlKey = `sol:${wallet.toBase58()}`;
+  if (await env.FAUCET_KV.get(rlKey)) {
+    return json(
+      {
+        error: `already claimed gas SOL in the last ${SOL_COOLDOWN_SECONDS / 3600}h — need more? use ${SOLANA_OFFICIAL_FAUCET_URL}`,
+      },
+      429,
+    );
+  }
+
+  const ctx = buildCtx(env);
+  const faucetBalance = BigInt(await ctx.connection.getBalance(ctx.payer.publicKey, "confirmed"));
+  if (faucetBalance < SOL_FAUCET_RESERVE_LAMPORTS + SOL_DRIP_LAMPORTS) {
+    return json(
+      { error: `faucet is low on devnet SOL — use ${SOLANA_OFFICIAL_FAUCET_URL} instead` },
+      503,
+    );
+  }
+
+  const ix = SystemProgram.transfer({
+    fromPubkey: ctx.payer.publicKey,
+    toPubkey: wallet,
+    lamports: SOL_DRIP_LAMPORTS,
+  });
+  const bh = await ctx.connection.getLatestBlockhash("confirmed");
+  const tx = new Transaction({ feePayer: ctx.payer.publicKey, recentBlockhash: bh.blockhash }).add(
+    ix,
+  );
+  tx.sign(ctx.payer);
+  const sig = await ctx.connection.sendRawTransaction(tx.serialize());
+  await awaitSignature(ctx.connection, sig, bh.lastValidBlockHeight);
+
+  await env.FAUCET_KV.put(rlKey, String(Date.now()), { expirationTtl: SOL_COOLDOWN_SECONDS });
+  return json({
+    signature: sig,
+    explorer: explorerTx(sig),
+    wallet: wallet.toBase58(),
+    lamports: SOL_DRIP_LAMPORTS.toString(),
   });
 }
 
