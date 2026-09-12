@@ -113,5 +113,31 @@ module.exports = {
         HUB_KEEPER_KEYPAIR: "keeper/keys/mainnet-otc-buy-keeper.json",
       },
     },
+    {
+      // §A5.1 recurring reconciliation for scripts/mainnet-recognize-hub-pot-inflow.ts — sweeps
+      // whatever the OTC Desks launcher's automatic pro-rata holder payout deposited straight
+      // into HubPotConfig's 4 bucket vaults since the last run (bypassing fund_hub_pot), skims
+      // Config.protocol_fee_bp to ops_wallet, and credits the net remainder as pending yield.
+      // Not built on keeper/shared/src/env.ts's KeeperEnv (that's for HUB_RPC_URL/
+      // HUB_KEEPER_KEYPAIR-shaped services) — this is a standalone script using scripts/lib/
+      // mainnet.ts's mainnetCtx(), which reads HUB_MAINNET_WALLET/HUB_MAINNET_RPC_URL instead.
+      // A one-shot script, not a runForever() loop, so PM2's own cron_restart drives the same
+      // ~60s cadence as KEEPER_LOOP_INTERVAL_MS above (otc-buy's loop interval) instead of an
+      // internal setInterval. autorestart is off so a normal exit (including the expected
+      // "NoHubPotInflow — nothing to do" no-op) doesn't immediately relaunch the process between
+      // cron ticks. recognize_hub_pot_inflow is permissionless — any funded keypair works
+      // identically (fixed skim rate/destination come from on-chain Config) — so this uses its
+      // own low-privilege gas-only wallet rather than the deployer/upgrade-authority key
+      // mainnetCtx() would otherwise default to.
+      name: "hub-keeper-hub-pot-inflow-mainnet",
+      cwd: ROOT,
+      script: "node_modules/.bin/ts-node",
+      args: ["-T", "scripts/mainnet-recognize-hub-pot-inflow.ts"],
+      autorestart: false,
+      cron_restart: "* * * * *",
+      env: {
+        HUB_MAINNET_WALLET: "keeper/keys/mainnet-hub-pot-inflow-keeper.json",
+      },
+    },
   ],
 };
