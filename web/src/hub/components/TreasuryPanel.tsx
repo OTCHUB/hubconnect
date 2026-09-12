@@ -28,7 +28,11 @@ export function TreasuryPanel({ state }: { state: ProtocolState }) {
     treasury: treasuryPda(programId)[0].toBase58(),
     vault: vaultPda(programId)[0].toBase58(),
   };
-  const split = `${fmtBp(config.opsPctBp, 0)} / ${fmtBp(config.burnPctBp, 0)}`;
+  // Two distinct, unrelated skims — never the same pie: `opsPctBp` is the ops cut of the desk-
+  // holder's own activation/upgrade SOL fee (§A4); `protocolFeeBp` is skimmed off
+  // *treasury-controlled* revenue (sweeps/exits/misc inflows, HUB-Pot basket deposits) before it
+  // becomes staker/desk-holder yield (§A5 revenue-model extension) — see `PROTOCOL_FEE_BP`.
+  const opsSplit = `${fmtBp(config.opsPctBp, 0)} activation / ${fmtBp(config.protocolFeeBp, 0)} treasury`;
   const potVsLiability = `${fmtSol(potLamports)} / ${fmtSol(config.potLiabilityLamports)}`;
   const tierStepFee = tierFee
     ? tierFee.tierStepFeeLamports.map((v) => fmtSol(v, 2)).join(" · ")
@@ -62,7 +66,7 @@ export function TreasuryPanel({ state }: { state: ProtocolState }) {
           <Stat
             label="LP provisioning"
             value={config.lpEnabled ? "ACTIVE" : "PENDING"}
-            sub="liquidity for the $HUB / $OTC pair — seeded from treasury OTC + $HUB once price holds ≥14 days"
+            sub="liquidity for the $HUB / $OTC pair — seeded from treasury OTC + $HUB once price holds ≥24h post-launch"
           />
           <Stat
             label="yield buffer"
@@ -144,7 +148,8 @@ export function TreasuryPanel({ state }: { state: ProtocolState }) {
 
         <CollapsibleCard title="PARAMETERS" defaultOpen>
           <Row k="tier step fee (T1-T4)" v={tierStepFee} />
-          <Row k="ops / burn slice" v={split} />
+          <Row k="ops fees" v={opsSplit} />
+          <Row k="round burn cut" v={fmtBp(config.burnPctBp, 0)} />
           <Row k="tier weights" v={config.tierWeightsBp.map((w) => `${w / 100}%`).join(" · ")} />
           <Row k="round threshold" v={fmtSol(config.minPotThresholdLamports, 2)} />
           <Row k="genesis" v={fmtUtc(config.genesisTs)} />

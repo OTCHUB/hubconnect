@@ -19,5 +19,6 @@
       "@hub-sdk/*": ["../sdk/src/*"]
     }
   },
-  "include": ["src", "../sdk/src", "../sdk/idl", "vite.config.ts", "tailwind.config.ts"]
+  "include": ["src", "../sdk/src", "../sdk/idl", "vite.config.ts", "tailwind.config.ts"],
+  "exclude": ["../sdk/src/**/*.test.ts"]
 }

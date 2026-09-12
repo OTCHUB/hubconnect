@@ -10,6 +10,7 @@
     "test": "anchor build && anchor build -p hub -- --features mock-jupiter && anchor test --skip-build --validator legacy",
     "test:devnet": "HUB_CLUSTER=devnet ts-mocha -p ./tsconfig.json -t 300000 tests/**/*.ts",
     "test:keeper": "ts-mocha -p ./tsconfig.json -t 60000 keeper/**/*.test.ts",
+    "test:sdk": "ts-mocha -p ./tsconfig.json -t 60000 sdk/**/*.test.ts",
     "lint": "prettier --check tests sdk keeper scripts",
     "lint:fix": "prettier --write tests sdk keeper scripts",
     "devnet:mint": "ts-node -T scripts/devnet-hub-mint.ts",

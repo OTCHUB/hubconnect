@@ -165,7 +165,8 @@ export function MechanicsPanel({ state }: { state: ProtocolState }) {
         </div>
         <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
           <Row k="burn rate / round" v={fmtBp(config.burnPctBp)} />
-          <Row k="protocol fee" v={fmtBp(config.opsPctBp)} />
+          <Row k="activation ops fee" v={fmtBp(config.opsPctBp)} />
+          <Row k="treasury protocol fee" v={fmtBp(config.protocolFeeBp)} />
           <Row k="reward round trigger" v={fmtSol(config.minPotThresholdLamports)} />
         </div>
         <FlywheelDiagram />
@@ -366,7 +367,10 @@ export function MechanicsPanel({ state }: { state: ProtocolState }) {
             launcher holder-leg $OTC claim are separate flywheels (sections 3/4) that never enter
             this pool. Rounds close purely on activity,
             never a fixed schedule, so a round can settle in seconds or take days, and anyone can
-            trigger the close — no keeper required.
+            trigger the close — no keeper required. Treasury-sourced legs (sweeps, discount exits,
+            misc inflows) skim a {fmtBp(config.protocolFeeBp)} protocol fee to operations before
+            reaching the pot — separate from, and on top of, the {fmtBp(config.opsPctBp)} ops cut
+            already taken out of every desk-holder's own activation fee (section 2).
           </li>
           <li className={li}>
             Every round then splits four ways, all in one on-chain transaction:{" "}

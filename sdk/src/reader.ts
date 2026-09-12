@@ -95,6 +95,11 @@ export type ConfigView = {
    * `finalize_epoch`'s synchronous Jupiter CPI; the remainder is the 90% $OTC leg. */
   treasuryFloatPctBp: number;
   opsPctBp: number;
+  /** §A5 revenue-model extension — bp of *treasury-controlled* revenue (sweeps/exits/misc
+   * inflows/HUB-Pot basket deposits) skimmed to `opsWallet` at the source, before it becomes
+   * staker/desk-holder yield. Distinct from `opsPctBp` above, which is the 10% ops cut of the
+   * desk-holder *activation* fee — never conflate the two, they apply to different revenue. */
+  protocolFeeBp: number;
   lpEnabled: boolean;
   /** §A6.2 phase-2 LP target (lamport-equivalent value) — mirrors `Config.lp_target_sol_lamports`. */
   lpTargetSolLamports: number;
@@ -456,6 +461,7 @@ export function toConfigView(
     lpPctBp: c.lpPctBp,
     treasuryFloatPctBp: c.treasuryFloatPctBp,
     opsPctBp: c.opsPctBp,
+    protocolFeeBp: c.protocolFeeBp,
     lpEnabled: c.lpEnabled,
     lpTargetSolLamports: n(c.lpTargetSolLamports),
     lpPhase2OpenTs: n(c.lpPhase2OpenTs),
