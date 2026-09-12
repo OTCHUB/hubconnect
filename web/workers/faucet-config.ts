@@ -18,9 +18,15 @@ export const SOL_DRIP_LAMPORTS = 5_000_000n; // 0.005 SOL
 /** Lamports the faucet always keeps for its own tx fees before honoring a /api/faucet/sol claim. */
 export const SOL_FAUCET_RESERVE_LAMPORTS = 50_000_000n; // 0.05 SOL
 
-/** Base units per drip (all 5 basket mints run 6 decimals — see devnet-hub-pot-mint.ts). */
+/** Base units per drip (all 5 basket mints run 6 decimals — see devnet-hub-pot-mint.ts).
+ *  `hub` must cover a fresh T1 activation's `hub_cost_delta` — that's `TIER_HUB_COST_UNITS[0]`
+ *  (hub/src/constants.rs) whenever a Config's price cache is stale/never-updated
+ *  (`last_price_update_ts == 0`, true for every freshly initialized Config), since `hub_cost`
+ *  falls back to that ceiling table rather than the live-priced cache in that case. Keep this in
+ *  sync with `TIER_HUB_COST_UNITS[0]` (currently 1,000,000, raised 10x — see commit
+ *  "hub: raise TIER_HUB_COST_UNITS ceiling 10x") or fresh devnet wallets can't clear T1 at all. */
 export const DRIP_UNITS = {
-  hub: 100_000n * 1_000_000n,
+  hub: 1_000_000n * 1_000_000n,
   otc: 100_000n * 1_000_000n,
   crclx: 10n * 1_000_000n,
   nvdax: 10n * 1_000_000n,
