@@ -10,8 +10,9 @@
 //    tx also initializes the owner's $HUB ATA when missing (idempotent), the way a mainnet desk
 //    buyer needs one before their first burn / $HUB leg.
 // 3. For each desk with tier target > 0: activate_tier + upgrade_tier(2..target) batched in one
-//    transaction, 0.5 SOL per step (90% pot / 10% ops). --recycle finalizes the round and claims
-//    yield on owned tiers whenever the payer runs short, so a 10-desk run fits a small faucet budget.
+//    transaction, each call paying its own ascending §A4 target-tier fee (T1 0.2 / T2 0.3 /
+//    T3 0.4 / T4 0.5 SOL — 90% pot / 10% ops). --recycle finalizes the round and claims yield on
+//    owned tiers whenever the payer runs short, so a 10-desk run fits a small faucet budget.
 // 4. Verifies Config.total_weight_bp == Σ TIER_WEIGHTS_BP, pot ≥ liability (+ exact liability Δ when
 //    not recycling), and that the dashboard's owner+collection scan (`fetchOwnedDesks`, shared
 //    with web/ useWalletPortfolio) returns exactly these assets.
@@ -20,8 +21,8 @@ import { generateSigner, publicKey as umiPk } from "@metaplex-foundation/umi";
 import { toWeb3JsPublicKey } from "@metaplex-foundation/umi-web3js-adapters";
 import { create, createCollection, fetchCollection } from "@metaplex-foundation/mpl-core";
 import {
-  STEP_FEE_LAMPORTS,
   TIER_NAMES,
+  TIER_STEP_FEE_LAMPORTS,
   TIER_WEIGHTS_BP,
   epochPda,
   fetchDeskTier,
@@ -151,9 +152,15 @@ async function setTier(ctx: Ctx, asset: PublicKey, target: number) {
   return sendIxs(ctx, ixs);
 }
 
-/** Net payer cost of `steps`: 90% of each fee goes to the pot (10% returns via ops_wallet). */
-const netStepCost = (steps: number, opsIsPayer: boolean) =>
-  steps * STEP_FEE_LAMPORTS * (opsIsPayer ? 0.9 : 1) + 0.02 * LAMPORTS_PER_SOL;
+/** Gross SOL fee for one desk activating T1 then stepping T2..target one tier at a time — each
+ *  call pays only *its own* target tier's ascending flat fee (§A4 revised), not a flat rate. */
+const grossFeeForTarget = (target: number) =>
+  TIER_STEP_FEE_LAMPORTS.slice(0, target).reduce((s, f) => s + f, 0);
+
+/** Net payer cost of activating to `target`: 90% of each call's fee goes to the pot (10% returns
+ *  via ops_wallet when the payer *is* ops_wallet). */
+const netStepCost = (target: number, opsIsPayer: boolean) =>
+  grossFeeForTarget(target) * (opsIsPayer ? 0.9 : 1) + 0.02 * LAMPORTS_PER_SOL;
 
 /**
  * --recycle: when the payer cannot fund the next desk's steps, close the open round (step fees
@@ -195,12 +202,14 @@ async function main() {
   await setConfigPubkey(ctx, "deskCollection", collection);
   const opsIsPayer = cfg.opsWallet.equals(ctx.payer.publicKey);
   const totalSteps = tiers.reduce((s, t) => s + t, 0);
+  const grossFee = tiers.reduce((s, t) => s + grossFeeForTarget(t), 0);
+  const needed = tiers.reduce((s, t) => s + netStepCost(t, opsIsPayer), 0);
   const bal = await ctx.connection.getBalance(ctx.payer.publicKey);
   console.log(
-    `${count} desks · ${totalSteps} tier steps = ${sol(totalSteps * STEP_FEE_LAMPORTS)} gross · payer ${sol(bal)}${recycle ? " · --recycle on" : ""}`,
+    `${count} desks · ${totalSteps} tier steps = ${sol(grossFee)} gross (ascending §A4 schedule) · payer ${sol(bal)}${recycle ? " · --recycle on" : ""}`,
   );
-  if (!recycle && bal < netStepCost(totalSteps, opsIsPayer)) {
-    throw new Error(`tier steps need ~${sol(netStepCost(totalSteps, opsIsPayer))}; pass --recycle`);
+  if (!recycle && bal < needed) {
+    throw new Error(`tier steps need ~${sol(needed)}; pass --recycle`);
   }
   const start =
     Number((await fetchCollection(ctx.umi, umiPk(collection.toBase58()))).numMinted) + 1;
@@ -231,8 +240,9 @@ async function main() {
   console.log(
     `Σ_WEIGHT on-chain ${after.totalWeightBp.toNumber()} bp · expected ${expected} bp · ${ok ? "OK" : "MISMATCH"}`,
   );
-  // Pot liability: every step books 0.45 SOL of inflow. With --recycle a round may have been
-  // finalized/claimed mid-run, so only solvency is checked in that mode.
+  // Pot liability: every step books 90% of its own ascending target-tier fee as inflow.
+  // With --recycle a round may have been finalized/claimed mid-run, so only solvency is
+  // checked in that mode.
   const [potKey] = potPda(ctx.program.programId);
   const potLamports = await ctx.connection.getBalance(potKey);
   const floor = await ctx.connection.getMinimumBalanceForRentExemption(0);
@@ -244,7 +254,8 @@ async function main() {
   );
   if (!recycle) {
     const expLiab =
-      cfg.potLiabilityLamports.toNumber() + totalSteps * splitFee(STEP_FEE_LAMPORTS).toPot;
+      cfg.potLiabilityLamports.toNumber() +
+      tiers.reduce((s, t) => s + splitFee(grossFeeForTarget(t)).toPot, 0);
     console.log(
       `  liability Δ expected ${sol(expLiab)} · ${liability === expLiab ? "OK" : "MISMATCH"}`,
     );

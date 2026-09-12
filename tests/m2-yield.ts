@@ -81,12 +81,15 @@ describe("M2 — yield engine", () => {
       expect(t.ownerAtActivation.toBase58()).to.eq(owners[i].publicKey.toBase58());
       await assertSolvent(h, f);
     }
-    // Flat fee (§A4): every activate/upgrade call pays STEP_FEE_LAMPORTS once, regardless of
-    // tier or step size — 4 activations + 3 upgrades (i>0) = 7 fee-paying calls this loop.
-    const calls = 4 + 3;
-    const { toOps, toPot } = K.splitFee(K.STEP_FEE_LAMPORTS);
-    expect((await balance(h, f.opsWallet)) - ops0).to.eq(toOps * calls);
-    expect((await balance(h, f.pot)) - pot0).to.eq(toPot * calls);
+    // Ascending per-tier fee (§A4 revised): each call pays TIER_STEP_FEE_LAMPORTS[target - 1] —
+    // 4 activations all to T1, plus upgrades (i>0) straight from T1 to T(i+1) each paying only
+    // the *target* tier's flat fee (`step_fee`'s `to > from` check allows any forward jump).
+    const targets = [1, 1, 1, 1, 2, 3, 4];
+    const splits = targets.map((t) => K.splitFee(K.cumulativeFeeLamports(t)));
+    const toOps = splits.reduce((sum, s) => sum + s.toOps, 0);
+    const toPot = splits.reduce((sum, s) => sum + s.toPot, 0);
+    expect((await balance(h, f.opsWallet)) - ops0).to.eq(toOps);
+    expect((await balance(h, f.pot)) - pot0).to.eq(toPot);
     const c = await h.program.account.config.fetch(f.config);
     expect(c.totalWeightBp.toNumber() - weightBefore).to.eq(sumW);
   });
@@ -228,7 +231,8 @@ describe("M2 — yield engine", () => {
     await expectFail(claim(h, f, owners[2], desks[2]), "TierVoided");
     const pot0 = await balance(h, f.pot);
     await activate(h, f, owners[2], desks[2]);
-    expect((await balance(h, f.pot)) - pot0).to.eq(K.splitFee(K.STEP_FEE_LAMPORTS).toPot);
+    // `activate()` always activates to T1 — the ascending schedule's T1 fee, not the legacy flat one.
+    expect((await balance(h, f.pot)) - pot0).to.eq(K.splitFee(K.cumulativeFeeLamports(1)).toPot);
     const t2 = await tierOf(h, desks[2]);
     expect(t2.tier).to.eq(1);
     expect(t2.voided).to.eq(false);

@@ -327,6 +327,9 @@ export type Fixture = {
   /** Vault-owned $HUB scratch account recorded on `TokenomicsConfig` at `init_tokenomics` — the
    * 50%-of-cost "reward" leg of `activate_tier`/`upgrade_tier`'s burn split lands here. */
   treasuryLockVault: PublicKey;
+  /** `["tier_fee"]` — ascending per-tier SOL fee schedule read by `activate_tier` /
+   * `upgrade_tier` / `activate_tier_otc` / `upgrade_tier_otc`. */
+  tierFee: PublicKey;
 };
 
 let fixture: Fixture | null = null;
@@ -337,8 +340,17 @@ let fixture: Fixture | null = null;
  */
 export async function ensureInitialized(h: Harness): Promise<Fixture> {
   if (fixture) return fixture;
-  const { configPda, potPda, burnPda, treasuryPda, vaultPda, epochPda, otcPotPda, tokenomicsPda } =
-    await import("../sdk/src/pda");
+  const {
+    configPda,
+    potPda,
+    burnPda,
+    treasuryPda,
+    vaultPda,
+    epochPda,
+    otcPotPda,
+    tokenomicsPda,
+    tierFeePda,
+  } = await import("../sdk/src/pda");
   const id = h.program.programId;
   const [config] = configPda(id);
   const [pot] = potPda(id);
@@ -348,6 +360,7 @@ export async function ensureInitialized(h: Harness): Promise<Fixture> {
   const [epoch0] = epochPda(id, 0);
   const [otcPot] = otcPotPda(id);
   const [tokenomics] = tokenomicsPda(id);
+  const [tierFee] = tierFeePda(id);
 
   const existing = await h.program.account.config.fetchNullable(config);
   if (existing) {
@@ -366,6 +379,7 @@ export async function ensureInitialized(h: Harness): Promise<Fixture> {
       existing.hubMint,
       tokenomics,
     );
+    await initTierFeeConfigIfMissing(h, config, tierFee);
     fixture = {
       config,
       pot,
@@ -385,6 +399,7 @@ export async function ensureInitialized(h: Harness): Promise<Fixture> {
       keeperOtc,
       tokenomics,
       treasuryLockVault,
+      tierFee,
     };
     return fixture;
   }
@@ -493,6 +508,10 @@ export async function ensureInitialized(h: Harness): Promise<Fixture> {
     tokenomics,
   );
 
+  // §A4 revised #23b — activate_tier/upgrade_tier/activate_tier_otc/upgrade_tier_otc all read
+  // the ascending per-tier SOL fee off this PDA; must exist before any of those run.
+  await initTierFeeConfigIfMissing(h, config, tierFee);
+
   fixture = {
     config,
     pot,
@@ -512,6 +531,7 @@ export async function ensureInitialized(h: Harness): Promise<Fixture> {
     keeperOtc,
     tokenomics,
     treasuryLockVault,
+    tierFee,
   };
   return fixture;
 }
@@ -544,6 +564,17 @@ async function initTokenomicsIfMissing(
     })
     .rpc();
   return treasuryLockVault;
+}
+
+/** §A4 revised #23b singleton — same lazy-init pattern as `initTokenomicsIfMissing`: a devnet
+ *  re-run's `Config` may predate `TierFeeConfig` existing at all. */
+async function initTierFeeConfigIfMissing(h: Harness, config: PublicKey, tierFee: PublicKey) {
+  const existing = await h.program.account.tierFeeConfig.fetchNullable(tierFee);
+  if (existing) return;
+  await h.program.methods
+    .initTierFeeConfig()
+    .accountsPartial({ authority: h.payer.publicKey, config, tierFee })
+    .rpc();
 }
 
 export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
