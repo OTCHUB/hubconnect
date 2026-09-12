@@ -144,7 +144,8 @@ programs/mock_jupiter/  Localnet-only Jupiter swap stand-in (`mock-jupiter` feat
 sdk/                 PDA derivation + constants mirror; account decoders (M3)
 keeper/              §B4 services: keeper (epoch+burn), sweeper, treasury (exit), lp
 tests/               anchor-ts suites; HUB_CLUSTER=devnet targets Helius devnet (§B5.1)
-scripts/             devnet-deploy.sh · verify-build.sh · orquestra-idl.ts · devnet-hub-mint.ts · devnet-mock-desks.ts
+scripts/             devnet-deploy.sh · verify-build.sh · orquestra-idl.ts · devnet-hub-mint.ts ·
+                     devnet-mock-desks.ts · devnet-native-yield-init.ts · devnet-native-yield-drip.ts
 assets/              hub.png (1024², $HUB logo) · hub-token.json (Metaplex fungible metadata)
 docs/                spec, master prompt, evidence/ (mainnet read-only verification)
 ```
@@ -273,6 +274,18 @@ npx ts-node -T scripts/devnet-mock-desks.ts      # Core collection mirroring mai
 dashboard's `useWalletPortfolio` uses (`fetchOwnedDesks` in `sdk/`), so the web view and the
 program agree on which assets are desks. Tier is program state (`DeskTier`), not NFT metadata —
 the mock assets carry an `Attributes` plugin (`hub_tier_target`) only as a label.
+
+The official OTC Desks program (otcdesks.cash) that the "natively activated" badge checks for has
+no devnet deployment, so its per-desk payout vault is stood in for by `NativeYieldMock` — a plain
+system-owned lamport PDA (`["native_yield_mock", asset]`, no hub instruction touches it; see
+`sdk/src/nativeYieldMock.ts`). Run after `devnet-mock-desks.ts`, and re-run any time new mock desks
+are minted:
+
+```sh
+npm run devnet:native-yield-init   # funds every desk's mock vault to the rent-exempt floor (idempotent)
+npm run devnet:native-yield-drip   # keeper/faucet — flat top-up per tick to simulate ongoing accrual;
+                                    # schedule on a cron/PM2 cadence for continuous devnet testing
+```
 
 Scale + cycle validation (payer = Config.authority = Config.treasury = BurnState.authority on devnet):
 
