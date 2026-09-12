@@ -104,5 +104,14 @@ module.exports = {
       args: ["-T", "keeper/treasury/src/index.ts"],
       env: { ...common.env, HUB_KEEPER_KEYPAIR: "keeper/keys/mainnet-treasury-keeper.json" },
     },
+    {
+      ...common,
+      name: "hub-keeper-otc-buy-mainnet",
+      args: ["-T", "keeper/otc-buy/src/index.ts"],
+      env: {
+        ...common.env,
+        HUB_KEEPER_KEYPAIR: "keeper/keys/mainnet-otc-buy-keeper.json",
+      },
+    },
   ],
 };
