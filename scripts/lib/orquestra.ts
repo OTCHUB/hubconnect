@@ -158,9 +158,14 @@ export function decodeData(s: string): Buffer {
 export function clusterRpc(): string {
   const cluster = process.env.HUB_CLUSTER || "devnet";
   if (cluster === "devnet") return devnetRpc();
-  const url = process.env.HUB_RPC_URL?.replace(/\$\{(\w+)\}/g, (_, v) => process.env[v] ?? "");
-  // .env's HUB_RPC_URL is normally the devnet endpoint; never let it stand in for mainnet.
-  if (url && !/devnet/i.test(url)) return url;
+  // Mainnet reads the dedicated HUB_MAINNET_RPC_URL only — never HUB_RPC_URL, which is
+  // devnet-scoped and, per .env.example, is always populated pointing at devnet in a normal dev
+  // .env. Mirrors scripts/lib/mainnet.ts's mainnetRpc().
+  const url = process.env.HUB_MAINNET_RPC_URL?.replace(
+    /\$\{(\w+)\}/g,
+    (_, v) => process.env[v] ?? "",
+  );
+  if (url) return url;
   return process.env.HELIUS_API_KEY
     ? `https://mainnet.helius-rpc.com/?api-key=${process.env.HELIUS_API_KEY}`
     : "https://api.mainnet-beta.solana.com";

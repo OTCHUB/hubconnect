@@ -50,11 +50,11 @@ if [ -z "${HUB_YES:-}" ]; then
   [ "$confirm" = "MAINNET" ] || { echo "aborted"; exit 1; }
 fi
 
-HUB_CLUSTER=mainnet-beta HUB_RPC_URL="$RPC" HUB_WALLET="$WALLET" scripts/verify-build.sh build
-HUB_CLUSTER=mainnet-beta HUB_RPC_URL="$RPC" HUB_WALLET="$WALLET" scripts/verify-build.sh deploy
+HUB_CLUSTER=mainnet-beta HUB_MAINNET_RPC_URL="$RPC" HUB_WALLET="$WALLET" scripts/verify-build.sh build
+HUB_CLUSTER=mainnet-beta HUB_MAINNET_RPC_URL="$RPC" HUB_WALLET="$WALLET" scripts/verify-build.sh deploy
 echo "deployed hub program: $PROGRAM_ID"
 
 if [ "$VERIFY" = true ]; then
-  HUB_CLUSTER=mainnet-beta HUB_RPC_URL="$RPC" HUB_WALLET="$WALLET" scripts/verify-build.sh verify
+  HUB_CLUSTER=mainnet-beta HUB_MAINNET_RPC_URL="$RPC" HUB_WALLET="$WALLET" scripts/verify-build.sh verify
   echo "verify job queued for $PROGRAM_ID"
 fi

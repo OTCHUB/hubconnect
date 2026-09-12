@@ -12,7 +12,9 @@
 #                                            runs after deploy/verify when ORQUESTRA_TOKEN is set)
 #
 # Cluster: HUB_CLUSTER=devnet (default) | mainnet-beta. Wallet: HUB_WALLET (must be the upgrade
-# authority). RPC: HUB_RPC_URL, else Helius if HELIUS_API_KEY is set, else the public endpoint.
+# authority). RPC: devnet reads HUB_RPC_URL, mainnet-beta reads HUB_MAINNET_RPC_URL — deliberately
+# separate vars (see .env.example) so a devnet .env's HUB_RPC_URL can never leak onto mainnet;
+# else Helius if HELIUS_API_KEY is set, else the cluster's public endpoint.
 # Each cluster is bound to a git remote/branch (see README "Repositories, branches, clusters"):
 #   devnet       ← remote `origin`     (nodecattel/hubconnect, staging)  branch `develop`
 #   mainnet-beta ← remote `production` (OTCHUB/hubconnect, public)       branch `main`
@@ -53,8 +55,10 @@ case "$CLUSTER" in
   mainnet-beta)
     REMOTE=production; BRANCH=main
     WALLET="${HUB_WALLET:?set HUB_WALLET to the mainnet upgrade authority keypair}"
-    RPC="${HUB_RPC_URL:-https://api.mainnet-beta.solana.com}"
-    [ -z "${HUB_RPC_URL:-}" ] && [ -n "${HELIUS_API_KEY:-}" ] && RPC="https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}"
+    # HUB_MAINNET_RPC_URL only — never HUB_RPC_URL, which is devnet-scoped and, per .env.example,
+    # is always populated pointing at devnet.helius-rpc.com in a normal dev .env.
+    RPC="${HUB_MAINNET_RPC_URL:-https://api.mainnet-beta.solana.com}"
+    [ -z "${HUB_MAINNET_RPC_URL:-}" ] && [ -n "${HELIUS_API_KEY:-}" ] && RPC="https://mainnet.helius-rpc.com/?api-key=${HELIUS_API_KEY}"
     ;;
   *) echo "HUB_CLUSTER must be devnet or mainnet-beta" >&2; exit 1 ;;
 esac
@@ -92,17 +96,17 @@ need() { command -v "$1" >/dev/null || { echo "missing $1 — $2" >&2; exit 1; }
 need docker "https://docs.docker.com/get-docker/"
 need solana-verify "cargo install solana-verify"
 
-# HUB_RPC_URL in .env is usually the devnet endpoint; make sure the RPC we deploy/verify through
-# really is the cluster HUB_CLUSTER names before any signed transaction leaves this machine.
+# Belt-and-suspenders: even with devnet/mainnet RPC vars kept separate above, confirm the resolved
+# RPC's genesis hash actually matches $CLUSTER before any signed transaction leaves this machine.
 rpc_guard() {
-  local want got
+  local want got rpc_var
   case "$CLUSTER" in
-    devnet)       want=EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG ;;
-    mainnet-beta) want=5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d ;;
+    devnet)       want=EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG; rpc_var=HUB_RPC_URL ;;
+    mainnet-beta) want=5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d; rpc_var=HUB_MAINNET_RPC_URL ;;
   esac
   got=$(solana genesis-hash -u "$RPC" 2>/dev/null || echo unreachable)
   [ "$got" = "$want" ] && return 0
-  echo "RPC is not $CLUSTER (genesis $got) — HUB_RPC_URL points at another cluster; unset it or set it per cluster" >&2
+  echo "RPC is not $CLUSTER (genesis $got) — $rpc_var points at another cluster; unset it or set it per cluster" >&2
   exit 1
 }
 
