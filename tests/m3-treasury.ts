@@ -1,5 +1,6 @@
 // M3 — LP gates (§A6.2, §A5.1 MemeStock basket extension).
-import { Transaction } from "@solana/web3.js";
+import { expect } from "chai";
+import { PublicKey, Transaction } from "@solana/web3.js";
 import {
   setup,
   Harness,
@@ -11,9 +12,11 @@ import {
   createSplMint,
   createAtaIx,
   ata,
+  mintTo,
+  tokenBalance,
 } from "./harness";
 import { setConfig, bn } from "./flows";
-import { vaultPda, hubPotPda } from "../sdk/src/pda";
+import { vaultPda, hubPotPda, hubPotInflowPda } from "../sdk/src/pda";
 import * as K from "../sdk/src/constants";
 
 describe("M3 — LP", () => {
@@ -193,5 +196,129 @@ describe("M3 — LP", () => {
     // Right vault, but no `build_lp_basket_locked` has ever succeeded (same live-Raydium-pool
     // limitation as above) — `lp_basket_active` stays false.
     await expectFail(call(crclxVault), "InvalidLpPair");
+  });
+
+  describe("hub_pot inflow recognition (§A5.1) — recognize_hub_pot_inflow", () => {
+    // Reuses the singleton `hub_pot` initialized by the `harvest_lp_fees` test above (one-time,
+    // program-wide PDA) rather than re-deriving its 4 mints locally — reads them back off the
+    // already-initialized `HubPotConfig` account instead.
+    let hubPot: PublicKey, inflow: PublicKey, vault: PublicKey;
+    let otcMint: PublicKey, crclxMint: PublicKey, nvdaxMint: PublicKey, spcxxMint: PublicKey;
+    let otcVault: PublicKey, crclxVault: PublicKey, nvdaxVault: PublicKey, spcxxVault: PublicKey;
+    let opsOtc: PublicKey, opsCrclx: PublicKey, opsNvdax: PublicKey, opsSpcxx: PublicKey;
+
+    before(async function () {
+      this.timeout(60_000);
+      [hubPot] = hubPotPda(h.program.programId);
+      [inflow] = hubPotInflowPda(h.program.programId);
+      [vault] = vaultPda(h.program.programId);
+      const hp = await h.program.account.hubPotConfig.fetch(hubPot);
+      ({
+        otcMint,
+        crclxMint,
+        nvdaxMint,
+        spcxxMint,
+        otcVault,
+        crclxVault,
+        nvdaxVault,
+        spcxxVault,
+      } = hp);
+      opsOtc = f.opsOtc;
+      opsCrclx = ata(f.opsWallet, crclxMint);
+      opsNvdax = ata(f.opsWallet, nvdaxMint);
+      opsSpcxx = ata(f.opsWallet, spcxxMint);
+      await h.provider.sendAndConfirm(
+        new Transaction().add(
+          createAtaIx(h.payer.publicKey, f.opsWallet, crclxMint),
+          createAtaIx(h.payer.publicKey, f.opsWallet, nvdaxMint),
+          createAtaIx(h.payer.publicKey, f.opsWallet, spcxxMint),
+        ),
+        [h.payer],
+      );
+      await h.program.methods
+        .initHubPotInflow()
+        .accountsPartial({ authority: h.payer.publicKey, config: f.config, inflow })
+        .rpc();
+    });
+
+    const recognize = () =>
+      h.program.methods
+        .recognizeHubPotInflow()
+        .accountsPartial({
+          payer: h.payer.publicKey,
+          config: f.config,
+          hubPot,
+          inflow,
+          treasuryState: f.treasuryState,
+          vault,
+          otcMint,
+          crclxMint,
+          nvdaxMint,
+          spcxxMint,
+          otcVault,
+          crclxVault,
+          nvdaxVault,
+          spcxxVault,
+          opsOtc,
+          opsCrclx,
+          opsNvdax,
+          opsSpcxx,
+          otcTokenProgram: TOKEN_PROGRAM_ID,
+          crclxTokenProgram: TOKEN_PROGRAM_ID,
+          nvdaxTokenProgram: TOKEN_PROGRAM_ID,
+          spcxxTokenProgram: TOKEN_PROGRAM_ID,
+        })
+        .rpc();
+
+    it("init_hub_pot_inflow: one-time, zeroed lifetime 'ever claimed' counters", async () => {
+      const st = await h.program.account.hubPotInflowState.fetch(inflow);
+      expect(st.otcClaimedUnits.toNumber()).to.equal(0);
+      expect(st.crclxClaimedUnits.toNumber()).to.equal(0);
+      expect(st.nvdaxClaimedUnits.toNumber()).to.equal(0);
+      expect(st.spcxxClaimedUnits.toNumber()).to.equal(0);
+    });
+
+    it("recognize_hub_pot_inflow: rejects with NoHubPotInflow when no bucket vault holds unrecognized balance", async () => {
+      await expectFail(recognize(), "NoHubPotInflow");
+    });
+
+    it("recognize_hub_pot_inflow: skims Config.protocol_fee_bp (10%) to ops and credits the net remainder as pending — mirrors fund_hub_pot's accounting for tokens the OTC Desks launcher deposited straight into the vault", async () => {
+      const before = await h.program.account.hubPotConfig.fetch(hubPot);
+      const opsOtcBefore = await tokenBalance(h, opsOtc);
+      const opsCrclxBefore = await tokenBalance(h, opsCrclx);
+      // Simulate the launcher's automatic pro-rata holder payout landing directly in the vault —
+      // no fund_hub_pot call, exactly like the real ~2,600 $OTC mainnet inflow this instruction
+      // was built to reconcile.
+      await mintTo(h, otcMint, otcVault, 1_000_000n);
+      await mintTo(h, crclxMint, crclxVault, 500_000n);
+      await recognize();
+
+      const after = await h.program.account.hubPotConfig.fetch(hubPot);
+      expect(after.otcPendingUnits.sub(before.otcPendingUnits).toNumber()).to.equal(900_000);
+      expect(after.otcDepositedUnits.sub(before.otcDepositedUnits).toNumber()).to.equal(900_000);
+      expect(after.crclxPendingUnits.sub(before.crclxPendingUnits).toNumber()).to.equal(450_000);
+      expect(after.crclxDepositedUnits.sub(before.crclxDepositedUnits).toNumber()).to.equal(
+        450_000,
+      );
+      // Untouched buckets (no new inflow) are left exactly as they were.
+      expect(after.nvdaxPendingUnits.toNumber()).to.equal(before.nvdaxPendingUnits.toNumber());
+      expect(after.spcxxPendingUnits.toNumber()).to.equal(before.spcxxPendingUnits.toNumber());
+
+      expect(Number((await tokenBalance(h, opsOtc)) - opsOtcBefore)).to.equal(100_000);
+      expect(Number((await tokenBalance(h, opsCrclx)) - opsCrclxBefore)).to.equal(50_000);
+    });
+
+    it("recognize_hub_pot_inflow: once reconciled, calling again with no further inflow rejects (no double counting)", async () => {
+      await expectFail(recognize(), "NoHubPotInflow");
+    });
+
+    it("recognize_hub_pot_inflow: a later, independent inflow is recognized on top of the prior recognition", async () => {
+      const before = await h.program.account.hubPotConfig.fetch(hubPot);
+      await mintTo(h, otcMint, otcVault, 200_000n);
+      await recognize();
+      const after = await h.program.account.hubPotConfig.fetch(hubPot);
+      expect(after.otcPendingUnits.sub(before.otcPendingUnits).toNumber()).to.equal(180_000);
+      expect(after.crclxPendingUnits.toNumber()).to.equal(before.crclxPendingUnits.toNumber());
+    });
   });
 });

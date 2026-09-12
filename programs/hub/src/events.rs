@@ -431,6 +431,27 @@ pub struct HubPotRewardClaimed {
     pub claims: u32,
 }
 
+/// Permissionless — `recognize_hub_pot_inflow` reconciled a bucket vault's live balance against
+/// `HubPotConfig`/`HubPotInflowState`'s recognized history and found genuinely new inflow (e.g.
+/// the OTC Desks launcher's automatic pro-rata holder payout landing straight in the vault).
+/// `*_recognized` is already net of the `*_to_ops` skim reported alongside it (mirrors
+/// `HubPotFunded`/`HubPotProtocolFeeSkimmed`'s pairing for the manual `fund_hub_pot` path).
+#[event]
+pub struct HubPotInflowRecognized {
+    pub otc_recognized: u64,
+    pub crclx_recognized: u64,
+    pub nvdax_recognized: u64,
+    pub spcxx_recognized: u64,
+    pub otc_to_ops: u64,
+    pub crclx_to_ops: u64,
+    pub nvdax_to_ops: u64,
+    pub spcxx_to_ops: u64,
+    pub otc_pending_after: u64,
+    pub crclx_pending_after: u64,
+    pub nvdax_pending_after: u64,
+    pub spcxx_pending_after: u64,
+}
+
 /// Governance-only bucket mint swap (`update_hub_pot_mint`) — e.g. rotating a synthetic
 /// pre-IPO token out for a directly-backed xStock RWA once its deviation risk is reassessed.
 /// `swept_to_ops` is any dust the old vault held at swap time, sent to `Config.ops_wallet`'s ATA

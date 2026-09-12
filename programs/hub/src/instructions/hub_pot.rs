@@ -11,7 +11,7 @@ use crate::errors::HubError;
 use crate::events::*;
 use crate::instructions::mpl_core::require_desk;
 use crate::instructions::otc_pay::{require_token_account, token_account_amount, transfer_checked};
-use crate::instructions::pot::{bps_of, sub};
+use crate::instructions::pot::{add, bps_of, sub};
 use crate::instructions::tokenomics::reward_share;
 use crate::state::*;
 
@@ -75,6 +75,34 @@ pub fn init_hub_pot(
     p.nvdax_vault = ctx.accounts.nvdax_vault.key();
     p.spcxx_vault = ctx.accounts.spcxx_vault.key();
     p.bump = ctx.bumps.hub_pot;
+    Ok(())
+}
+
+#[derive(Accounts)]
+pub struct InitHubPotInflow<'info> {
+    #[account(mut)]
+    pub authority: Signer<'info>,
+    #[account(seeds = [SEED_CONFIG], bump = config.bump, has_one = authority @ HubError::Unauthorized)]
+    pub config: Account<'info, Config>,
+    #[account(
+        init, payer = authority, space = 8 + HubPotInflowState::INIT_SPACE,
+        seeds = [SEED_HUB_POT_INFLOW], bump
+    )]
+    pub inflow: Account<'info, HubPotInflowState>,
+    pub system_program: Program<'info, System>,
+}
+
+/// One-time, post-`init_hub_pot` bookkeeping needed by `recognize_hub_pot_inflow` — see
+/// `SEED_HUB_POT_INFLOW`'s doc comment for why this is a standalone PDA rather than new fields
+/// appended to the already-live `HubPotConfig`. All 4 counters start at zero; they only ever grow,
+/// bumped by `distribute_hub_pot_reward`/`claim_hub_pot_reward`.
+pub fn init_hub_pot_inflow(ctx: Context<InitHubPotInflow>) -> Result<()> {
+    let p = &mut ctx.accounts.inflow;
+    p.otc_claimed_units = 0;
+    p.crclx_claimed_units = 0;
+    p.nvdax_claimed_units = 0;
+    p.spcxx_claimed_units = 0;
+    p.bump = ctx.bumps.inflow;
     Ok(())
 }
 
@@ -558,6 +586,10 @@ pub struct DistributeHubPotReward<'info> {
     pub hub_pot: Box<Account<'info, HubPotConfig>>,
     #[account(mut, seeds = [SEED_HUB_POT_ROUND, &round_index.to_le_bytes()], bump = round.bump)]
     pub round: Box<Account<'info, HubPotRound>>,
+    /// Lifetime "ever paid to desks" counters — bumped here so `recognize_hub_pot_inflow` can
+    /// tell genuinely new vault inflow apart from balance still earmarked for an open round.
+    #[account(mut, seeds = [SEED_HUB_POT_INFLOW], bump = inflow.bump)]
+    pub inflow: Box<Account<'info, HubPotInflowState>>,
     #[account(seeds = [SEED_TREASURY], bump = treasury_state.bump)]
     pub treasury_state: Box<Account<'info, TreasuryState>>,
     /// CHECK: program-signed owner of the 4 bucket vaults.
@@ -772,6 +804,12 @@ pub fn distribute_hub_pot_reward(
     c.claimed_ts = now;
     c.bump = ctx.bumps.claim;
 
+    let inflow = &mut ctx.accounts.inflow;
+    inflow.otc_claimed_units = add(inflow.otc_claimed_units, otc_amount)?;
+    inflow.crclx_claimed_units = add(inflow.crclx_claimed_units, crclx_amount)?;
+    inflow.nvdax_claimed_units = add(inflow.nvdax_claimed_units, nvdax_amount)?;
+    inflow.spcxx_claimed_units = add(inflow.spcxx_claimed_units, spcxx_amount)?;
+
     emit!(HubPotRewardDistributed {
         round: round_index,
         asset: c.asset,
@@ -803,6 +841,10 @@ pub struct ClaimHubPotReward<'info> {
     pub hub_pot: Box<Account<'info, HubPotConfig>>,
     #[account(mut, seeds = [SEED_HUB_POT_ROUND, &round_index.to_le_bytes()], bump = round.bump)]
     pub round: Box<Account<'info, HubPotRound>>,
+    /// Lifetime "ever paid to desks" counters — bumped here so `recognize_hub_pot_inflow` can
+    /// tell genuinely new vault inflow apart from balance still earmarked for an open round.
+    #[account(mut, seeds = [SEED_HUB_POT_INFLOW], bump = inflow.bump)]
+    pub inflow: Box<Account<'info, HubPotInflowState>>,
     #[account(seeds = [SEED_TREASURY], bump = treasury_state.bump)]
     pub treasury_state: Box<Account<'info, TreasuryState>>,
     /// CHECK: program-signed owner of the 4 bucket vaults.
@@ -1018,6 +1060,12 @@ pub fn claim_hub_pot_reward(ctx: Context<ClaimHubPotReward>, round_index: u32) -
     c.claimed_ts = now;
     c.bump = ctx.bumps.claim;
 
+    let inflow = &mut ctx.accounts.inflow;
+    inflow.otc_claimed_units = add(inflow.otc_claimed_units, otc_amount)?;
+    inflow.crclx_claimed_units = add(inflow.crclx_claimed_units, crclx_amount)?;
+    inflow.nvdax_claimed_units = add(inflow.nvdax_claimed_units, nvdax_amount)?;
+    inflow.spcxx_claimed_units = add(inflow.spcxx_claimed_units, spcxx_amount)?;
+
     emit!(HubPotRewardClaimed {
         round: round_index,
         asset: c.asset,
@@ -1027,6 +1075,230 @@ pub fn claim_hub_pot_reward(ctx: Context<ClaimHubPotReward>, round_index: u32) -
         nvdax_units: nvdax_amount,
         spcxx_units: spcxx_amount,
         claims,
+    });
+    Ok(())
+}
+
+#[derive(Accounts)]
+pub struct RecognizeHubPotInflow<'info> {
+    /// Permissionless: anyone may trigger reconciliation, same as `open_hub_pot_round` — the
+    /// skim rate (`Config.protocol_fee_bp`) and destination (`Config.ops_wallet`) are both fixed
+    /// by on-chain config, so there is nothing for a caller to gain beyond paying their own tx
+    /// fee. In practice run by a keeper on a schedule (§A5.1), but requires no special key.
+    pub payer: Signer<'info>,
+    #[account(seeds = [SEED_CONFIG], bump = config.bump)]
+    pub config: Box<Account<'info, Config>>,
+    #[account(mut, seeds = [SEED_HUB_POT], bump = hub_pot.bump)]
+    pub hub_pot: Box<Account<'info, HubPotConfig>>,
+    /// Lifetime "ever paid to desks" counters — see `SEED_HUB_POT_INFLOW`'s doc comment for how
+    /// this combines with `HubPotConfig.<bucket>_deposited_units` to isolate genuinely new,
+    /// unrecognized vault inflow from balance already earmarked by a prior `fund_hub_pot`/
+    /// `recognize_hub_pot_inflow` call.
+    #[account(seeds = [SEED_HUB_POT_INFLOW], bump = inflow.bump)]
+    pub inflow: Box<Account<'info, HubPotInflowState>>,
+    #[account(seeds = [SEED_TREASURY], bump = treasury_state.bump)]
+    pub treasury_state: Box<Account<'info, TreasuryState>>,
+    /// CHECK: program-signed owner of the 4 bucket vaults; signs the ops-skim transfer below.
+    #[account(seeds = [SEED_VAULT], bump = treasury_state.vault_bump)]
+    pub vault: UncheckedAccount<'info>,
+    /// CHECK: matched against hub_pot.otc_mint; decimals read for TransferChecked.
+    #[account(address = hub_pot.otc_mint @ HubError::InvalidTokenAccount)]
+    pub otc_mint: UncheckedAccount<'info>,
+    /// CHECK: matched against hub_pot.crclx_mint; decimals read for TransferChecked.
+    #[account(address = hub_pot.crclx_mint @ HubError::InvalidTokenAccount)]
+    pub crclx_mint: UncheckedAccount<'info>,
+    /// CHECK: matched against hub_pot.nvdax_mint; decimals read for TransferChecked.
+    #[account(address = hub_pot.nvdax_mint @ HubError::InvalidTokenAccount)]
+    pub nvdax_mint: UncheckedAccount<'info>,
+    /// CHECK: matched against hub_pot.spcxx_mint; decimals read for TransferChecked.
+    #[account(address = hub_pot.spcxx_mint @ HubError::InvalidTokenAccount)]
+    pub spcxx_mint: UncheckedAccount<'info>,
+    /// CHECK: recorded on HubPotConfig at init; live balance read here, not merely attested.
+    #[account(mut, address = hub_pot.otc_vault @ HubError::InvalidTokenAccount)]
+    pub otc_vault: UncheckedAccount<'info>,
+    /// CHECK: recorded on HubPotConfig at init.
+    #[account(mut, address = hub_pot.crclx_vault @ HubError::InvalidTokenAccount)]
+    pub crclx_vault: UncheckedAccount<'info>,
+    /// CHECK: recorded on HubPotConfig at init.
+    #[account(mut, address = hub_pot.nvdax_vault @ HubError::InvalidTokenAccount)]
+    pub nvdax_vault: UncheckedAccount<'info>,
+    /// CHECK: recorded on HubPotConfig at init.
+    #[account(mut, address = hub_pot.spcxx_vault @ HubError::InvalidTokenAccount)]
+    pub spcxx_vault: UncheckedAccount<'info>,
+    /// CHECK: `Config.protocol_fee_bp`'s skim destination for the $OTC leg — ops_wallet's own
+    /// ATA (mint/owner verified in handler), same 10% carve-out as `fund_hub_pot`'s `ops_otc`.
+    #[account(mut)]
+    pub ops_otc: UncheckedAccount<'info>,
+    /// CHECK: skim destination for the CRCLx leg — verified as above.
+    #[account(mut)]
+    pub ops_crclx: UncheckedAccount<'info>,
+    /// CHECK: skim destination for the NVDAx leg — verified as above.
+    #[account(mut)]
+    pub ops_nvdax: UncheckedAccount<'info>,
+    /// CHECK: skim destination for the SPCXx leg — verified as above.
+    #[account(mut)]
+    pub ops_spcxx: UncheckedAccount<'info>,
+    /// CHECK: $OTC's token program, asserted in `transfer_checked` against `hub_pot.otc_mint`'s
+    /// actual owner. One `token_program` account per bucket — same rationale as `FundHubPot`.
+    pub otc_token_program: UncheckedAccount<'info>,
+    /// CHECK: CRCLx's token program — asserted the same way against `hub_pot.crclx_mint`.
+    pub crclx_token_program: UncheckedAccount<'info>,
+    /// CHECK: NVDAx's token program — asserted the same way against `hub_pot.nvdax_mint`.
+    pub nvdax_token_program: UncheckedAccount<'info>,
+    /// CHECK: SPCXx's token program — asserted the same way against `hub_pot.spcxx_mint`.
+    pub spcxx_token_program: UncheckedAccount<'info>,
+}
+
+// NOTE (stack): boxed for the same reason as FundHubPot/DistributeHubPotReward above — the 4x
+// mint/vault/ops/token_program fan-out pushes try_accounts' generated stack frame past the SBF
+// 4096-byte limit without boxing.
+
+/// §A5.1 reconciliation for the OTC Desks launcher's automatic pro-rata holder payout, which
+/// deposits $OTC/CRCLx/NVDAx/SPCXx straight into `HubPotConfig`'s bucket vaults (the
+/// `TreasuryState.vault` PDA is itself a $HUB holder, per genesis tokenomics) — completely
+/// bypassing `fund_hub_pot`, so those deposits would otherwise sit in the vault forever with no
+/// `pending_units` credited and no ops haircut ever skimmed.
+///
+/// For each bucket: `expected = deposited_units − inflow.claimed_units` is what should still be
+/// physically in the vault from every previously-recognized inflow (whether via `fund_hub_pot` or
+/// a prior `recognize_hub_pot_inflow` call) net of everything ever paid out to desks. Any live
+/// vault balance above that figure can only be new, unrecognized inflow. That gross new amount is
+/// skimmed at `Config.protocol_fee_bp` into `ops_wallet` (vault-PDA-signed — the tokens are
+/// already resident, so unlike `fund_hub_pot` there is no external transfer-in leg, only the skim
+/// transfer-out) and the net remainder is credited to `pending_units`/`deposited_units` exactly
+/// as `fund_hub_pot` would. A bucket with zero new inflow is simply skipped; at least one bucket
+/// must have new inflow or the call is rejected (`NoHubPotInflow`) rather than emitting a no-op.
+pub fn recognize_hub_pot_inflow(ctx: Context<RecognizeHubPotInflow>) -> Result<()> {
+    let fee_bp = ctx.accounts.config.protocol_fee_bp;
+    require_token_account(
+        &ctx.accounts.ops_otc,
+        &ctx.accounts.hub_pot.otc_mint,
+        &ctx.accounts.config.ops_wallet,
+    )?;
+    require_token_account(
+        &ctx.accounts.ops_crclx,
+        &ctx.accounts.hub_pot.crclx_mint,
+        &ctx.accounts.config.ops_wallet,
+    )?;
+    require_token_account(
+        &ctx.accounts.ops_nvdax,
+        &ctx.accounts.hub_pot.nvdax_mint,
+        &ctx.accounts.config.ops_wallet,
+    )?;
+    require_token_account(
+        &ctx.accounts.ops_spcxx,
+        &ctx.accounts.hub_pot.spcxx_mint,
+        &ctx.accounts.config.ops_wallet,
+    )?;
+
+    let otc_balance = token_account_amount(&ctx.accounts.otc_vault)?;
+    let crclx_balance = token_account_amount(&ctx.accounts.crclx_vault)?;
+    let nvdax_balance = token_account_amount(&ctx.accounts.nvdax_vault)?;
+    let spcxx_balance = token_account_amount(&ctx.accounts.spcxx_vault)?;
+
+    let hub_pot = &ctx.accounts.hub_pot;
+    let inflow_state = &ctx.accounts.inflow;
+    // `sub` errors on underflow (MathOverflow) — a live balance below what recognized history
+    // implies would mean the vault was drained outside this program, an invariant violation.
+    let otc_expected = sub(hub_pot.otc_deposited_units, inflow_state.otc_claimed_units)?;
+    let crclx_expected = sub(hub_pot.crclx_deposited_units, inflow_state.crclx_claimed_units)?;
+    let nvdax_expected = sub(hub_pot.nvdax_deposited_units, inflow_state.nvdax_claimed_units)?;
+    let spcxx_expected = sub(hub_pot.spcxx_deposited_units, inflow_state.spcxx_claimed_units)?;
+    let otc_new = sub(otc_balance, otc_expected)?;
+    let crclx_new = sub(crclx_balance, crclx_expected)?;
+    let nvdax_new = sub(nvdax_balance, nvdax_expected)?;
+    let spcxx_new = sub(spcxx_balance, spcxx_expected)?;
+    require!(
+        otc_new > 0 || crclx_new > 0 || nvdax_new > 0 || spcxx_new > 0,
+        HubError::NoHubPotInflow
+    );
+
+    let legs: [(
+        u64,
+        &UncheckedAccount,
+        &UncheckedAccount,
+        &UncheckedAccount,
+        &UncheckedAccount,
+    ); 4] = [
+        (
+            otc_new,
+            &ctx.accounts.otc_vault,
+            &ctx.accounts.otc_mint,
+            &ctx.accounts.ops_otc,
+            &ctx.accounts.otc_token_program,
+        ),
+        (
+            crclx_new,
+            &ctx.accounts.crclx_vault,
+            &ctx.accounts.crclx_mint,
+            &ctx.accounts.ops_crclx,
+            &ctx.accounts.crclx_token_program,
+        ),
+        (
+            nvdax_new,
+            &ctx.accounts.nvdax_vault,
+            &ctx.accounts.nvdax_mint,
+            &ctx.accounts.ops_nvdax,
+            &ctx.accounts.nvdax_token_program,
+        ),
+        (
+            spcxx_new,
+            &ctx.accounts.spcxx_vault,
+            &ctx.accounts.spcxx_mint,
+            &ctx.accounts.ops_spcxx,
+            &ctx.accounts.spcxx_token_program,
+        ),
+    ];
+    let vault_bump = ctx.accounts.treasury_state.vault_bump;
+    let seeds: &[&[&[u8]]] = &[&[SEED_VAULT, &[vault_bump]]];
+    let mut to_pool = [0u64; 4];
+    let mut to_ops_amounts = [0u64; 4];
+    for (i, (new_amount, vault_ai, mint, ops_to, token_program)) in legs.into_iter().enumerate() {
+        if new_amount == 0 {
+            continue;
+        }
+        let to_ops = bps_of(new_amount, fee_bp)?;
+        let pool_amount = sub(new_amount, to_ops)?;
+        if to_ops > 0 {
+            transfer_checked(
+                token_program,
+                vault_ai,
+                mint,
+                ops_to,
+                &ctx.accounts.vault,
+                to_ops,
+                seeds,
+            )?;
+        }
+        to_pool[i] = pool_amount;
+        to_ops_amounts[i] = to_ops;
+    }
+    let (otc_pool, crclx_pool, nvdax_pool, spcxx_pool) =
+        (to_pool[0], to_pool[1], to_pool[2], to_pool[3]);
+
+    let p = &mut ctx.accounts.hub_pot;
+    p.otc_pending_units = add(p.otc_pending_units, otc_pool)?;
+    p.crclx_pending_units = add(p.crclx_pending_units, crclx_pool)?;
+    p.nvdax_pending_units = add(p.nvdax_pending_units, nvdax_pool)?;
+    p.spcxx_pending_units = add(p.spcxx_pending_units, spcxx_pool)?;
+    p.otc_deposited_units = add(p.otc_deposited_units, otc_pool)?;
+    p.crclx_deposited_units = add(p.crclx_deposited_units, crclx_pool)?;
+    p.nvdax_deposited_units = add(p.nvdax_deposited_units, nvdax_pool)?;
+    p.spcxx_deposited_units = add(p.spcxx_deposited_units, spcxx_pool)?;
+
+    emit!(HubPotInflowRecognized {
+        otc_recognized: otc_pool,
+        crclx_recognized: crclx_pool,
+        nvdax_recognized: nvdax_pool,
+        spcxx_recognized: spcxx_pool,
+        otc_to_ops: to_ops_amounts[0],
+        crclx_to_ops: to_ops_amounts[1],
+        nvdax_to_ops: to_ops_amounts[2],
+        spcxx_to_ops: to_ops_amounts[3],
+        otc_pending_after: p.otc_pending_units,
+        crclx_pending_after: p.crclx_pending_units,
+        nvdax_pending_after: p.nvdax_pending_units,
+        spcxx_pending_after: p.spcxx_pending_units,
     });
     Ok(())
 }

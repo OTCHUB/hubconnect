@@ -27,6 +27,7 @@ export const SEEDS = {
   hubPot: Buffer.from("hub_pot"),
   hubPotRound: Buffer.from("hub_pot_round"),
   hubPotClaim: Buffer.from("hub_pot_claim"),
+  hubPotInflow: Buffer.from("hub_pot_inflow"),
   tierFee: Buffer.from("tier_fee"),
 } as const;
 
@@ -106,6 +107,11 @@ export function hubPotClaimPda(
     [SEEDS.hubPotClaim, u32le(round), asset.toBuffer()],
     programId,
   );
+}
+/** Lifetime "ever paid to desks" counters used by `recognize_hub_pot_inflow` to isolate new,
+ * unrecognized vault inflow (the OTC Desks launcher's automatic pro-rata holder payout). */
+export function hubPotInflowPda(programId: PublicKey) {
+  return PublicKey.findProgramAddressSync([SEEDS.hubPotInflow], programId);
 }
 export function epochPda(programId: PublicKey, index: BN | number | bigint) {
   return PublicKey.findProgramAddressSync([SEEDS.epoch, u64le(index)], programId);

@@ -124,4 +124,6 @@ pub enum HubError {
     HopAccountSplitOutOfRange,
     #[msg("Vault scratch token account must be drained to zero before it can be repointed")]
     VaultNotDrained,
+    #[msg("No HUB Pot bucket vault holds any unrecognized inflow above its recognized history")]
+    NoHubPotInflow,
 }

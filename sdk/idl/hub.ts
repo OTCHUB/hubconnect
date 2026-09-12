@@ -1069,6 +1069,37 @@ export type Hub = {
           }
         },
         {
+          "name": "inflow",
+          "docs": [
+            "Lifetime \"ever paid to desks\" counters — bumped here so `recognize_hub_pot_inflow` can",
+            "tell genuinely new vault inflow apart from balance still earmarked for an open round."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  104,
+                  117,
+                  98,
+                  95,
+                  112,
+                  111,
+                  116,
+                  95,
+                  105,
+                  110,
+                  102,
+                  108,
+                  111,
+                  119
+                ]
+              }
+            ]
+          }
+        },
+        {
           "name": "treasuryState",
           "pda": {
             "seeds": [
@@ -2005,6 +2036,37 @@ export type Hub = {
               {
                 "kind": "arg",
                 "path": "roundIndex"
+              }
+            ]
+          }
+        },
+        {
+          "name": "inflow",
+          "docs": [
+            "Lifetime \"ever paid to desks\" counters — bumped here so `recognize_hub_pot_inflow` can",
+            "tell genuinely new vault inflow apart from balance still earmarked for an open round."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  104,
+                  117,
+                  98,
+                  95,
+                  112,
+                  111,
+                  116,
+                  95,
+                  105,
+                  110,
+                  102,
+                  108,
+                  111,
+                  119
+                ]
               }
             ]
           }
@@ -3358,6 +3420,83 @@ export type Hub = {
       ]
     },
     {
+      "name": "initHubPotInflow",
+      "docs": [
+        "§A5.1 #38 — authority creates the `HubPotInflowState` lifetime \"ever paid to desks\"",
+        "counters (one-time, post-`init_hub_pot`), needed by `recognize_hub_pot_inflow`."
+      ],
+      "discriminator": [
+        89,
+        74,
+        35,
+        250,
+        48,
+        248,
+        57,
+        38
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "inflow",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  104,
+                  117,
+                  98,
+                  95,
+                  112,
+                  111,
+                  116,
+                  95,
+                  105,
+                  110,
+                  102,
+                  108,
+                  111,
+                  119
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "initOtcPayments",
       "docs": [
         "§A4.1 #14 — authority creates the $OTC payment config + POL reserve pointer (disabled)."
@@ -4236,6 +4375,208 @@ export type Hub = {
               }
             ]
           }
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "recognizeHubPotInflow",
+      "docs": [
+        "§A5.1 #39 — permissionless: reconciles each HUB Pot bucket vault's live balance against",
+        "recognized history to isolate the OTC Desks launcher's automatic pro-rata holder payout",
+        "(which lands straight in the vault, bypassing `fund_hub_pot`) as new inflow, skims",
+        "`Config.protocol_fee_bp` to `ops_wallet`, and credits the remainder to",
+        "`pending_units`/`deposited_units` exactly as `fund_hub_pot` would."
+      ],
+      "discriminator": [
+        54,
+        170,
+        14,
+        41,
+        229,
+        102,
+        138,
+        169
+      ],
+      "accounts": [
+        {
+          "name": "payer",
+          "docs": [
+            "Permissionless: anyone may trigger reconciliation, same as `open_hub_pot_round` — the",
+            "skim rate (`Config.protocol_fee_bp`) and destination (`Config.ops_wallet`) are both fixed",
+            "by on-chain config, so there is nothing for a caller to gain beyond paying their own tx",
+            "fee. In practice run by a keeper on a schedule (§A5.1), but requires no special key."
+          ],
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "hubPot",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  104,
+                  117,
+                  98,
+                  95,
+                  112,
+                  111,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "inflow",
+          "docs": [
+            "Lifetime \"ever paid to desks\" counters — see `SEED_HUB_POT_INFLOW`'s doc comment for how",
+            "this combines with `HubPotConfig.<bucket>_deposited_units` to isolate genuinely new,",
+            "unrecognized vault inflow from balance already earmarked by a prior `fund_hub_pot`/",
+            "`recognize_hub_pot_inflow` call."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  104,
+                  117,
+                  98,
+                  95,
+                  112,
+                  111,
+                  116,
+                  95,
+                  105,
+                  110,
+                  102,
+                  108,
+                  111,
+                  119
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasuryState",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "otcMint"
+        },
+        {
+          "name": "crclxMint"
+        },
+        {
+          "name": "nvdaxMint"
+        },
+        {
+          "name": "spcxxMint"
+        },
+        {
+          "name": "otcVault",
+          "writable": true
+        },
+        {
+          "name": "crclxVault",
+          "writable": true
+        },
+        {
+          "name": "nvdaxVault",
+          "writable": true
+        },
+        {
+          "name": "spcxxVault",
+          "writable": true
+        },
+        {
+          "name": "opsOtc",
+          "docs": [
+            "ATA (mint/owner verified in handler), same 10% carve-out as `fund_hub_pot`'s `ops_otc`."
+          ],
+          "writable": true
+        },
+        {
+          "name": "opsCrclx",
+          "writable": true
+        },
+        {
+          "name": "opsNvdax",
+          "writable": true
+        },
+        {
+          "name": "opsSpcxx",
+          "writable": true
+        },
+        {
+          "name": "otcTokenProgram",
+          "docs": [
+            "actual owner. One `token_program` account per bucket — same rationale as `FundHubPot`."
+          ]
+        },
+        {
+          "name": "crclxTokenProgram"
+        },
+        {
+          "name": "nvdaxTokenProgram"
+        },
+        {
+          "name": "spcxxTokenProgram"
         }
       ],
       "args": []
@@ -6192,6 +6533,19 @@ export type Hub = {
       ]
     },
     {
+      "name": "hubPotInflowState",
+      "discriminator": [
+        54,
+        86,
+        204,
+        97,
+        150,
+        242,
+        88,
+        136
+      ]
+    },
+    {
       "name": "hubPotRound",
       "discriminator": [
         242,
@@ -6451,6 +6805,19 @@ export type Hub = {
         139,
         160,
         0
+      ]
+    },
+    {
+      "name": "hubPotInflowRecognized",
+      "discriminator": [
+        79,
+        238,
+        198,
+        11,
+        218,
+        2,
+        125,
+        53
       ]
     },
     {
@@ -7092,6 +7459,11 @@ export type Hub = {
       "code": 6059,
       "name": "vaultNotDrained",
       "msg": "Vault scratch token account must be drained to zero before it can be repointed"
+    },
+    {
+      "code": 6060,
+      "name": "noHubPotInflow",
+      "msg": "No HUB Pot bucket vault holds any unrecognized inflow above its recognized history"
     }
   ],
   "types": [
@@ -8389,6 +8761,112 @@ export type Hub = {
           {
             "name": "spcxxPendingAfter",
             "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "hubPotInflowRecognized",
+      "docs": [
+        "Permissionless — `recognize_hub_pot_inflow` reconciled a bucket vault's live balance against",
+        "`HubPotConfig`/`HubPotInflowState`'s recognized history and found genuinely new inflow (e.g.",
+        "the OTC Desks launcher's automatic pro-rata holder payout landing straight in the vault).",
+        "`*_recognized` is already net of the `*_to_ops` skim reported alongside it (mirrors",
+        "`HubPotFunded`/`HubPotProtocolFeeSkimmed`'s pairing for the manual `fund_hub_pot` path)."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "otcRecognized",
+            "type": "u64"
+          },
+          {
+            "name": "crclxRecognized",
+            "type": "u64"
+          },
+          {
+            "name": "nvdaxRecognized",
+            "type": "u64"
+          },
+          {
+            "name": "spcxxRecognized",
+            "type": "u64"
+          },
+          {
+            "name": "otcToOps",
+            "type": "u64"
+          },
+          {
+            "name": "crclxToOps",
+            "type": "u64"
+          },
+          {
+            "name": "nvdaxToOps",
+            "type": "u64"
+          },
+          {
+            "name": "spcxxToOps",
+            "type": "u64"
+          },
+          {
+            "name": "otcPendingAfter",
+            "type": "u64"
+          },
+          {
+            "name": "crclxPendingAfter",
+            "type": "u64"
+          },
+          {
+            "name": "nvdaxPendingAfter",
+            "type": "u64"
+          },
+          {
+            "name": "spcxxPendingAfter",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "hubPotInflowState",
+      "docs": [
+        "`[\"hub_pot_inflow\"]` — lifetime \"ever paid to desks\" counters for each M.I.M ETF bucket,",
+        "bumped by both `distribute_hub_pot_reward` and `claim_hub_pot_reward` (mirrors",
+        "`HubPotClaim`'s \"one PDA, either payout path\" pattern, just aggregated instead of per-claim).",
+        "Created once via `init_hub_pot_inflow`, as a standalone PDA rather than new fields on",
+        "`HubPotConfig` — see `SEED_HUB_POT_INFLOW`'s doc comment for why.",
+        "",
+        "`recognize_hub_pot_inflow` combines this with `HubPotConfig.<bucket>_deposited_units`",
+        "(lifetime, never-decreasing, net-of-skim total ever credited to the pool) to compute exactly",
+        "how much of a bucket vault's *live* token balance is unrecognized new inflow:",
+        "`new = vault_balance − (deposited_units − claimed_units)`. `deposited_units − claimed_units`",
+        "is what should still be physically sitting in the vault from previously-recognized history",
+        "(pending + earmarked-in-open-rounds-but-not-yet-claimed); any live balance above that can only",
+        "have arrived from the launcher's automatic pro-rata holder payout since the last recognition."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "otcClaimedUnits",
+            "type": "u64"
+          },
+          {
+            "name": "crclxClaimedUnits",
+            "type": "u64"
+          },
+          {
+            "name": "nvdaxClaimedUnits",
+            "type": "u64"
+          },
+          {
+            "name": "spcxxClaimedUnits",
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
           }
         ]
       }
@@ -9958,7 +10436,7 @@ export type Hub = {
     {
       "name": "seedsDoc",
       "type": "string",
-      "value": "\"config|epoch+u64|tier+asset|pot|burn|otc_pot|creator_fee|treasury|vault|otc_pay|tokenomics|airdrop+asset|reward_round+u32|reward_claim+u32+asset|hub_pot|hub_pot_round+u32|hub_pot_claim+u32+asset\""
+      "value": "\"config|epoch+u64|tier+asset|pot|burn|otc_pot|creator_fee|treasury|vault|otc_pay|tokenomics|airdrop+asset|reward_round+u32|reward_claim+u32+asset|hub_pot|hub_pot_round+u32|hub_pot_claim+u32+asset|hub_pot_inflow\""
     }
   ]
 };

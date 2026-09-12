@@ -505,6 +505,21 @@ pub mod hub {
         instructions::hub_pot::claim_hub_pot_reward(ctx, round_index)
     }
 
+    /// §A5.1 #38 — authority creates the `HubPotInflowState` lifetime "ever paid to desks"
+    /// counters (one-time, post-`init_hub_pot`), needed by `recognize_hub_pot_inflow`.
+    pub fn init_hub_pot_inflow(ctx: Context<InitHubPotInflow>) -> Result<()> {
+        instructions::hub_pot::init_hub_pot_inflow(ctx)
+    }
+
+    /// §A5.1 #39 — permissionless: reconciles each HUB Pot bucket vault's live balance against
+    /// recognized history to isolate the OTC Desks launcher's automatic pro-rata holder payout
+    /// (which lands straight in the vault, bypassing `fund_hub_pot`) as new inflow, skims
+    /// `Config.protocol_fee_bp` to `ops_wallet`, and credits the remainder to
+    /// `pending_units`/`deposited_units` exactly as `fund_hub_pot` would.
+    pub fn recognize_hub_pot_inflow(ctx: Context<RecognizeHubPotInflow>) -> Result<()> {
+        instructions::hub_pot::recognize_hub_pot_inflow(ctx)
+    }
+
     /// Devnet-only: closes `config`/`burn`/`treasury_state`/`epoch(epoch_index)` so
     /// `initialize_config` can re-`init` the same PDAs after a layout change. Compiled only
     /// under the `mock-jupiter` feature — absent from every mainnet build.

@@ -473,6 +473,29 @@ pub struct HubPotClaim {
     pub bump: u8,
 }
 
+/// `["hub_pot_inflow"]` — lifetime "ever paid to desks" counters for each M.I.M ETF bucket,
+/// bumped by both `distribute_hub_pot_reward` and `claim_hub_pot_reward` (mirrors
+/// `HubPotClaim`'s "one PDA, either payout path" pattern, just aggregated instead of per-claim).
+/// Created once via `init_hub_pot_inflow`, as a standalone PDA rather than new fields on
+/// `HubPotConfig` — see `SEED_HUB_POT_INFLOW`'s doc comment for why.
+///
+/// `recognize_hub_pot_inflow` combines this with `HubPotConfig.<bucket>_deposited_units`
+/// (lifetime, never-decreasing, net-of-skim total ever credited to the pool) to compute exactly
+/// how much of a bucket vault's *live* token balance is unrecognized new inflow:
+/// `new = vault_balance − (deposited_units − claimed_units)`. `deposited_units − claimed_units`
+/// is what should still be physically sitting in the vault from previously-recognized history
+/// (pending + earmarked-in-open-rounds-but-not-yet-claimed); any live balance above that can only
+/// have arrived from the launcher's automatic pro-rata holder payout since the last recognition.
+#[account]
+#[derive(InitSpace)]
+pub struct HubPotInflowState {
+    pub otc_claimed_units: u64,
+    pub crclx_claimed_units: u64,
+    pub nvdax_claimed_units: u64,
+    pub spcxx_claimed_units: u64,
+    pub bump: u8,
+}
+
 /// Fields `update_config` may touch (§B3 #9). Rate changes apply to future epochs.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ConfigField {

@@ -24,6 +24,7 @@ import {
   hubPotPda,
   hubPotRoundPda,
   hubPotClaimPda,
+  hubPotInflowPda,
 } from "./pda";
 import {
   ACC_SCALE,
@@ -361,6 +362,17 @@ export type HubPotClaimView = {
   nvdaxUnits: bigint;
   spcxxUnits: bigint;
   claimedTs: number;
+};
+
+/** `["hub_pot_inflow"]` — lifetime "ever paid to desks" counters used by
+ * `recognize_hub_pot_inflow` to isolate new, unrecognized vault inflow (the OTC Desks launcher's
+ * automatic pro-rata holder payout) from balance already earmarked by a prior recognition or
+ * `fund_hub_pot` call. `null` ⇒ `init_hub_pot_inflow` has not been called yet. */
+export type HubPotInflowView = {
+  otcClaimedUnits: bigint;
+  crclxClaimedUnits: bigint;
+  nvdaxClaimedUnits: bigint;
+  spcxxClaimedUnits: bigint;
 };
 
 export type SupplyView = SupplyBreakdown & {
@@ -875,6 +887,20 @@ export async function fetchHubPotClaim(
         nvdaxUnits: big(c.nvdaxUnits),
         spcxxUnits: big(c.spcxxUnits),
         claimedTs: n(c.claimedTs),
+      }
+    : null;
+}
+
+/** `null` ⇒ `init_hub_pot_inflow` has not been called yet. */
+export async function fetchHubPotInflow(program: HubProgram): Promise<HubPotInflowView | null> {
+  const [key] = hubPotInflowPda(program.programId);
+  const p = await program.account.hubPotInflowState.fetchNullable(key);
+  return p
+    ? {
+        otcClaimedUnits: big(p.otcClaimedUnits),
+        crclxClaimedUnits: big(p.crclxClaimedUnits),
+        nvdaxClaimedUnits: big(p.nvdaxClaimedUnits),
+        spcxxClaimedUnits: big(p.spcxxClaimedUnits),
       }
     : null;
 }

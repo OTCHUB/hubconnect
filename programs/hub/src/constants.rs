@@ -354,6 +354,13 @@ pub const SEED_HUB_POT: &[u8] = b"hub_pot";
 pub const SEED_HUB_POT_ROUND: &[u8] = b"hub_pot_round";
 /// `["hub_pot_claim", round_index, asset]` — one payout per desk asset per HUB Pot round.
 pub const SEED_HUB_POT_CLAIM: &[u8] = b"hub_pot_claim";
+/// Lifetime "ever paid to desks" counters (§A5.1) — a standalone PDA rather than new fields on
+/// the already-live `HubPotConfig` (created via `init_hub_pot` on mainnet before this existed),
+/// so no account-layout migration is needed; same no-migration rationale as `TierFeeConfig`/
+/// `OtcPotState`. Lets `recognize_hub_pot_inflow` compute exactly how much of a bucket vault's
+/// live balance is genuinely new, unrecognized inflow (the OTC Desks launcher's automatic
+/// pro-rata holder payouts deposit straight into the vault, bypassing `fund_hub_pot`).
+pub const SEED_HUB_POT_INFLOW: &[u8] = b"hub_pot_inflow";
 
 /// Classic SPL Token program. WSOL and USDC are classic Token-v1 mints — the two-hop price
 /// leg's `vault_wsol`/`vault_usdc` legs (`sync_native`, hop1's Jupiter route) only ever touch
@@ -392,4 +399,4 @@ pub const CORE_IX_TRANSFER_V1: u8 = 14;
 
 #[constant]
 pub const SEEDS_DOC: &str =
-    "config|epoch+u64|tier+asset|pot|burn|otc_pot|creator_fee|treasury|vault|otc_pay|tokenomics|airdrop+asset|reward_round+u32|reward_claim+u32+asset|hub_pot|hub_pot_round+u32|hub_pot_claim+u32+asset";
+    "config|epoch+u64|tier+asset|pot|burn|otc_pot|creator_fee|treasury|vault|otc_pay|tokenomics|airdrop+asset|reward_round+u32|reward_claim+u32+asset|hub_pot|hub_pot_round+u32|hub_pot_claim+u32+asset|hub_pot_inflow";
