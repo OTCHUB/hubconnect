@@ -29,6 +29,9 @@ export const SEEDS = {
   hubPotClaim: Buffer.from("hub_pot_claim"),
   hubPotInflow: Buffer.from("hub_pot_inflow"),
   tierFee: Buffer.from("tier_fee"),
+  /** Devnet-only stand-in for the real (mainnet-only) OTC Desks program's per-desk payout vault
+   *  — see `nativeYieldMockPda`. */
+  nativeYieldMock: Buffer.from("native_yield_mock"),
 } as const;
 
 const u64le = (n: BN | number | bigint) => new BN(n.toString()).toArrayLike(Buffer, "le", 8);
@@ -118,6 +121,22 @@ export function epochPda(programId: PublicKey, index: BN | number | bigint) {
 }
 export function tierPda(programId: PublicKey, asset: PublicKey) {
   return PublicKey.findProgramAddressSync([SEEDS.tier, asset.toBuffer()], programId);
+}
+
+/**
+ * Devnet-only mock of the real OTC Desks program's per-desk payout vault (`["vault", asset]`
+ * under `otcdesks.cash` — see otchub's `src/hub/lib/otcNative.ts`). The real program has no
+ * devnet deployment, so nothing can exercise the "natively activated" badge / accrual display
+ * there; this PDA is a plain system-owned lamport account (no data, like `pot`/`vault` above)
+ * derived under *this* program's id purely for a stable, collision-free address — no hub
+ * instruction ever reads or writes it. `scripts/devnet-native-yield-init.ts` creates one per
+ * mock desk (funded to the rent-exempt floor); `scripts/devnet-native-yield-drip.ts` is the
+ * keeper/faucet that periodically bumps its balance to simulate ongoing native yield accrual.
+ * Existence (like the real vault) signals "native active"; the live balance is the simulated
+ * accrued lamports.
+ */
+export function nativeYieldMockPda(programId: PublicKey, asset: PublicKey) {
+  return PublicKey.findProgramAddressSync([SEEDS.nativeYieldMock, asset.toBuffer()], programId);
 }
 
 /**

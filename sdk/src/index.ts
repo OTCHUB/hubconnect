@@ -6,3 +6,4 @@ export * from "./token";
 export * from "./desks";
 export * from "./airdrop";
 export * from "./dexscreener";
+export * from "./nativeYieldMock";

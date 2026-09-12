@@ -20,6 +20,8 @@
     "orquestra:idl": "ts-node -T scripts/orquestra-idl.ts",
     "orquestra:send": "ts-node -T scripts/orquestra-send.ts",
     "devnet:desks": "ts-node -T scripts/devnet-mock-desks.ts",
+    "devnet:native-yield-init": "ts-node -T scripts/devnet-native-yield-init.ts",
+    "devnet:native-yield-drip": "ts-node -T scripts/devnet-native-yield-drip.ts",
     "devnet:faucet-authority": "ts-node -T scripts/devnet-faucet-authority.ts",
     "devnet:cycle": "ts-node -T scripts/devnet-yield-cycle.ts",
     "devnet:init-tier-fee": "ts-node -T scripts/devnet-init-tier-fee.ts",
