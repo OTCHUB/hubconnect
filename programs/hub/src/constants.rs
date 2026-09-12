@@ -34,17 +34,29 @@ pub const OPS_PCT_BP: u16 = 1_000;
 /// `update_config(ProtocolFeeBp, ...)`.
 pub const PROTOCOL_FEE_BP: u16 = 1_000;
 
-/// TIER_HUB_COST_UNITS: the genesis/ceiling $HUB table — T1 100k, T2 125k, T3 150k, T4 200k.
-/// Two roles: (1) `Config.tier_hub_cost_units_cached`'s starting value before any price update
-/// has ever landed (and its stale-price fallback — see `PRICE_STALENESS_SECS`), and (2) the
-/// hard ceiling a live-priced cost can never exceed, however low $HUB's market price goes. The
-/// *floor* (`TIER_HUB_COST_FLOOR_BP` of this table) bounds the other direction. See
+/// TIER_HUB_COST_UNITS: the genesis/ceiling $HUB table — T1 1,000,000 (1M), T2 1,250,000,
+/// T3 1,500,000, T4 2,000,000. Raised 10x (from the original 100k/125k/150k/200k) once $HUB's
+/// realized market price fell far enough below the original genesis assumption that the live,
+/// price-derived cost (`clamp_tier_cost`'s `raw` input) was pinned at the *old* ceiling for every
+/// tier — e.g. observed on 2026-09-12, epoch 0's realized swap rate implied a ~$50-equivalent T1
+/// cost of ~1.74M $HUB, ~17.4x the old 100k ceiling. Two roles: (1) `Config.
+/// tier_hub_cost_units_cached`'s starting value before any price update has ever landed (and its
+/// stale-price fallback — see `PRICE_STALENESS_SECS`), and (2) the hard ceiling a live-priced
+/// cost can never exceed, however low $HUB's market price goes. The *floor*
+/// (`TIER_HUB_COST_FLOOR_BP` of this table) bounds the other direction. See
 /// `TIER_USD_COST_MICROS` for the fixed USD target this table's token-unit equivalent tracks.
+///
+/// Raising this ceiling does not retroactively jump `tier_hub_cost_units_cached` on an
+/// already-initialized `Config` — that cached value can only move by ±`PRICE_CLAMP_BP` (10%) per
+/// price-eligible `finalize_epoch` round, in either direction, regardless of where the ceiling
+/// sits. A cache pinned at the old 100k ceiling needs on the order of `log(10) / log(1.1)` ≈ 25
+/// eligible rounds of sustained +10% moves to reach the new 1M ceiling, assuming the realized
+/// price keeps calling for something at or above it the whole time.
 pub const TIER_HUB_COST_UNITS: [u64; TIER_COUNT] = [
-    100_000 * HUB_UNIT,
-    125_000 * HUB_UNIT,
-    150_000 * HUB_UNIT,
-    200_000 * HUB_UNIT,
+    1_000_000 * HUB_UNIT,
+    1_250_000 * HUB_UNIT,
+    1_500_000 * HUB_UNIT,
+    2_000_000 * HUB_UNIT,
 ];
 
 /// TIER_USD_COST_MICROS: the fixed USD target for each tier, in micro-USDC (6 decimals) —

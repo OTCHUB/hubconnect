@@ -26,22 +26,27 @@ export const LP_PCT_BP = 250;
 export const TREASURY_FLOAT_PCT_BP = 250;
 /**
  * $HUB base units required to reach each tier from scratch (cumulative table, not incremental) —
- * mirrors `TIER_HUB_COST_UNITS` in constants.rs: T1 100k, T2 125k, T3 150k, T4 200k. This is the
- * *genesis/ceiling* table only — the live per-tier cost the program actually charges tracks a
- * fixed USD target (`TIER_USD_COST_MICROS`) via `Config.tier_hub_cost_units_cached`, refreshed
- * from a realized Jupiter swap at `finalize_epoch`, and can be cheaper than this table whenever
- * $HUB's market price is fresh (not stale) — see `liveHubCostUnits`/`liveHubCostDeltaUnits` in
- * `./reader`, which apply that cache + `PRICE_STALENESS_SECS` fallback exactly like the on-chain
- * `Config::hub_cost`/`hub_cost_delta`. Prefer those over this table directly for any UI/quote
- * that should match what the program will actually charge right now; this table remains the
- * correct choice only when no live `ConfigView` is available yet, or as the known worst case.
+ * mirrors `TIER_HUB_COST_UNITS` in constants.rs: T1 1,000,000 (1M), T2 1,250,000, T3 1,500,000,
+ * T4 2,000,000 (raised 10x from the original 100k/125k/150k/200k once $HUB's realized market
+ * price fell far enough that the live, price-derived cost was pinned at the old ceiling for
+ * every tier). This is the *genesis/ceiling* table only — the live per-tier cost the program
+ * actually charges tracks a fixed USD target (`TIER_USD_COST_MICROS`) via
+ * `Config.tier_hub_cost_units_cached`, refreshed from a realized Jupiter swap at
+ * `finalize_epoch`, and can be cheaper than this table whenever $HUB's market price is fresh
+ * (not stale) — see `liveHubCostUnits`/`liveHubCostDeltaUnits` in `./reader`, which apply that
+ * cache + `PRICE_STALENESS_SECS` fallback exactly like the on-chain `Config::hub_cost`/
+ * `hub_cost_delta`. Prefer those over this table directly for any UI/quote that should match
+ * what the program will actually charge right now; this table remains the correct choice only
+ * when no live `ConfigView` is available yet, or as the known worst case.
+ *
+ * Note: raising this ceiling does not retroactively jump an already-initialized `Config`'s
+ * cached cost — that can only move by ±`PRICE_CLAMP_BP` (10%) per price-eligible round, so a
+ * cache pinned at the old ceiling needs ~25 eligible rounds of sustained +10% moves to reach
+ * this new one.
  */
-export const TIER_HUB_COST_UNITS = [100_000, 125_000, 150_000, 200_000].map((v) => v * 10 ** 6) as [
-  number,
-  number,
-  number,
-  number,
-];
+export const TIER_HUB_COST_UNITS = [1_000_000, 1_250_000, 1_500_000, 2_000_000].map(
+  (v) => v * 10 ** 6,
+) as [number, number, number, number];
 /**
  * Fixed USD target for each tier, in micro-USDC (6 decimals) — $50/$60/$70/$80 cumulative. Never
  * moves; what moves is how many $HUB tokens currently equal it (see `TIER_HUB_COST_UNITS`'s doc).

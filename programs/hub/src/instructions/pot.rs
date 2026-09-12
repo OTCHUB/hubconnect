@@ -238,12 +238,12 @@ mod tests {
     fn hub_costs_fall_back_to_ceiling_when_never_priced() {
         let c = cfg();
         let now = 1_700_000_000i64;
-        assert_eq!(c.hub_cost(1, now).unwrap(), 100_000 * HUB_UNIT);
-        assert_eq!(c.hub_cost(4, now).unwrap(), 200_000 * HUB_UNIT);
-        assert_eq!(c.hub_cost_delta(0, 1, now).unwrap(), 100_000 * HUB_UNIT);
-        assert_eq!(c.hub_cost_delta(0, 4, now).unwrap(), 200_000 * HUB_UNIT);
-        assert_eq!(c.hub_cost_delta(1, 2, now).unwrap(), 25_000 * HUB_UNIT);
-        assert_eq!(c.hub_cost_delta(1, 4, now).unwrap(), 100_000 * HUB_UNIT);
+        assert_eq!(c.hub_cost(1, now).unwrap(), 1_000_000 * HUB_UNIT);
+        assert_eq!(c.hub_cost(4, now).unwrap(), 2_000_000 * HUB_UNIT);
+        assert_eq!(c.hub_cost_delta(0, 1, now).unwrap(), 1_000_000 * HUB_UNIT);
+        assert_eq!(c.hub_cost_delta(0, 4, now).unwrap(), 2_000_000 * HUB_UNIT);
+        assert_eq!(c.hub_cost_delta(1, 2, now).unwrap(), 250_000 * HUB_UNIT);
+        assert_eq!(c.hub_cost_delta(1, 4, now).unwrap(), 1_000_000 * HUB_UNIT);
         assert!(c.hub_cost_delta(2, 2, now).is_err());
         assert!(c.hub_cost(0, now).is_err());
         assert!(c.hub_cost(5, now).is_err());
@@ -255,15 +255,15 @@ mod tests {
     #[test]
     fn hub_cost_uses_cache_until_stale() {
         let mut c = cfg();
-        c.tier_hub_cost_units_cached[0] = 40_000 * HUB_UNIT; // priced below the 100k ceiling
+        c.tier_hub_cost_units_cached[0] = 400_000 * HUB_UNIT; // priced below the 1M ceiling
         c.last_price_update_ts = 1_000_000;
         assert_eq!(
             c.hub_cost(1, 1_000_000 + PRICE_STALENESS_SECS).unwrap(),
-            40_000 * HUB_UNIT
+            400_000 * HUB_UNIT
         );
         assert_eq!(
             c.hub_cost(1, 1_000_000 + PRICE_STALENESS_SECS + 1).unwrap(),
-            100_000 * HUB_UNIT
+            1_000_000 * HUB_UNIT
         );
     }
 
