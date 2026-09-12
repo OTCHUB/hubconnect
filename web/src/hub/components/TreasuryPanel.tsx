@@ -7,6 +7,16 @@ import { CollapsibleCard, Flag, Panel, Row, Stat } from "./ui/Panel";
 import { TreasuryPortfolio } from "./TreasuryPortfolio";
 import { VerificationPanel } from "./VerificationPanel";
 
+/** Identity-based (not positional) label so the breakdown stays correct regardless of the
+ * order `fetchHubTokenState`'s `lockedOwners` array was built in, and degrades gracefully
+ * before `init_tokenomics` has run (treasuryLockVault/airdropVault not yet known). */
+function lockedHoldingLabel(owner: string, state: ProtocolState): string {
+  if (owner === state.config.treasury) return "multisig";
+  if (state.tokenomics?.treasuryLockVault === owner) return "treasury-lock";
+  if (state.tokenomics?.airdropVault === owner) return "airdrop";
+  return "vault";
+}
+
 /** §C6 — treasury transparency: what the protocol holds, has swept, and has burned. */
 export function TreasuryPanel({ state }: { state: ProtocolState }) {
   const { programId } = useHub();
@@ -82,10 +92,7 @@ export function TreasuryPanel({ state }: { state: ProtocolState }) {
             label="treasury / locked"
             value={fmtHub(supply.lockedUnits, d)}
             sub={token.holdings
-              .map(
-                (h) =>
-                  `${h.owner === config.treasury ? "multisig" : "vault"} ${fmtHub(h.units, d)}`,
-              )
+              .map((h) => `${lockedHoldingLabel(h.owner, state)} ${fmtHub(h.units, d)}`)
               .join(" · ")}
           />
           <Stat
@@ -115,6 +122,18 @@ export function TreasuryPanel({ state }: { state: ProtocolState }) {
           <Row k="treasury state" v={<AddressLink address={pdas.treasury} />} />
           <Row k="vault (LP custody)" v={<AddressLink address={pdas.vault} />} />
           <Row k="treasury multisig" v={<AddressLink address={config.treasury} />} />
+          {state.tokenomics && (
+            <>
+              <Row
+                k="treasury-lock vault (2% floor)"
+                v={<AddressLink address={state.tokenomics.treasuryLockVault} />}
+              />
+              <Row
+                k="airdrop vault"
+                v={<AddressLink address={state.tokenomics.airdropVault} />}
+              />
+            </>
+          )}
           <Row k="ops wallet" v={<AddressLink address={config.opsWallet} />} />
           <Row k="authority" v={<AddressLink address={config.authority} />} />
           <Row k="desk collection" v={<AddressLink address={config.deskCollection} />} />

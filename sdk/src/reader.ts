@@ -506,23 +506,36 @@ export async function fetchProtocolState(program: HubProgram): Promise<ProtocolS
   const [tokenomicsKey] = tokenomicsPda(id);
   const connection = program.provider.connection;
 
-  const [cur, prev, potInfo, burn, otcPot, creatorFee, tres, token, tokenomics] = await Promise.all(
-    [
-      program.account.epoch.fetch(curKey),
-      config.currentEpoch > 0
-        ? program.account.epoch.fetchNullable(prevKey)
-        : Promise.resolve(null),
-      connection.getAccountInfo(potKey),
-      program.account.burnState.fetch(burnKey),
-      program.account.otcPotState.fetchNullable(otcPotKey),
-      program.account.creatorFeeState.fetchNullable(creatorFeeKey),
-      program.account.treasuryState.fetch(tresKey),
-      fetchHubTokenState(connection, new PublicKey(config.hubMint), [
-        new PublicKey(config.treasury),
-        vaultKey,
-      ]),
-      program.account.tokenomicsConfig.fetchNullable(tokenomicsKey),
-    ],
+  const [cur, prev, potInfo, burn, otcPot, creatorFee, tres, tokenomics] = await Promise.all([
+    program.account.epoch.fetch(curKey),
+    config.currentEpoch > 0
+      ? program.account.epoch.fetchNullable(prevKey)
+      : Promise.resolve(null),
+    connection.getAccountInfo(potKey),
+    program.account.burnState.fetch(burnKey),
+    program.account.otcPotState.fetchNullable(otcPotKey),
+    program.account.creatorFeeState.fetchNullable(creatorFeeKey),
+    program.account.treasuryState.fetch(tresKey),
+    program.account.tokenomicsConfig.fetchNullable(tokenomicsKey),
+  ]);
+
+  // §C6 treasury transparency: the multisig's float ATA + the LP-custody vault are always
+  // locked; once `init_tokenomics` has run, the immutable 2% genesis floor
+  // (`treasuryLockVault`) and the desk-airdrop reserve (`airdropVault`) are additional $HUB
+  // accounts that must count as locked too — otherwise the dashboard undercounts genuinely-
+  // locked supply (see `TreasuryPanel` "treasury / locked" stat). These two are themselves
+  // already-resolved token accounts (not wallet owners), so they're passed as
+  // `lockedTokenAccounts`, not `lockedOwners` — an owner→ATA derivation would resolve to a
+  // different, empty account.
+  const lockedOwners = [new PublicKey(config.treasury), vaultKey];
+  const lockedTokenAccounts = tokenomics
+    ? [tokenomics.treasuryLockVault, tokenomics.airdropVault]
+    : [];
+  const token = await fetchHubTokenState(
+    connection,
+    new PublicKey(config.hubMint),
+    lockedOwners,
+    lockedTokenAccounts,
   );
 
   const ledgerBurned = big(burn.totalHubBurned);

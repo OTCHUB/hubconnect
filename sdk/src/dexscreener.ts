@@ -55,6 +55,17 @@ const whole = (units: bigint, decimals = HUB_DECIMALS) =>
   (units / 10n ** BigInt(decimals)).toString();
 const pct = (bp: number) => `${(bp / 100).toFixed(2)}%`;
 
+/** Identity-based (not positional) label so entries stay correct regardless of the order
+ * `fetchHubTokenState`'s `lockedOwners` array was built in. */
+function lockedAccountLabel(owner: string, state: ProtocolState): string {
+  if (owner === state.config.treasury) return "Treasury multisig (locked, never sold)";
+  if (state.tokenomics?.treasuryLockVault === owner)
+    return "Treasury lock vault (immutable 2% genesis floor)";
+  if (state.tokenomics?.airdropVault === owner)
+    return "Airdrop vault (desk airdrop reserve)";
+  return "Program vault PDA (LP custody)";
+}
+
 export type DexscreenerInputs = {
   state: ProtocolState;
   /** On-chain plan when recorded; otherwise the fixed launch-policy-target preview. */
@@ -95,11 +106,8 @@ export function dexscreenerTokenInfo(i: DexscreenerInputs): DexscreenerTokenInfo
       circulating: whole(state.supply.circulatingUnits, d),
       burned: whole(state.supply.burnedUnits, d),
       locked: whole(state.supply.lockedUnits, d),
-      lockedAccounts: state.token.holdings.map((h, idx) => ({
-        label:
-          idx === 0
-            ? "Treasury multisig (locked, never sold)"
-            : "Program vault PDA (airdrop + POL custody)",
+      lockedAccounts: state.token.holdings.map((h) => ({
+        label: lockedAccountLabel(h.owner, state),
         owner: h.owner,
         tokenAccount: h.ata,
         amount: whole(h.units, d),

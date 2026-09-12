@@ -96,24 +96,33 @@ export type HubTokenState = {
 /**
  * One RPC round trip: mint + metadata PDA + treasury-controlled ATAs. Tolerates missing
  * accounts (uninitialized devnet, unlaunched mainnet) by returning nulls / 0n.
+ *
+ * `lockedOwners` are wallet/PDA *owners* — their standard ATA for `hubMint` is derived and
+ * read (e.g. the treasury multisig, the LP-custody vault authority). `lockedTokenAccounts`
+ * are already-resolved $HUB *token accounts* read directly, with no ATA derivation — this is
+ * what `TokenomicsConfig.treasuryLockVault`/`airdropVault` are: PDA-owned vault accounts
+ * whose own address is the token account, not a wallet whose ATA must be computed.
  */
 export async function fetchHubTokenState(
   connection: Connection,
   hubMint: PublicKey,
   lockedOwners: PublicKey[],
+  lockedTokenAccounts: PublicKey[] = [],
 ): Promise<HubTokenState> {
   const [metaKey] = tokenMetadataPda(hubMint);
   const atas = lockedOwners.map((o) => ({ owner: o, ata: ataPda(o, hubMint)[0] }));
+  const direct = lockedTokenAccounts.map((a) => ({ owner: a, ata: a }));
+  const accounts = [...atas, ...direct];
   const infos: (AccountInfo<Buffer> | null)[] = await connection.getMultipleAccountsInfo([
     hubMint,
     metaKey,
-    ...atas.map((a) => a.ata),
+    ...accounts.map((a) => a.ata),
   ]);
-  const [mintInfo, metaInfo, ...ataInfos] = infos;
-  const holdings = atas.map(({ owner, ata }, i) => ({
+  const [mintInfo, metaInfo, ...accInfos] = infos;
+  const holdings = accounts.map(({ owner, ata }, i) => ({
     owner: owner.toBase58(),
     ata: ata.toBase58(),
-    units: ataInfos[i] ? parseTokenAmount(ataInfos[i]!.data) : 0n,
+    units: accInfos[i] ? parseTokenAmount(accInfos[i]!.data) : 0n,
   }));
   return {
     mint: mintInfo ? parseMint(hubMint, mintInfo.data) : null,
