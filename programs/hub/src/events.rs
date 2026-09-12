@@ -465,3 +465,13 @@ pub struct HubPotMintUpdated {
     pub new_vault: Pubkey,
     pub swept_to_ops: u64,
 }
+
+/// One-time historical backfill (`reconcile_burn_state`) for the pre-fix gap between
+/// `BurnState.total_hub_burned` and the mint-supply-implied lifetime total — see that
+/// instruction's doc comment.
+#[event]
+pub struct BurnStateReconciled {
+    pub old_total: u64,
+    pub new_total: u64,
+    pub hub_supply: u64,
+}

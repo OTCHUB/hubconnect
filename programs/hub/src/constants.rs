@@ -388,6 +388,9 @@ pub const TOKEN_IX_BURN_CHECKED: u8 = 15;
 /// `==`). `Mint.decimals` offset — likewise a fixed prefix shared by both programs.
 pub const TOKEN_ACCOUNT_LEN: usize = 165;
 pub const MINT_DECIMALS_OFFSET: usize = 44;
+/// `Mint.supply` offset (u64 LE) — same fixed prefix as `MINT_DECIMALS_OFFSET`, shared by both
+/// token programs. Used by `reconcile_burn_state` to read $HUB's live supply directly.
+pub const MINT_SUPPLY_OFFSET: usize = 36;
 
 /// Metaplex Core program (desk NFTs are Core assets, §A2).
 pub const MPL_CORE_ID: Pubkey = pubkey!("CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d");

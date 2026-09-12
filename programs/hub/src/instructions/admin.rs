@@ -4,6 +4,8 @@ use anchor_lang::prelude::*;
 
 use crate::constants::*;
 use crate::errors::HubError;
+use crate::events::*;
+use crate::instructions::otc_pay::mint_supply;
 use crate::instructions::pot::transfer_from_signer;
 use crate::state::*;
 
@@ -140,6 +142,55 @@ pub struct AuthorityOnly<'info> {
     pub authority: Signer<'info>,
     #[account(mut, seeds = [SEED_CONFIG], bump = config.bump, has_one = authority @ HubError::Unauthorized)]
     pub config: Account<'info, Config>,
+}
+
+#[derive(Accounts)]
+pub struct ReconcileBurnState<'info> {
+    pub authority: Signer<'info>,
+    #[account(seeds = [SEED_CONFIG], bump = config.bump, has_one = authority @ HubError::Unauthorized)]
+    pub config: Account<'info, Config>,
+    #[account(mut, seeds = [SEED_BURN], bump = burn.bump)]
+    pub burn: Account<'info, BurnState>,
+    /// CHECK: matched against config.hub_mint; `Mint.supply` read directly, not merely attested.
+    #[account(address = config.hub_mint @ HubError::InvalidTokenAccount)]
+    pub hub_mint: UncheckedAccount<'info>,
+}
+
+/// One-time historical backfill for the pre-fix burn-ledger gap: `activate_tier` / `upgrade_tier`
+/// / `activate_tier_otc` / `upgrade_tier_otc` always burned real $HUB via `BurnChecked`, but
+/// (before this program version added `burn: Account<BurnState>` to those four instructions'
+/// accounts) never bumped `BurnState.total_hub_burned` — only `finalize_epoch`'s round buyback
+/// and the creator-fee flywheel burn leg did. The individual historical burns aren't
+/// re-derivable per-instruction without indexing every past tx, so this reconciles the ledger
+/// once to the one on-chain source of truth that already reflects every burn ever executed
+/// (mint authority was revoked after the single genesis mint — see `HUB_MAX_SUPPLY_UNITS`'s doc
+/// comment — so `Mint.supply` can only ever have gone down via a real burn):
+///
+///   implied_total = HUB_MAX_SUPPLY_UNITS - Mint.supply
+///
+/// Authority-gated (this is a one-time recovery lever, not a routine keeper call) and naturally
+/// idempotent-safe: reverts with `BurnAlreadyReconciled` if `total_hub_burned` is already at or
+/// above the implied total, which is guaranteed once every future burn goes through the
+/// now-fixed increment path — so a second call can never silently move the counter backwards or
+/// double-count.
+pub fn reconcile_burn_state(ctx: Context<ReconcileBurnState>) -> Result<()> {
+    let supply = mint_supply(&ctx.accounts.hub_mint)?;
+    let implied_total = HUB_MAX_SUPPLY_UNITS
+        .checked_sub(supply)
+        .ok_or_else(|| error!(HubError::MathOverflow))?;
+    let b = &mut ctx.accounts.burn;
+    require!(
+        implied_total > b.total_hub_burned,
+        HubError::BurnAlreadyReconciled
+    );
+    let old_total = b.total_hub_burned;
+    b.total_hub_burned = implied_total;
+    emit!(BurnStateReconciled {
+        old_total,
+        new_total: implied_total,
+        hub_supply: supply,
+    });
+    Ok(())
 }
 
 /// Devnet-only escape hatch: closes the four singleton PDAs `initialize_config` creates with

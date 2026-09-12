@@ -126,4 +126,6 @@ pub enum HubError {
     VaultNotDrained,
     #[msg("No HUB Pot bucket vault holds any unrecognized inflow above its recognized history")]
     NoHubPotInflow,
+    #[msg("BurnState is already reconciled to (or past) the mint-supply-implied total")]
+    BurnAlreadyReconciled,
 }

@@ -121,6 +121,26 @@ fn mint_decimals(mint: &AccountInfo) -> Result<u8> {
     Ok(data[MINT_DECIMALS_OFFSET])
 }
 
+/// Reads `Mint.supply` (offset 36, u64 LE, both token programs) — used by `reconcile_burn_state`
+/// to derive the implied lifetime burn total (`HUB_MAX_SUPPLY_UNITS - supply`) directly from the
+/// mint rather than trusting any off-chain figure.
+pub fn mint_supply(mint: &AccountInfo) -> Result<u64> {
+    require!(
+        is_supported_token_program(mint.owner),
+        HubError::WrongTokenProgram
+    );
+    let data = mint.try_borrow_data()?;
+    require!(
+        data.len() >= MINT_SUPPLY_OFFSET + 8,
+        HubError::WrongTokenProgram
+    );
+    Ok(u64::from_le_bytes(
+        data[MINT_SUPPLY_OFFSET..MINT_SUPPLY_OFFSET + 8]
+            .try_into()
+            .unwrap(),
+    ))
+}
+
 /// spl-token / Token-2022 `TransferChecked { amount, decimals }`. `authority` is either a tx
 /// signer (`signer_seeds = &[]`) or a program PDA whose seeds are supplied. `token_program` must
 /// be a supported program (classic or Token-2022) *and* must match `mint`'s actual owner — the
@@ -329,6 +349,10 @@ pub struct ActivateTierOtc<'info> {
     /// structurally cheaper or more punitive).
     #[account(mut, address = tokenomics.treasury_lock_vault @ HubError::InvalidTokenAccount)]
     pub treasury_lock_vault: UncheckedAccount<'info>,
+    /// Lifetime $HUB-burned ledger — see `tiers::ActivateTier::burn`'s doc comment; bumped here
+    /// too so the $OTC-paid activation path's burn is tracked identically to the SOL path.
+    #[account(mut, seeds = [SEED_BURN], bump = burn.bump)]
+    pub burn: Box<Account<'info, BurnState>>,
     pub system_program: Program<'info, System>,
 }
 
@@ -422,6 +446,8 @@ pub fn activate_tier_otc<'info>(
         hub_burn,
         &[],
     )?;
+    let b = &mut ctx.accounts.burn;
+    b.total_hub_burned = add(b.total_hub_burned, hub_burn)?;
     if hub_reward > 0 {
         transfer_checked(
             &ctx.accounts.hub_token_program,
@@ -524,6 +550,10 @@ pub struct UpgradeTierOtc<'info> {
     /// the burn split lands here (mirrors `tiers.rs`'s SOL path).
     #[account(mut, address = tokenomics.treasury_lock_vault @ HubError::InvalidTokenAccount)]
     pub treasury_lock_vault: UncheckedAccount<'info>,
+    /// Lifetime $HUB-burned ledger — see `tiers::ActivateTier::burn`'s doc comment; bumped here
+    /// too so the $OTC-paid upgrade path's burn is tracked identically to the SOL path.
+    #[account(mut, seeds = [SEED_BURN], bump = burn.bump)]
+    pub burn: Box<Account<'info, BurnState>>,
     pub system_program: Program<'info, System>,
 }
 
@@ -617,6 +647,8 @@ pub fn upgrade_tier_otc<'info>(
         hub_burn,
         &[],
     )?;
+    let b = &mut ctx.accounts.burn;
+    b.total_hub_burned = add(b.total_hub_burned, hub_burn)?;
     if hub_reward > 0 {
         transfer_checked(
             &ctx.accounts.hub_token_program,

@@ -520,6 +520,17 @@ pub mod hub {
         instructions::hub_pot::recognize_hub_pot_inflow(ctx)
     }
 
+    /// One-time historical backfill for the pre-fix burn-ledger gap: `activate_tier` /
+    /// `upgrade_tier` / `activate_tier_otc` / `upgrade_tier_otc` never bumped
+    /// `BurnState.total_hub_burned` before this program version added the `burn` account to
+    /// those four instructions. Reconciles the ledger once to `HUB_MAX_SUPPLY_UNITS -
+    /// Mint.supply` (the on-chain source of truth for cumulative burns since $HUB's mint
+    /// authority was revoked after genesis). Authority-gated; reverts with
+    /// `BurnAlreadyReconciled` once the ledger already reflects that total.
+    pub fn reconcile_burn_state(ctx: Context<ReconcileBurnState>) -> Result<()> {
+        instructions::admin::reconcile_burn_state(ctx)
+    }
+
     /// Devnet-only: closes `config`/`burn`/`treasury_state`/`epoch(epoch_index)` so
     /// `initialize_config` can re-`init` the same PDAs after a layout change. Compiled only
     /// under the `mock-jupiter` feature — absent from every mainnet build.

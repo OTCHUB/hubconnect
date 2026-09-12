@@ -24,9 +24,9 @@ pub struct ActivateTier<'info> {
     /// CHECK: Metaplex Core asset; owner + collection verified in `require_desk`.
     pub desk_asset: UncheckedAccount<'info>,
     #[account(mut, seeds = [SEED_CONFIG], bump = config.bump, constraint = !config.paused @ HubError::Paused)]
-    pub config: Account<'info, Config>,
+    pub config: Box<Account<'info, Config>>,
     #[account(mut, seeds = [SEED_EPOCH, &config.current_epoch.to_le_bytes()], bump = epoch.bump)]
-    pub epoch: Account<'info, Epoch>,
+    pub epoch: Box<Account<'info, Epoch>>,
     /// CHECK: system-owned lamport vault PDA.
     #[account(mut, seeds = [SEED_POT], bump = config.pot_bump)]
     pub pot: UncheckedAccount<'info>,
@@ -45,17 +45,22 @@ pub struct ActivateTier<'info> {
         init_if_needed, payer = payer, space = 8 + DeskTier::INIT_SPACE,
         seeds = [SEED_TIER, desk_asset.key().as_ref()], bump
     )]
-    pub desk_tier: Account<'info, DeskTier>,
+    pub desk_tier: Box<Account<'info, DeskTier>>,
     /// Ascending per-tier SOL fee (§A4, revised) — see `TierFeeConfig`.
     #[account(seeds = [SEED_TIER_FEE], bump = tier_fee.bump)]
-    pub tier_fee: Account<'info, TierFeeConfig>,
+    pub tier_fee: Box<Account<'info, TierFeeConfig>>,
     #[account(mut, seeds = [SEED_TOKENOMICS], bump = tokenomics.bump)]
-    pub tokenomics: Account<'info, TokenomicsConfig>,
+    pub tokenomics: Box<Account<'info, TokenomicsConfig>>,
     /// CHECK: recorded on TokenomicsConfig at init; holds the genesis floor + reward deposits —
     /// the 50%-of-cost "reward" leg of the tier-activation burn split lands here (see
     /// `Config.tier_cost_burn_bp`), same destination `fund_treasury_reward` uses.
     #[account(mut, address = tokenomics.treasury_lock_vault @ HubError::InvalidTokenAccount)]
     pub treasury_lock_vault: UncheckedAccount<'info>,
+    /// Lifetime $HUB-burned ledger — bumped by `hub_burn` below so `total_hub_burned` reflects
+    /// every real `burn_checked` call the protocol makes, not just `finalize_epoch`'s round
+    /// buyback and the creator-fee flywheel leg (the two sites that originally wired this up).
+    #[account(mut, seeds = [SEED_BURN], bump = burn.bump)]
+    pub burn: Box<Account<'info, BurnState>>,
     pub system_program: Program<'info, System>,
 }
 
@@ -113,6 +118,8 @@ pub fn activate_tier(ctx: Context<ActivateTier>, target_tier: u8) -> Result<()> 
         hub_burn,
         &[],
     )?;
+    let b = &mut ctx.accounts.burn;
+    b.total_hub_burned = add(b.total_hub_burned, hub_burn)?;
     if hub_reward > 0 {
         transfer_checked(
             &ctx.accounts.token_program,
@@ -159,9 +166,9 @@ pub struct UpgradeTier<'info> {
     /// CHECK: Metaplex Core asset; ownership re-verified here (lazy revocation).
     pub desk_asset: UncheckedAccount<'info>,
     #[account(mut, seeds = [SEED_CONFIG], bump = config.bump, constraint = !config.paused @ HubError::Paused)]
-    pub config: Account<'info, Config>,
+    pub config: Box<Account<'info, Config>>,
     #[account(mut, seeds = [SEED_EPOCH, &config.current_epoch.to_le_bytes()], bump = epoch.bump)]
-    pub epoch: Account<'info, Epoch>,
+    pub epoch: Box<Account<'info, Epoch>>,
     /// CHECK: system-owned lamport vault PDA.
     #[account(mut, seeds = [SEED_POT], bump = config.pot_bump)]
     pub pot: UncheckedAccount<'info>,
@@ -180,17 +187,20 @@ pub struct UpgradeTier<'info> {
         mut, seeds = [SEED_TIER, desk_asset.key().as_ref()], bump = desk_tier.bump,
         constraint = !desk_tier.voided @ HubError::TierVoided
     )]
-    pub desk_tier: Account<'info, DeskTier>,
+    pub desk_tier: Box<Account<'info, DeskTier>>,
     /// Ascending per-tier SOL fee (§A4, revised) — see `TierFeeConfig`.
     #[account(seeds = [SEED_TIER_FEE], bump = tier_fee.bump)]
-    pub tier_fee: Account<'info, TierFeeConfig>,
+    pub tier_fee: Box<Account<'info, TierFeeConfig>>,
     #[account(mut, seeds = [SEED_TOKENOMICS], bump = tokenomics.bump)]
-    pub tokenomics: Account<'info, TokenomicsConfig>,
+    pub tokenomics: Box<Account<'info, TokenomicsConfig>>,
     /// CHECK: recorded on TokenomicsConfig at init; holds the genesis floor + reward deposits —
     /// the 50%-of-cost "reward" leg of the tier-upgrade burn split lands here (see
     /// `Config.tier_cost_burn_bp`), same destination `fund_treasury_reward` uses.
     #[account(mut, address = tokenomics.treasury_lock_vault @ HubError::InvalidTokenAccount)]
     pub treasury_lock_vault: UncheckedAccount<'info>,
+    /// Lifetime $HUB-burned ledger — see `ActivateTier::burn`'s doc comment.
+    #[account(mut, seeds = [SEED_BURN], bump = burn.bump)]
+    pub burn: Box<Account<'info, BurnState>>,
     pub system_program: Program<'info, System>,
 }
 
@@ -249,6 +259,8 @@ pub fn upgrade_tier(ctx: Context<UpgradeTier>, target_tier: u8) -> Result<()> {
         hub_burn,
         &[],
     )?;
+    let b = &mut ctx.accounts.burn;
+    b.total_hub_burned = add(b.total_hub_burned, hub_burn)?;
     if hub_reward > 0 {
         transfer_checked(
             &ctx.accounts.token_program,
