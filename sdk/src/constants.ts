@@ -376,19 +376,22 @@ export function tokenomicsPlan(
 export const TIER_NAMES = ["TRADER", "BROKER", "DEALER", "MARKET MAKER"] as const;
 
 /**
- * Ascending per-tier SOL fee for a fresh activation into `tier` (§A4, revised), off the
- * *genesis default* table only (`TIER_STEP_FEE_LAMPORTS`) — ignores any live admin retune via
+ * Ascending, *cumulative* per-tier SOL fee for a fresh activation into `tier` (§A4, revised), off
+ * the *genesis default* table only (`TIER_STEP_FEE_LAMPORTS`) — ignores any live admin retune via
  * `set_tier_step_fee`. Prefer `TierFeeView.tierStepFeeLamports[tier - 1]` (`./reader`) wherever a
  * live `TierFeeView` is available; this remains correct only as the known genesis default.
  */
 export const cumulativeFeeLamports = (tier: number) => TIER_STEP_FEE_LAMPORTS[tier - 1] ?? 0;
 /**
  * SOL fee to move `from` → `to` (`from = 0` is a fresh activation), off the genesis default
- * table — indexed by the *target* tier `to` reached, never `from` nor `to - from`: a fresh T1
- * activation, a fresh T4 activation, and a T1→T4 upgrade each cost exactly `to`'s fee, once. See
- * `cumulativeFeeLamports`'s caveat above re: live vs. genesis-default values.
+ * table — mirrors on-chain `TierFeeConfig::step_fee`: a fresh activation (`from = 0`) costs the
+ * target tier's full cumulative fee, while an upgrade costs only the *difference* between the two
+ * tiers' cumulative fees (T1→T2 = 0.1 SOL, T1→T4 = 0.3 SOL) — never the target tier's full fee
+ * again on top of what was already paid to reach `from`. See `cumulativeFeeLamports`'s caveat
+ * above re: live vs. genesis-default values.
  */
-export const stepFeeLamports = (_from: number, to: number) => cumulativeFeeLamports(to);
+export const stepFeeLamports = (from: number, to: number) =>
+  cumulativeFeeLamports(to) - (from > 0 ? cumulativeFeeLamports(from) : 0);
 
 /** $HUB base units required to reach `tier` from scratch, off the *genesis/ceiling* table only
  *  (§A4, cumulative table lookup) — ignores the live price cache entirely. Prefer `liveHubCostUnits`

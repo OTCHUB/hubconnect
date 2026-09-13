@@ -223,16 +223,19 @@ mod tests {
         }
     }
 
-    /// Ascending per-tier fee: indexed by the *target* tier reached, never the step size — a
-    /// fresh T1 activation, a fresh T4 activation, and a T1→T4 upgrade each pay exactly the
-    /// target tier's fee (T1 0.2 / T2 0.3 / T3 0.4 / T4 0.5 SOL), once.
+    /// Ascending, *cumulative* per-tier fee (T1 0.2 / T2 0.3 / T3 0.4 / T4 0.5 SOL): a fresh
+    /// activation (`from = 0`) pays the target tier's full cumulative fee, while an upgrade pays
+    /// only the difference between the two tiers' cumulative fees — never the target tier's full
+    /// fee again on top of what was already paid to reach `from`.
     #[test]
-    fn step_fees_are_ascending_and_indexed_by_target_tier() {
+    fn step_fees_are_ascending_and_charge_only_the_delta_on_upgrade() {
         let f = tier_fee_cfg();
         assert_eq!(f.step_fee(0, 1).unwrap(), 200_000_000);
         assert_eq!(f.step_fee(0, 4).unwrap(), 500_000_000);
-        assert_eq!(f.step_fee(1, 4).unwrap(), 500_000_000);
-        assert_eq!(f.step_fee(2, 3).unwrap(), 400_000_000);
+        assert_eq!(f.step_fee(1, 2).unwrap(), 100_000_000);
+        assert_eq!(f.step_fee(1, 4).unwrap(), 300_000_000);
+        assert_eq!(f.step_fee(2, 3).unwrap(), 100_000_000);
+        assert_eq!(f.step_fee(2, 4).unwrap(), 200_000_000);
         assert!(f.step_fee(2, 2).is_err());
         assert!(f.step_fee(3, 5).is_err());
     }

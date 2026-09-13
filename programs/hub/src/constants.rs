@@ -18,14 +18,16 @@ pub const TIER_WEIGHTS_BP: [u16; TIER_COUNT] = [10_000, 12_500, 16_000, 20_000];
 /// deserialization of that live account. See `TIER_STEP_FEE_LAMPORTS`/`TierFeeConfig` (a new PDA,
 /// same no-migration pattern as `OtcPotState`/`OtcPayConfig`) for the value actually charged.
 pub const STEP_FEE_LAMPORTS: u64 = LAMPORTS_PER_SOL / 2;
-/// TIER_STEP_FEE_LAMPORTS: ascending per-tier flat SOL fee (§A4, revised) — T1 0.2 SOL, T2 0.3
-/// SOL, T3 0.4 SOL, T4 0.5 SOL. Paid once per `activate_tier` / `upgrade_tier` (or the $OTC-path
-/// equivalents `activate_tier_otc` / `upgrade_tier_otc`) call, indexed by the *target* tier
-/// reached (`to`) — never the tier being left (`from`) nor the number of steps crossed, so a
-/// direct T1→T4 upgrade costs exactly T4's fee once, the same as a fresh T4 activation. Lives on
-/// `TierFeeConfig` (`["tier_fee"]`), not `Config`, so it can be admin-retuned per tier
-/// (`set_tier_step_fee`) without any `Config` layout migration. 90% pot / 10% ops, same split as
-/// the old flat fee.
+/// TIER_STEP_FEE_LAMPORTS: ascending per-tier *cumulative* SOL fee (§A4, revised) — T1 0.2 SOL,
+/// T2 0.3 SOL, T3 0.4 SOL, T4 0.5 SOL. Paid once per `activate_tier` / `upgrade_tier` (or the
+/// $OTC-path equivalents `activate_tier_otc` / `upgrade_tier_otc`) call, via
+/// `TierFeeConfig::step_fee(from, to)` — a fresh activation (`from = 0`) pays the target tier's
+/// full cumulative fee, while an upgrade pays only the *difference* between the two tiers'
+/// cumulative fees (mirrors `Config::hub_cost_delta`'s treatment of the $HUB burn): T1→T2 costs
+/// 0.1 SOL, T2→T3 costs 0.1 SOL, T1→T4 costs 0.3 SOL — never the full target tier's fee again on
+/// top of what was already paid to reach `from`. Lives on `TierFeeConfig` (`["tier_fee"]`), not
+/// `Config`, so it can be admin-retuned per tier (`set_tier_step_fee`) without any `Config`
+/// layout migration. 90% pot / 10% ops, same split as the old flat fee.
 pub const TIER_STEP_FEE_LAMPORTS: [u64; TIER_COUNT] = [
     LAMPORTS_PER_SOL * 2 / 10, // T1 0.2 SOL
     LAMPORTS_PER_SOL * 3 / 10, // T2 0.3 SOL

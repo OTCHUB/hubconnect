@@ -179,16 +179,25 @@ pub struct TierFeeConfig {
 }
 
 impl TierFeeConfig {
-    /// Flat SOL fee for an `activate_tier` / `upgrade_tier` (or $OTC-path equivalent) call
-    /// targeting `to` from `from` (`from = 0` means fresh activation). Indexed by `to` — the tier
-    /// being reached — never `from` nor `to - from`: a fresh T1 activation, a fresh T4
-    /// activation, and a T1→T4 upgrade each pay exactly the target tier's fee, once.
+    /// SOL fee for an `activate_tier` / `upgrade_tier` (or $OTC-path equivalent) call moving
+    /// `from` → `to` (`from = 0` means fresh activation: the full cumulative fee of `to`). An
+    /// upgrade only ever pays the difference between the two tiers' cumulative fees — never the
+    /// same SOL twice — mirroring `Config::hub_cost_delta`'s treatment of the $HUB burn: a T1→T2
+    /// upgrade costs 0.1 SOL (0.3 − 0.2), a T1→T4 upgrade costs 0.3 SOL (0.5 − 0.2), while a fresh
+    /// T1 or T4 activation still costs the tier's full cumulative fee (0.2 / 0.5 SOL).
     pub fn step_fee(&self, from: u8, to: u8) -> Result<u64> {
         require!(
             to > from && to as usize <= TIER_COUNT,
             crate::errors::HubError::InvalidTierStep
         );
-        Ok(self.tier_step_fee_lamports[(to - 1) as usize])
+        let to_fee = self.tier_step_fee_lamports[(to - 1) as usize];
+        if from == 0 {
+            return Ok(to_fee);
+        }
+        let from_fee = self.tier_step_fee_lamports[(from - 1) as usize];
+        to_fee
+            .checked_sub(from_fee)
+            .ok_or_else(|| error!(crate::errors::HubError::MathOverflow))
     }
 }
 

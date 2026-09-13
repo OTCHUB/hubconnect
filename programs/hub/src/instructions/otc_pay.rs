@@ -557,10 +557,11 @@ pub struct UpgradeTierOtc<'info> {
     pub system_program: Program<'info, System>,
 }
 
-/// `upgrade_tier` paid in $OTC (§A4.1, revised): the same ascending per-tier SOL fee (90% pot /
-/// 10% ops) **plus** the $OTC 2× premium priced off `hub_cost_delta` for `from → target_tier` (see
-/// `activate_tier_otc` and the module doc for the swap-burn/desk-pot split). Ownership change →
-/// void, no charge — identical to the SOL path.
+/// `upgrade_tier` paid in $OTC (§A4.1, revised): the same stepped SOL fee as the SOL path —
+/// `tier_fee.step_fee(from, target_tier)`, the SOL *difference* between the two tiers' cumulative
+/// fees (90% pot / 10% ops) — **plus** the $OTC 2× premium priced off `hub_cost_delta` for
+/// `from → target_tier` (see `activate_tier_otc` and the module doc for the swap-burn/desk-pot
+/// split). Ownership change → void, no charge — identical to the SOL path.
 pub fn upgrade_tier_otc<'info>(
     ctx: Context<'info, UpgradeTierOtc<'info>>,
     target_tier: u8,

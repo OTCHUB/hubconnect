@@ -65,8 +65,8 @@ pub struct ActivateTier<'info> {
 }
 
 /// Fresh activation into any tier `target_tier`, or re-activation of a voided tier (full price,
-/// §B5 wash-transfer): flat, tier-indexed `tier_fee.step_fee(0, target_tier)` SOL (90% pot / 10%
-/// ops — T1 0.2 / T2 0.3 / T3 0.4 / T4 0.5 SOL) + the full $HUB
+/// §B5 wash-transfer): `tier_fee.step_fee(0, target_tier)` SOL (90% pot / 10% ops — the tier's
+/// full cumulative fee since `from = 0`: T1 0.2 / T2 0.3 / T3 0.4 / T4 0.5 SOL) + the full $HUB
 /// cost of `target_tier`, split `tier_cost_burn_bp` burned / remainder into the active-desk
 /// reward pool (`TokenomicsConfig.reward_pending_units`, same mechanism `fund_treasury_reward`
 /// feeds — paid out pro-rata by `distribute_treasury_reward` the next round it opens).
@@ -204,10 +204,11 @@ pub struct UpgradeTier<'info> {
     pub system_program: Program<'info, System>,
 }
 
-/// Pay `tier_fee.step_fee` once, indexed by the target tier reached (never the step size, §A4
-/// revised — 90% pot / 10% ops) + the $HUB cost difference for `from → target_tier`, split
-/// `tier_cost_burn_bp` burned / remainder into the active-desk reward pool (see `activate_tier`'s
-/// doc comment). Ownership change → void, no charge.
+/// Pay `tier_fee.step_fee(from, target_tier)` once — the SOL *difference* between the two tiers'
+/// cumulative fees (§A4 revised — 90% pot / 10% ops; e.g. T1→T2 costs 0.1 SOL, T1→T4 costs 0.3
+/// SOL) + the $HUB cost difference for `from → target_tier`, split `tier_cost_burn_bp` burned /
+/// remainder into the active-desk reward pool (see `activate_tier`'s doc comment). Ownership
+/// change → void, no charge.
 pub fn upgrade_tier(ctx: Context<UpgradeTier>, target_tier: u8) -> Result<()> {
     let asset = require_desk(
         &ctx.accounts.desk_asset,
