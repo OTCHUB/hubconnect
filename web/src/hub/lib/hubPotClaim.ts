@@ -23,6 +23,7 @@ import {
   configPda,
   createAtaIdempotentIx,
   hubPotClaimPda,
+  hubPotInflowPda,
   hubPotPda,
   hubPotRoundPda,
   tierPda,
@@ -69,6 +70,7 @@ export async function buildClaimHubPotRewardIx(
       deskTier: tierPda(id, deskAsset)[0],
       hubPot: hubPotPda(id)[0],
       round: hubPotRoundPda(id, roundIndex)[0],
+      inflow: hubPotInflowPda(id)[0],
       treasuryState: treasuryPda(id)[0],
       vault: vaultPda(id)[0],
       otcMint,
@@ -130,14 +132,7 @@ export async function executeClaimHubPotReward(opts: {
 
   const ixs = await Promise.all(
     assets.map((a) =>
-      buildClaimHubPotRewardIx(
-        program,
-        claimant,
-        new PublicKey(a),
-        roundIndex,
-        pot,
-        tokenPrograms,
-      ),
+      buildClaimHubPotRewardIx(program, claimant, new PublicKey(a), roundIndex, pot, tokenPrograms),
     ),
   );
   const bh = await connection.getLatestBlockhash("confirmed");

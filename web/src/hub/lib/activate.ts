@@ -28,6 +28,7 @@ import {
   TOKEN_2022_PROGRAM_ID,
   TOKEN_PROGRAM_ID,
   ataPda,
+  burnPda,
   configPda,
   createAtaIdempotentIx,
   epochPda,
@@ -269,6 +270,10 @@ export async function buildTierChangeIxs(opts: {
     payerHub: ataPda(payer, hubMint)[0],
     tokenomics: tokenomicsPda(id)[0],
     treasuryLockVault: new PublicKey(opts.tokenomics.treasuryLockVault),
+    // Lifetime $HUB-burned ledger — required by on-chain `activate_tier`/`upgrade_tier` (and the
+    // $OTC-path equivalents) since the BurnState ledger-drift fix; omitting it shifts every
+    // subsequent account by one slot (AccountOwnedByWrongProgram on `burn`).
+    burn: burnPda(id)[0],
   };
 
   if (method === "sol") {
