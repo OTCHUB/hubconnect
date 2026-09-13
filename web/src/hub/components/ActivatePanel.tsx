@@ -55,7 +55,7 @@ const currentTier = (d: OwnedDesk) => (d.tier && !d.tier.voided ? d.tier.tier : 
 
 /** ACTIVATE_DESK — `activate_tier` / `upgrade_tier` paid in SOL, or the $OTC path at the premium. */
 export function ActivatePanel({ address, state, desks, onChanged, selectedAsset }: Props) {
-  const { connection, program, resolveSigner } = useHub();
+  const { connection, program, resolveSigner, cluster } = useHub();
   const qc = useQueryClient();
   const otcPayQ = useOtcPay();
   const balances = usePayerBalances(address, state.config.otcMint, state.config.hubMint);
@@ -96,7 +96,14 @@ export function ActivatePanel({ address, state, desks, onChanged, selectedAsset 
 
   const quote: TierQuote | null =
     desk && toTier > fromTier && toTier <= MAX_TIER
-      ? quoteTierChange({ config: state.config, otcPay, tierFee: state.tierFee, fromTier, toTier })
+      ? quoteTierChange({
+          config: state.config,
+          otcPay,
+          tierFee: state.tierFee,
+          fromTier,
+          toTier,
+          cluster,
+        })
       : null;
   const hasQuote = quote !== null;
   const otcAvailable = quote?.otcAvailable ?? false;

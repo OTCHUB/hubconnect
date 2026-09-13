@@ -48,6 +48,7 @@ import {
   type TokenomicsView,
 } from "@hub-sdk";
 import { buildClaimYieldIx } from "./claim";
+import type { HubCluster } from "./explorer";
 import type { TxLog } from "./swap";
 import type { WalletSigner } from "./wallets";
 
@@ -97,8 +98,20 @@ function assertTierRange(fromTier: number, toTier: number) {
 }
 
 /** Why `otcPayable` is false, for the UI. Pricing is a live Jupiter quote now, not a stored rate
- *  — there's nothing left to go stale, only the on/off switch and whether it was ever initialized. */
-export function otcUnavailableReason(p: OtcPayView | null): string | undefined {
+ *  — there's nothing left to go stale, only the on/off switch and whether it was ever initialized.
+ *
+ *  `cluster !== "mainnet-beta"` is checked *first* and short-circuits everything else: Jupiter's
+ *  aggregator only indexes mainnet-beta liquidity, so a devnet/localnet-only $OTC mint (e.g. the
+ *  devnet mock at `4Qoo4Ck…uzuu`) can never resolve a route no matter how `OtcPayConfig` is
+ *  configured — `/quote` returns `TOKEN_NOT_TRADABLE` for every such mint, unconditionally. No
+ *  amount of re-minting or re-configuring the token fixes this; the SOL path is the only way to
+ *  activate/upgrade tiers off mainnet. */
+export function otcUnavailableReason(
+  p: OtcPayView | null,
+  cluster?: HubCluster,
+): string | undefined {
+  if (cluster && cluster !== "mainnet-beta")
+    return "$OTC pay requires mainnet — Jupiter has no devnet/localnet liquidity to route through";
   if (!p) return "not initialized on this cluster";
   if (!p.enabled) return "disabled";
   return undefined;
@@ -117,11 +130,13 @@ export function quoteTierChange(opts: {
   tierFee: TierFeeView | null;
   fromTier: number;
   toTier: number;
+  /** Gates the $OTC path off mainnet — see `otcUnavailableReason`. */
+  cluster?: HubCluster;
 }): TierQuote {
-  const { config, otcPay, tierFee, fromTier, toTier } = opts;
+  const { config, otcPay, tierFee, fromTier, toTier, cluster } = opts;
   assertTierRange(fromTier, toTier);
   const steps = toTier - fromTier;
-  const reason = otcUnavailableReason(otcPay);
+  const reason = otcUnavailableReason(otcPay, cluster);
   return {
     steps,
     // Ascending, indexed by the *target* tier reached: one `activate_tier`/`upgrade_tier` call
