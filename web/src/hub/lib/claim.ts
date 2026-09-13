@@ -104,7 +104,13 @@ function packTxs(
  * Claim yield for `assets` (one ix each, packed `MAX_IXS_PER_TX` per tx, plus a one-time $OTC ATA
  * preamble). Sim → one signAll prompt → send → confirm. Results are per asset; a dropped tx marks
  * all of its assets failed. Requires the §A5 90% leg to be provisioned (`otcPot` non-null) and to
- * have recorded at least one buy — mirrors on-chain `NoOtcPurchased`.
+ * have recorded at least one buy — mirrors on-chain `NoOtcPurchased`. `estimatedOtcDueUnits`, when
+ * given, is checked against the vault's REAL token balance before building anything: `otcPot`'s
+ * `totalLamportsSpent`/`totalOtcBoughtUnits` are lifetime counters that never decrease, so they
+ * stay positive even once every previously-bought $OTC has already been claimed out and the vault
+ * itself sits at 0 — the exact gap that let a claim reach `/simulate` and fail there with an
+ * opaque SPL `InsufficientFunds` (`Custom(1)`) instead of a clear message up front (mirrors the
+ * guard `scripts/lib/devnet.ts`'s `claimAllOwned` already applies).
  */
 export async function executeClaimYield(opts: {
   connection: Connection;
@@ -113,10 +119,21 @@ export async function executeClaimYield(opts: {
   assets: string[];
   config: ConfigView;
   otcPot: OtcPotView | null;
+  estimatedOtcDueUnits?: bigint;
   onLog: (l: TxLog) => void;
   onPhase?: (p: ClaimPhase) => void;
 }): Promise<ClaimResult[]> {
-  const { connection, program, signer, assets, config, otcPot, onLog, onPhase } = opts;
+  const {
+    connection,
+    program,
+    signer,
+    assets,
+    config,
+    otcPot,
+    estimatedOtcDueUnits,
+    onLog,
+    onPhase,
+  } = opts;
   const claimer = new PublicKey(signer.publicKey);
   const results: ClaimResult[] = [];
   if (!assets.length) return results;
@@ -126,6 +143,21 @@ export async function executeClaimYield(opts: {
       : "keeper hasn't recorded an $OTC buy yet";
     onLog({ type: "err", msg: `ABORT: ${reason}` });
     return assets.map((asset) => ({ asset, ok: false, reason }));
+  }
+  if (estimatedOtcDueUnits != null && estimatedOtcDueUnits > 0n) {
+    const vaultBal = BigInt(
+      (await connection.getTokenAccountBalance(new PublicKey(otcPot.otcVault), "confirmed")).value
+        .amount,
+    );
+    if (vaultBal < estimatedOtcDueUnits) {
+      const reason =
+        "$OTC yield vault is temporarily underfunded — wait for the next keeper buy and try again";
+      onLog({
+        type: "err",
+        msg: `ABORT: ${reason} (vault has ${vaultBal}, this claim needs ~${estimatedOtcDueUnits})`,
+      });
+      return assets.map((asset) => ({ asset, ok: false, reason }));
+    }
   }
 
   onPhase?.("build");

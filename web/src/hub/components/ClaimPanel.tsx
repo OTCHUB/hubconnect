@@ -56,10 +56,10 @@ export function ClaimPanel({ address, state, desks, onClaimed }: Props) {
           ? "$OTC yield vault not provisioned yet — nothing to claim into"
           : "keeper hasn't recorded an $OTC buy yet — try again shortly",
       );
-    const targets = (
-      selected.size ? claimable.filter((r) => selected.has(r.asset)) : claimable
-    ).map((r) => r.asset);
+    const targetRows = selected.size ? claimable.filter((r) => selected.has(r.asset)) : claimable;
+    const targets = targetRows.map((r) => r.asset);
     if (!targets.length) return setErr("nothing to claim — no activated desk has pending yield");
+    const targetPending = targetRows.reduce((s, r) => s + r.pending, 0);
     setBusy(true);
     setLogs([]);
     const res = await executeClaimYield({
@@ -69,6 +69,7 @@ export function ClaimPanel({ address, state, desks, onClaimed }: Props) {
       assets: targets,
       config: state.config,
       otcPot,
+      estimatedOtcDueUnits: otcDueForLamports(targetPending, otcPot) ?? undefined,
       onLog: (l) => setLogs((p) => [...p, l]),
       onPhase: setPhase,
     });
@@ -123,6 +124,14 @@ export function ClaimPanel({ address, state, desks, onClaimed }: Props) {
                 className={`w-28 text-right ${r.pending > 0 ? "text-emerald-300" : "text-green-700"}`}
               >
                 {fmtSol(r.pending, 4)}
+                {(() => {
+                  const due = otcDueForLamports(r.pending, otcPot);
+                  return due != null ? (
+                    <span className="block text-[9px] text-green-600">
+                      ≈{fmtUnits(due, OTC_DECIMALS)} $OTC
+                    </span>
+                  ) : null;
+                })()}
               </span>
             </label>
           ))}
