@@ -56,6 +56,7 @@ export function HubPotPanel({ desks, address }: Props) {
   const round = q.data?.latestRound ?? null;
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [picking, setPicking] = useState(false);
   const [busy, setBusy] = useState(false);
   const [phase, setPhase] = useState<HubPotClaimPhase | null>(null);
   const [logs, setLogs] = useState<TxLog[]>([]);
@@ -172,40 +173,37 @@ export function HubPotPanel({ desks, address }: Props) {
         </span>
       </div>
 
-      <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
-        {BUCKET_KEYS.map((b) => (
-          <Stat
-            key={b}
-            label={BUCKET_LABELS[b]}
-            value={fmtUnits(pot[`${b}PendingUnits` as const], decimals[b])}
-            sub={`Lifetime ${fmtUnits(pot[`${b}DepositedUnits` as const], decimals[b])}`}
-          />
-        ))}
-      </div>
-
-      {round ? (
-        <div className="mt-4">
-          <div className={sectionLabelCls}>Round #{fmtNum(round.index)}</div>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-            {BUCKET_KEYS.map((b) => (
+      <div className="mt-4">
+        {round && (
+          <div className={sectionLabelCls}>
+            This round · {fmtNum(round.claims)} claim{round.claims === 1 ? "" : "s"} paid
+          </div>
+        )}
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {BUCKET_KEYS.map((b) =>
+            round ? (
               <Stat
                 key={b}
                 label={BUCKET_LABELS[b]}
                 value={fmtUnits(round[`${b}Units` as const], decimals[b])}
-                sub={`Paid ${fmtUnits(round[`${b}DistributedUnits` as const], decimals[b])} · ${fmtNum(round.claims)} claims`}
+                sub={`Paid ${fmtUnits(round[`${b}DistributedUnits` as const], decimals[b])} · next ${fmtUnits(pot[`${b}PendingUnits` as const], decimals[b])}`}
               />
-            ))}
-          </div>
+            ) : (
+              <Stat
+                key={b}
+                label={BUCKET_LABELS[b]}
+                value={fmtUnits(pot[`${b}PendingUnits` as const], decimals[b])}
+                sub={`Lifetime ${fmtUnits(pot[`${b}DepositedUnits` as const], decimals[b])}`}
+              />
+            ),
+          )}
         </div>
-      ) : (
-        <div className={`mt-4 text-xs ${mutedCls}`}>No active round — snapshots pending.</div>
-      )}
+      </div>
 
       {myShare && round && (
         <div className="mt-4">
           <div className={sectionLabelCls}>
-            Your share · round #{fmtNum(round.index)} ({fmtNum(activeDesks.length)} desk
-            {activeDesks.length === 1 ? "" : "s"})
+            Your share ({fmtNum(activeDesks.length)} desk{activeDesks.length === 1 ? "" : "s"})
           </div>
           {BUCKET_KEYS.map((b) => (
             <Row key={b} k={BUCKET_LABELS[b]} v={fmtUnits(myShare[b], decimals[b])} />
@@ -222,55 +220,69 @@ export function HubPotPanel({ desks, address }: Props) {
               paid.
             </div>
           ) : (
-            <div className={listContainerCls}>
-              {claimRows.map((r) => (
-                <label
-                  key={r.asset}
-                  className={`flex cursor-pointer items-center gap-2 px-3 py-2 text-xs transition ${
-                    selected.has(r.asset) ? "bg-green-500/10" : "hover:bg-green-500/5"
-                  }`}
+            <>
+              <div className="mb-2 flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={run}
+                  disabled={busy || !claimRows.length}
+                  className={PRIMARY_BTN}
                 >
-                  <input
-                    type="checkbox"
-                    checked={selected.has(r.asset)}
+                  {busy
+                    ? `${phase ?? "prep"}…`
+                    : selected.size
+                      ? `Claim selected (${selected.size})`
+                      : "Claim all"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPicking((o) => !o)}
+                  disabled={busy}
+                  className={GHOST_BTN}
+                >
+                  {picking ? "Close list" : "Select desks"}
+                </button>
+                {selected.size > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setSelected(new Set())}
                     disabled={busy}
-                    onChange={() => toggle(r.asset)}
-                    className="accent-green-500"
-                  />
-                  <span className="min-w-0 flex-1">
-                    <AddressLink address={r.asset} />
-                  </span>
-                  <span className="text-right text-green-300">
-                    {BUCKET_KEYS.filter((b) => r.share[b] > 0n)
-                      .map((b) => `${fmtUnits(r.share[b], decimals[b])} ${BUCKET_LABELS[b]}`)
-                      .join(" · ")}
-                  </span>
-                </label>
-              ))}
-            </div>
+                    className={GHOST_BTN}
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+              {picking && (
+                <div className={listContainerCls}>
+                  {claimRows.map((r) => (
+                    <label
+                      key={r.asset}
+                      className={`flex cursor-pointer items-center gap-2 px-3 py-2 text-xs transition ${
+                        selected.has(r.asset) ? "bg-green-500/10" : "hover:bg-green-500/5"
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selected.has(r.asset)}
+                        disabled={busy}
+                        onChange={() => toggle(r.asset)}
+                        className="accent-green-500"
+                      />
+                      <span className="min-w-0 flex-1">
+                        <AddressLink address={r.asset} />
+                      </span>
+                      <span className="text-right text-green-300">
+                        {BUCKET_KEYS.filter((b) => r.share[b] > 0n)
+                          .map((b) => `${fmtUnits(r.share[b], decimals[b])} ${BUCKET_LABELS[b]}`)
+                          .join(" · ")}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </>
           )}
-          <div className="mt-2 flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={run}
-              disabled={busy || !claimRows.length}
-              className={PRIMARY_BTN}
-            >
-              {busy
-                ? `${phase ?? "prep"}…`
-                : selected.size
-                  ? `Claim selected (${selected.size})`
-                  : "Claim all"}
-            </button>
-            <button
-              type="button"
-              onClick={() => setSelected(new Set())}
-              disabled={busy || !selected.size}
-              className={GHOST_BTN}
-            >
-              Clear
-            </button>
-          </div>
           {!signer && (
             <div className="mt-1 text-[10px] text-amber-300/80">
               Read-only address — connect the wallet itself (Wallet Connect) to sign claims.
