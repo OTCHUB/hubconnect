@@ -20,7 +20,14 @@
 import "dotenv/config";
 import { PublicKey } from "@solana/web3.js";
 import path from "node:path";
-import { configPda, fetchOtcPot, toConfigView, WSOL_MINT } from "../../../sdk/src";
+import {
+  ataPda,
+  configPda,
+  fetchOtcPot,
+  toConfigView,
+  TOKEN_2022_PROGRAM_ID,
+  WSOL_MINT,
+} from "../../../sdk/src";
 import { loadKeeperEnv, runForever, type KeeperEnv } from "../../shared/src/env";
 import { checkGasFloat, KEEPER_HARD_MIN_LAMPORTS } from "../../shared/src/gas";
 import { checkOperationalGate } from "../../shared/src/gate";
@@ -62,7 +69,12 @@ export async function runCycle(env: KeeperEnv): Promise<void> {
   const balance = await connection.getBalance(keeper.publicKey);
   const gas = checkGasFloat(balance);
   if (!gas.ok) {
-    appendJournal(JOURNAL_DIR, { ts: new Date().toISOString(), service: "otc-buy", status: "blocked", detail: gas.reason });
+    appendJournal(JOURNAL_DIR, {
+      ts: new Date().toISOString(),
+      service: "otc-buy",
+      status: "blocked",
+      detail: gas.reason,
+    });
     return void console.warn(`[gate] ${gas.reason}`);
   }
 
@@ -72,19 +84,35 @@ export async function runCycle(env: KeeperEnv): Promise<void> {
   const hubMintSealed = await isMintAuthoritySealed(connection, hubMint);
   const gate = checkOperationalGate({ config: { paused: config.paused }, hubMintSealed });
   if (!gate.ok) {
-    appendJournal(JOURNAL_DIR, { ts: new Date().toISOString(), service: "otc-buy", status: "blocked", detail: gate.reason });
+    appendJournal(JOURNAL_DIR, {
+      ts: new Date().toISOString(),
+      service: "otc-buy",
+      status: "blocked",
+      detail: gate.reason,
+    });
     return void console.warn(`[gate] ${gate.reason}`);
   }
 
   const otcPot = await fetchOtcPot(program);
   if (!otcPot) {
-    const detail = "OtcPotState not provisioned on this cluster (init_otc_pot never called) — nothing to do";
-    appendJournal(JOURNAL_DIR, { ts: new Date().toISOString(), service: "otc-buy", status: "waited", detail });
+    const detail =
+      "OtcPotState not provisioned on this cluster (init_otc_pot never called) — nothing to do";
+    appendJournal(JOURNAL_DIR, {
+      ts: new Date().toISOString(),
+      service: "otc-buy",
+      status: "waited",
+      detail,
+    });
     return void console.log(`[otc-buy] ${detail}`);
   }
   if (otcPot.authority !== keeper.publicKey.toBase58()) {
     const detail = `otc_pot.authority is ${otcPot.authority}, not this keeper (${keeper.publicKey.toBase58()}) — run set_otc_pot_keeper first`;
-    appendJournal(JOURNAL_DIR, { ts: new Date().toISOString(), service: "otc-buy", status: "blocked", detail });
+    appendJournal(JOURNAL_DIR, {
+      ts: new Date().toISOString(),
+      service: "otc-buy",
+      status: "blocked",
+      detail,
+    });
     return void console.warn(`[otc-buy] ${detail}`);
   }
 
@@ -93,19 +121,33 @@ export async function runCycle(env: KeeperEnv): Promise<void> {
   let pending: UnresolvedSwap | null = findUnresolvedSwap(readJournal(JOURNAL_DIR));
 
   if (pending) {
-    console.log(`[otc-buy] resuming an unresolved swap from a previous cycle (sig ${pending.signature}) — retrying record_otc_buy without re-swapping`);
+    console.log(
+      `[otc-buy] resuming an unresolved swap from a previous cycle (sig ${pending.signature}) — retrying record_otc_buy without re-swapping`,
+    );
   } else {
     if (otcPot.otcPendingLamports <= 0) {
       const detail = "otc_pending_lamports == 0 — nothing to buy this cycle";
-      appendJournal(JOURNAL_DIR, { ts: new Date().toISOString(), service: "otc-buy", status: "waited", detail });
+      appendJournal(JOURNAL_DIR, {
+        ts: new Date().toISOString(),
+        service: "otc-buy",
+        status: "waited",
+        detail,
+      });
       return void console.log(`[otc-buy] ${detail}`);
     }
-    const maxSwapLamports = Number(process.env.OTC_BUY_MAX_LAMPORTS_PER_CYCLE ?? DEFAULT_MAX_SWAP_LAMPORTS);
+    const maxSwapLamports = Number(
+      process.env.OTC_BUY_MAX_LAMPORTS_PER_CYCLE ?? DEFAULT_MAX_SWAP_LAMPORTS,
+    );
     const spendable = balance - KEEPER_HARD_MIN_LAMPORTS - RESERVE_LAMPORTS;
     const amountToSwap = Math.min(otcPot.otcPendingLamports, maxSwapLamports, spendable);
     if (amountToSwap <= 0) {
       const detail = `insufficient spare SOL to front a buy (balance ${balance}, reserve floor ${KEEPER_HARD_MIN_LAMPORTS + RESERVE_LAMPORTS})`;
-      appendJournal(JOURNAL_DIR, { ts: new Date().toISOString(), service: "otc-buy", status: "blocked", detail });
+      appendJournal(JOURNAL_DIR, {
+        ts: new Date().toISOString(),
+        service: "otc-buy",
+        status: "blocked",
+        detail,
+      });
       return void console.warn(`[otc-buy] ${detail}`);
     }
 
@@ -128,14 +170,29 @@ export async function runCycle(env: KeeperEnv): Promise<void> {
         apiKey: process.env.JUPITER_API_KEY,
         slippageBps: Number(process.env.HUB_SWAP_SLIPPAGE_BPS ?? 150),
       });
-      pending = { otcBought: swap.outAmount, lamportsSpent: BigInt(amountToSwap), signature: swap.signature };
+      // `swap.outAmount` is the PRE-TRADE quote from `/order` — actual execution (`/execute`'s
+      // `totalOutputAmount`) can and does land less once slippage/price-impact is applied. Using
+      // the quote here journals an `otcBought` bigger than what actually sits in the keeper's own
+      // ATA, so `record_otc_buy`'s TransferChecked permanently fails with SPL `InsufficientFunds`
+      // (`Custom(1)`) — retried forever every cycle since `findUnresolvedSwap` never re-swaps,
+      // just resubmits the same over-stated amount. `totalOutputAmount` always falls back to
+      // `outAmount` when Jupiter's `/execute` omits it, so this is a strict improvement, never a
+      // regression.
+      pending = {
+        otcBought: swap.totalOutputAmount,
+        lamportsSpent: BigInt(amountToSwap),
+        signature: swap.signature,
+      };
       appendJournal(JOURNAL_DIR, {
         ts: new Date().toISOString(),
         service: "otc-buy",
         status: "swap-sent",
         signature: swap.signature,
-        detail: `swapped ${amountToSwap} lamports → ${swap.outAmount} $OTC-units via [${swap.router}]`,
-        meta: { otcBought: pending.otcBought.toString(), lamportsSpent: pending.lamportsSpent.toString() },
+        detail: `swapped ${amountToSwap} lamports → ${swap.totalOutputAmount} $OTC-units via [${swap.router}]`,
+        meta: {
+          otcBought: pending.otcBought.toString(),
+          lamportsSpent: pending.lamportsSpent.toString(),
+        },
       });
     } catch (e) {
       appendJournal(JOURNAL_DIR, {
@@ -147,6 +204,33 @@ export async function runCycle(env: KeeperEnv): Promise<void> {
       });
       throw e;
     }
+  }
+
+  // Self-healing clamp: `record_otc_buy`'s TransferChecked moves `pending.otcBought` out of the
+  // keeper's own ATA, so if that ATA's real balance is (for any reason — a stale journal entry
+  // from before the `totalOutputAmount` fix above, dust already spent, etc.) less than the
+  // journaled amount, clamp down to what's actually there instead of retrying the same
+  // over-stated amount forever (the exact stuck-forever failure mode this replaces).
+  const [keeperOtcAta] = ataPda(keeper.publicKey, otcMint, TOKEN_2022_PROGRAM_ID);
+  const keeperOtcBal = BigInt(
+    (await connection.getTokenAccountBalance(keeperOtcAta, "confirmed").catch(() => null))?.value
+      .amount ?? "0",
+  );
+  if (keeperOtcBal < pending.otcBought) {
+    console.warn(
+      `[otc-buy] journaled otcBought (${pending.otcBought}) exceeds keeper's actual $OTC balance (${keeperOtcBal}) — clamping down`,
+    );
+    pending = { ...pending, otcBought: keeperOtcBal };
+  }
+  if (pending.otcBought <= 0n) {
+    const detail = `keeper's $OTC ATA is empty (0) — cannot record swap ${pending.signature}, dropping it`;
+    appendJournal(JOURNAL_DIR, {
+      ts: new Date().toISOString(),
+      service: "otc-buy",
+      status: "error",
+      detail,
+    });
+    return void console.warn(`[otc-buy] ${detail}`);
   }
 
   try {
