@@ -139,5 +139,30 @@ module.exports = {
         HUB_MAINNET_WALLET: "keeper/keys/mainnet-hub-pot-inflow-keeper.json",
       },
     },
+    {
+      // §A5.1 recurring `open_hub_pot_round` — turns whatever `hub-keeper-hub-pot-inflow-mainnet`
+      // has credited into `HubPotConfig`'s 4 pending buckets since the last round into a new
+      // claimable `HubPotRound` (mirrors mainnet-distribute.ts's manual `--reward --open` for the
+      // 1-mint treasury pot, but automated here for the 4-mint HUB Pot). Without this, pending
+      // balance just accrues forever and `claim_hub_pot_reward` has nothing to pay out from — see
+      // scripts/mainnet-open-hub-pot-round.ts's header. Daily cadence: the basket only needs to
+      // feel "fresh", not real-time, and it keeps the number of `HubPotRound` accounts (and the
+      // per-round claim bookkeeping) from growing unnecessarily fast. Same one-shot-script/
+      // cron_restart/autorestart:false shape as the inflow keeper above — the script itself is a
+      // no-op ("nothing pending") rather than an error when there's nothing new to snapshot, so
+      // autorestart would otherwise fight the cron schedule. open_hub_pot_round is permissionless
+      // (round composition comes entirely from on-chain Config/HubPotConfig state), so this
+      // reuses the same low-privilege gas-only wallet as the inflow keeper rather than adding a
+      // new one.
+      name: "hub-keeper-hub-pot-round-mainnet",
+      cwd: ROOT,
+      script: "node_modules/.bin/ts-node",
+      args: ["-T", "scripts/mainnet-open-hub-pot-round.ts"],
+      autorestart: false,
+      cron_restart: "0 0 * * *",
+      env: {
+        HUB_MAINNET_WALLET: "keeper/keys/mainnet-hub-pot-inflow-keeper.json",
+      },
+    },
   ],
 };
