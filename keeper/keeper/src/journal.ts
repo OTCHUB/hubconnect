@@ -23,7 +23,23 @@ export type JournalEntry = {
   error?: string;
 };
 
-export const DEFAULT_JOURNAL_DIR = path.join(__dirname, "..", "journal");
+// Segregated by `HUB_CLUSTER` (set by both `keeper/ecosystem.config.js` [devnet] and
+// `keeper/ecosystem.mainnet.config.js` [mainnet-beta] — same convention `scripts/lib/
+// devnet.ts` already hard-requires). Without this, `hub-keeper-epoch` (devnet) and
+// `hub-keeper-epoch-mainnet` both run this exact same compiled file from the same repo
+// checkout, so `__dirname` — and therefore the journal path — was identical for both
+// processes: every devnet dry-run cycle and every real mainnet `finalize_epoch` landed in
+// one shared `epochs.ndjson`. Harmless today only because devnet stays DRY_RUN=1 (never
+// writes a "sent" entry `alreadySent` would match on) — but a manual devnet DRY_RUN=0 test
+// run (the accepted plan for devnet's on-demand `finalize_epoch`) sharing an epoch index
+// with a real mainnet epoch would have falsely marked one of them "already sent" and
+// silently skipped it.
+export const DEFAULT_JOURNAL_DIR = path.join(
+  __dirname,
+  "..",
+  "journal",
+  process.env.HUB_CLUSTER || "devnet",
+);
 
 export function journalPath(dir: string = DEFAULT_JOURNAL_DIR): string {
   return path.join(dir, "epochs.ndjson");
