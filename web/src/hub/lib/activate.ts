@@ -133,13 +133,50 @@ export function quoteTierChange(opts: {
   };
 }
 
+/** One ExactIn `/quote` call — the live rate Jupiter would actually route `amount` of $OTC at
+ *  right now. Used by `fetchOtcToHubRoute`'s sizing loop below, since `/quote`'s ExactOut mode
+ *  has no route on several of $OTC's pools (Meteora DAMM v2, Pump.fun AMM — `NO_ROUTES_FOUND`),
+ *  even though the pair is perfectly tradable ExactIn. */
+async function exactInQuote(
+  doFetch: typeof fetch,
+  headers: Record<string, string> | undefined,
+  otcMint: PublicKey,
+  hubMint: PublicKey,
+  amount: bigint,
+): Promise<{ inAmount: bigint; outAmount: bigint }> {
+  const qs = new URLSearchParams({
+    inputMint: otcMint.toBase58(),
+    outputMint: hubMint.toBase58(),
+    amount: amount.toString(),
+    swapMode: "ExactIn",
+    slippageBps: String(OTC_SWAP_SLIPPAGE_BPS),
+  });
+  const res = await doFetch(`${JUP_QUOTE_API}?${qs}`, { headers });
+  const body = (await res.json().catch(() => ({}))) as {
+    inAmount?: string;
+    outAmount?: string;
+    error?: string;
+  };
+  if (!res.ok || !body.outAmount) throw new Error(body.error ?? `Jupiter quote HTTP ${res.status}`);
+  return {
+    inAmount: BigInt(body.inAmount ?? amount.toString()),
+    outAmount: BigInt(body.outAmount),
+  };
+}
+
 /**
  * Sizes and builds the $OTC→$HUB Jupiter route `activate_tier_otc`/`upgrade_tier_otc` swap-burns
  * on-chain (§otc_pay.rs). Swap V2's `/build` (the CPI-oriented endpoint, raw instruction data, no
- * ALT dependency) is ExactIn-only, so this first asks the legacy Metis `/quote` for an ExactOut
- * estimate of the $OTC input needed to clear `minHubOut`, pads it for drift between the two calls,
- * then builds the real route via `/build` — double-checking its own `otherAmountThreshold` still
- * clears `minHubOut`, the same floor `jupiter_swap::swap_exact_in` enforces on-chain.
+ * ALT dependency) is ExactIn-only, and the legacy Metis `/quote`'s ExactOut mode has no route on
+ * several of $OTC's pools (`NO_ROUTES_FOUND`, even though the pair is fine ExactIn), so the $OTC
+ * input needed to clear `minHubOut` can't be asked for directly. Instead, probe the live ExactIn
+ * rate with a tiny, decimals-agnostic seed amount (negligible price impact, so it reads close to
+ * spot price regardless of the real trade's size) and cross-multiply toward `minHubOut`, padding
+ * each intermediate step slightly so integer-division truncation converges from *above* the floor
+ * rather than asymptotically from below, then pads the confirmed-sufficient amount once more for
+ * drift before building the real route via `/build` — double-checking its own
+ * `otherAmountThreshold` still clears `minHubOut`, the same floor `jupiter_swap::swap_exact_in`
+ * enforces on-chain.
  */
 export async function fetchOtcToHubRoute(opts: {
   taker: PublicKey;
@@ -155,19 +192,24 @@ export async function fetchOtcToHubRoute(opts: {
   const doFetch = opts.fetchImpl ?? fetch;
   const headers = opts.apiKey ? { "x-api-key": opts.apiKey } : undefined;
 
-  const qqs = new URLSearchParams({
-    inputMint: otcMint.toBase58(),
-    outputMint: hubMint.toBase58(),
-    amount: minHubOut.toString(),
-    swapMode: "ExactOut",
-    slippageBps: String(OTC_SWAP_SLIPPAGE_BPS),
-  });
-  const qRes = await doFetch(`${JUP_QUOTE_API}?${qqs}`, { headers });
-  const qBody = (await qRes.json().catch(() => ({}))) as { inAmount?: string; error?: string };
-  if (!qRes.ok || !qBody.inAmount)
-    throw new Error(qBody.error ?? `Jupiter quote HTTP ${qRes.status}`);
-  const estimatedIn = BigInt(qBody.inAmount);
-  const otcSwapAmount = (estimatedIn * BigInt(BPS + OTC_SWAP_INPUT_BUFFER_BP)) / BigInt(BPS);
+  // Negligible-impact seed for any plausible token decimals — just needs to be small relative to
+  // the real trade size so the first probe reads close to the pool's spot price.
+  const OTC_PROBE_SEED = 1_000n;
+  let inputAmount = OTC_PROBE_SEED;
+  let outAmount = 0n;
+  const MAX_OTC_PROBES = 6;
+  for (let i = 0; i < MAX_OTC_PROBES; i++) {
+    const probe = await exactInQuote(doFetch, headers, otcMint, hubMint, inputAmount);
+    outAmount = probe.outAmount;
+    if (outAmount <= 0n) throw new Error(`The token ${otcMint.toBase58()} is not tradable`);
+    if (outAmount >= minHubOut) break;
+    const nextAmount = (inputAmount * minHubOut + outAmount - 1n) / outAmount; // ceil cross-multiply
+    inputAmount = (nextAmount * BigInt(BPS + 50)) / BigInt(BPS); // tiny nudge past the floor
+  }
+  if (outAmount < minHubOut)
+    throw new Error("Jupiter route can't clear the required $HUB output right now — try again");
+  // Pad the confirmed-sufficient amount for drift between the last probe above and `/build` below.
+  const otcSwapAmount = (inputAmount * BigInt(BPS + OTC_SWAP_INPUT_BUFFER_BP)) / BigInt(BPS);
 
   const bqs = new URLSearchParams({
     inputMint: otcMint.toBase58(),
